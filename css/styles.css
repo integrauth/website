@@ -1,0 +1,28 @@
+body {
+  overflow-y: hidden;
+}
+
+.heading {
+  font-size: 5rem;
+}
+
+.text {
+  line-height: 3.5rem;
+}
+
+@media screen and (max-height: 599px) {
+  body {
+    overflow-y: auto;
+  }
+}
+
+/* Decrease font size for width < 500 */
+@media screen and (max-width: 499px) {
+  .heading {
+    font-size: 3rem;
+  }
+
+  .text {
+    line-height: 2.5rem;
+  }
+}
