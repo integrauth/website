@@ -13,6 +13,7 @@ body {
 .social-icons {
   display: flex;
   justify-content: space-between;
+  text-decoration: none;
 }
 
 @media screen and (max-height: 599px) {
