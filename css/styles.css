@@ -1,5 +1,11 @@
-body {
-  /* overflow-y: hidden; */
+.theme-btn {
+  width: 15%;
+  border-radius: 50%;
+}
+
+#integrauth-logo {
+  height: 25%;
+  width: 25%;
 }
 
 .heading {
@@ -8,6 +14,10 @@ body {
 
 .text {
   line-height: 3.5rem;
+}
+
+#p-text-div {
+  width: 50%;
 }
 
 .social-icons {
@@ -22,8 +32,61 @@ body {
   }
 }
 
-/* Decrease font size for width < 500 */
+@media screen and (max-width: 915px) {
+  .theme-btn {
+    width: 19%;
+  }
+}
+
+@media screen and (max-width: 850px) {
+  .theme-btn {
+    width: 25%;
+  }
+
+  #integrauth-logo {
+    height: 35%;
+    width: 35%;
+  }
+
+  #p-text-div {
+    width: 65%;
+  }
+}
+
+@media screen and (max-width: 750px) {
+  #integrauth-logo {
+    height: 39%;
+    width: 39%;
+  }
+}
+
+@media screen and (max-width: 600px) {
+  #integrauth-logo {
+    height: 45%;
+    width: 45%;
+  }
+
+  #p-text-div {
+    width: 100%;
+  }
+}
+
+@media screen and (max-width: 565px) {
+  .theme-btn {
+    width: 29%;
+  }
+}
+
 @media screen and (max-width: 499px) {
+  .theme-btn {
+    width: 50%;
+  }
+
+  #integrauth-logo {
+    height: 50%;
+    width: 50%;
+  }
+
   .heading {
     font-size: 3rem;
   }
