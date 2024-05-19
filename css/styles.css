@@ -20,16 +20,18 @@
   width: 50%;
 }
 
+.client-logos {
+  width: 100%;
+}
+
 .social-icons {
   display: flex;
   justify-content: space-between;
   text-decoration: none;
 }
 
-@media screen and (max-height: 599px) {
-  body {
-    overflow-y: auto;
-  }
+a {
+  text-decoration: none !important;
 }
 
 @media screen and (max-width: 915px) {
