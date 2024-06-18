@@ -8,6 +8,10 @@
   width: 25%;
 }
 
+h3 {
+  font-size: 0.85em;
+}
+
 .heading {
   font-size: 5rem;
 }
