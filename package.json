@@ -1,0 +1,22 @@
+{
+  "name": "integrauth-website",
+  "version": "1.0.0",
+  "description": "IntegrAuth Official Website - Enterprise IAM and API Security",
+  "main": "index.html",
+  "scripts": {
+    "dev": "browser-sync start --server --files \"**/*.html, **/*.css, **/*.js\" --port 3000 --no-notify",
+    "dev:live": "live-server --port=3000 --host=localhost --open=/index.html --watch=.",
+    "start": "npm run dev"
+  },
+  "keywords": [
+    "IAM",
+    "API Security",
+    "IntegrAuth"
+  ],
+  "author": "IntegrAuth",
+  "license": "ISC",
+  "devDependencies": {
+    "browser-sync": "^3.0.4",
+    "live-server": "^1.2.2"
+  }
+}
