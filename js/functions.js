@@ -228,13 +228,37 @@ function collapseAllTech() {
 // Handle chevron icon rotation on collapse toggle
 $(document).ready(function() {
   $('.tech-grid').on('show.bs.collapse', function() {
-    $(this).prev('.tech-category-title').find('.collapse-icon')
+    $(this).siblings('.tech-category-header').find('.collapse-icon')
       .removeClass('fa-chevron-right').addClass('fa-chevron-down');
   });
 
   $('.tech-grid').on('hide.bs.collapse', function() {
-    $(this).prev('.tech-category-title').find('.collapse-icon')
+    $(this).siblings('.tech-category-header').find('.collapse-icon')
       .removeClass('fa-chevron-down').addClass('fa-chevron-right');
+  });
+
+  // Make entire tech-category card clickable when collapsed
+  $('.tech-category').on('click', function(e) {
+    const $category = $(this);
+    const $techGrid = $category.find('.tech-grid');
+
+    // Only make card clickable if the section is collapsed
+    // And if the click is NOT on a tech-item link, button, or already on the header
+    if (!$techGrid.hasClass('show') &&
+        !$(e.target).closest('.tech-item, a, button, .btn').length &&
+        !$(e.target).closest('.tech-category-header').length) {
+      // Trigger the collapse directly
+      $techGrid.collapse('show');
+    }
+  });
+
+  // Add cursor pointer to collapsed cards
+  $('.tech-grid').on('hidden.bs.collapse', function() {
+    $(this).closest('.tech-category').addClass('collapsed-card');
+  });
+
+  $('.tech-grid').on('shown.bs.collapse', function() {
+    $(this).closest('.tech-category').removeClass('collapsed-card');
   });
 });
 
