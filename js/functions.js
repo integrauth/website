@@ -2,19 +2,17 @@
 
 function toggleAndSaveTheme() {
   console.log("🕹️ User changed preferred theme");
-  
+
   // Toggle body classes
   $("body").toggleClass("bg-light bg-dark");
-  
+
   // Update theme button
   const isDarkTheme = $("body").hasClass("bg-dark");
   const themeBtn = $(".theme-btn");
-  
+
   if (isDarkTheme) {
-    themeBtn.removeClass("btn-outline-light").addClass("btn-outline-primary");
     themeBtn.html('<i class="fas fa-sun"></i> Light');
   } else {
-    themeBtn.removeClass("btn-outline-primary").addClass("btn-outline-light");
     themeBtn.html('<i class="fas fa-moon"></i> Dark');
   }
 
@@ -22,7 +20,7 @@ function toggleAndSaveTheme() {
   console.log("Saving theme into 💾 localStorage");
   const theme = isDarkTheme ? "dark" : "light";
   localStorage.setItem("theme", theme);
-  
+
   // Trigger custom event for other components
   $(document).trigger('themeChanged', [theme]);
 }
@@ -30,14 +28,14 @@ function toggleAndSaveTheme() {
 function setDarkTheme() {
   console.log("Setting to ⬛ Dark Theme");
   $("body").addClass("bg-dark").removeClass("bg-light");
-  
+
+  // Update navbar for dark theme
+  $(".navbar").addClass("navbar-dark").removeClass("navbar-light");
+
   const themeBtn = $(".theme-btn");
-  themeBtn.removeClass("btn-outline-primary").addClass("btn-outline-light");
   themeBtn.html('<i class="fas fa-sun"></i> Light');
-  
-  // Update navbar
-  $(".navbar").addClass("navbar-dark bg-dark").removeClass("navbar-light bg-light");
-  
+  themeBtn.removeClass("btn-outline-dark").addClass("btn-outline-light");
+
   // Trigger theme change event
   $(document).trigger('themeChanged', ['dark']);
 }
@@ -45,14 +43,14 @@ function setDarkTheme() {
 function setLightTheme() {
   console.log("Setting to ⬜ Light Theme");
   $("body").addClass("bg-light").removeClass("bg-dark");
-  
+
+  // Update navbar for light theme
+  $(".navbar").addClass("navbar-light").removeClass("navbar-dark");
+
   const themeBtn = $(".theme-btn");
-  themeBtn.removeClass("btn-outline-light").addClass("btn-outline-primary");
   themeBtn.html('<i class="fas fa-moon"></i> Dark');
-  
-  // Update navbar
-  $(".navbar").addClass("navbar-light bg-light").removeClass("navbar-dark bg-dark");
-  
+  themeBtn.removeClass("btn-outline-light").addClass("btn-outline-dark");
+
   // Trigger theme change event
   $(document).trigger('themeChanged', ['light']);
 }
@@ -148,7 +146,8 @@ $(function () {
   initSmoothScrolling();
   initBootstrapComponents();
   handleThemeChange();
-  initButtonLoadingStates();
+  fixWhatsAppLinks(); // Fix WhatsApp links for mobile devices
+  // initButtonLoadingStates(); // Disabled - not needed for this site
   
   // Add scroll effect to navbar
   $(window).scroll(function() {
@@ -184,9 +183,68 @@ $(function () {
   console.log("✅ Website initialization complete");
 });
 
+// Fix WhatsApp links for mobile devices
+function fixWhatsAppLinks() {
+  // Detect if user is on mobile or tablet
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+  if (isMobile) {
+    // Find all WhatsApp links
+    $('a[href*="wa.me"], a[href*="api.whatsapp"]').each(function() {
+      const $link = $(this);
+      const href = $link.attr('href');
+
+      // Extract phone number and text from wa.me link
+      const waMatch = href.match(/wa\.me\/(\d+)(?:\?text=(.+))?/);
+
+      if (waMatch) {
+        const phone = waMatch[1];
+        const text = waMatch[2] ? decodeURIComponent(waMatch[2].replace(/\+/g, ' ')) : '';
+
+        // Convert to native WhatsApp protocol
+        let nativeLink = `whatsapp://send?phone=${phone}`;
+        if (text) {
+          nativeLink += `&text=${encodeURIComponent(text)}`;
+        }
+
+        $link.attr('href', nativeLink);
+        console.log(`📱 Converted WhatsApp link to native protocol for mobile`);
+      }
+    });
+  }
+}
+
+// Technology section collapse functions
+function expandAllTech() {
+  $('.tech-grid.collapse').collapse('show');
+  $('.tech-category-title .collapse-icon').removeClass('fa-chevron-right').addClass('fa-chevron-down');
+}
+
+function collapseAllTech() {
+  $('.tech-grid.collapse').collapse('hide');
+  $('.tech-category-title .collapse-icon').removeClass('fa-chevron-down').addClass('fa-chevron-right');
+}
+
+// Handle chevron icon rotation on collapse toggle
+$(document).ready(function() {
+  $('.tech-grid').on('show.bs.collapse', function() {
+    $(this).prev('.tech-category-title').find('.collapse-icon')
+      .removeClass('fa-chevron-right').addClass('fa-chevron-down');
+  });
+
+  $('.tech-grid').on('hide.bs.collapse', function() {
+    $(this).prev('.tech-category-title').find('.collapse-icon')
+      .removeClass('fa-chevron-down').addClass('fa-chevron-right');
+  });
+});
+
 // Export functions for global access (if needed)
 window.IntegrAuth = {
   toggleTheme: toggleAndSaveTheme,
   setDarkTheme: setDarkTheme,
   setLightTheme: setLightTheme
 };
+
+// Make collapse functions globally accessible
+window.expandAllTech = expandAllTech;
+window.collapseAllTech = collapseAllTech;
