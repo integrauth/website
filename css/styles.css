@@ -269,11 +269,14 @@ body.bg-dark .hero-section {
 }
 
 .hero-logo {
+  display: block;
   height: 140px;
   width: auto;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: var(--space-xl);
   transition: var(--transition);
   filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.2));
-  margin-bottom: var(--space-xl);
 }
 
 .hero-title {
@@ -1297,7 +1300,10 @@ a.text-decoration-none:hover .client-card {
 /* Responsive Design */
 @media (max-width: 991.98px) {
   .hero-logo {
+    display: block;
     height: 100px;
+    margin-left: auto;
+    margin-right: auto;
   }
   
   .hero-title {
@@ -1311,7 +1317,10 @@ a.text-decoration-none:hover .client-card {
 
 @media (max-width: 767.98px) {
   .hero-logo {
+    display: block;
     height: 80px;
+    margin-left: auto;
+    margin-right: auto;
   }
   
   .hero-title {
@@ -1338,7 +1347,10 @@ a.text-decoration-none:hover .client-card {
 
 @media (max-width: 575.98px) {
   .hero-logo {
+    display: block;
     height: 60px;
+    margin-left: auto;
+    margin-right: auto;
   }
   
   .hero-title {
@@ -2459,15 +2471,27 @@ body.bg-dark .stat-card p {
   .modal-header-section {
     flex-direction: column;
     text-align: center;
+    align-items: center;
+  }
+
+  .modal-logo-link {
+    display: block;
+    margin: 0 auto;
+    width: fit-content;
   }
 
   .modal-logo-container {
     width: 120px;
     height: 140px;
+    margin: 0 auto;
   }
 
   .modal-header-text h2 {
     font-size: 2rem;
+  }
+
+  .modal-header-text .product-badges {
+    justify-content: center !important;
   }
 }
 
@@ -2481,9 +2505,16 @@ body.bg-dark .stat-card p {
     padding: var(--space-2xl);
   }
 
+  .modal-logo-link {
+    display: block;
+    margin: 0 auto;
+    width: fit-content;
+  }
+
   .modal-logo-container {
     width: 100px;
     height: 117px;
+    margin: 0 auto;
   }
 
   .modal-header-text h2 {
@@ -2496,6 +2527,26 @@ body.bg-dark .stat-card p {
 
   .stat-card h3 {
     font-size: 2.5rem;
+  }
+
+  /* Better badge spacing on tablets */
+  .product-badges .badge {
+    font-size: 0.8rem;
+    padding: 0.4rem 0.9rem;
+  }
+
+  .site-link-modal {
+    padding: 0.75rem 1.25rem;
+    font-size: 1rem;
+  }
+
+  .modal-site-link {
+    font-size: 1rem;
+  }
+
+  /* Add gap above Technology Stack and Quality & Testing when columns stack */
+  .modal-body-section .col-md-6:not(:first-child) h4:first-of-type {
+    margin-top: var(--space-lg);
   }
 }
 
@@ -2511,5 +2562,82 @@ body.bg-dark .stat-card p {
 
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Optimize modal for mobile */
+  .product-modal-content {
+    width: 98%;
+    margin: 2% auto;
+    border-radius: var(--radius-xl);
+  }
+
+  .modal-product-content {
+    padding: var(--space-xl);
+  }
+
+  .modal-header-section {
+    gap: var(--space-xl);
+    margin-bottom: var(--space-xl);
+    padding-bottom: var(--space-lg);
+    align-items: center;
+  }
+
+  .modal-logo-link {
+    align-self: center;
+  }
+
+  .modal-logo-container {
+    width: 80px;
+    height: 94px;
+    padding: var(--space-md);
+    margin: 0 auto;
+  }
+
+  .modal-header-text h2 {
+    font-size: 1.5rem;
+    margin-bottom: var(--space-sm);
+  }
+
+  .modal-header-text .lead {
+    font-size: 0.95rem;
+    margin-bottom: var(--space-sm);
+  }
+
+  /* Optimize badges for mobile */
+  .product-badges {
+    gap: 0.4rem;
+    margin-bottom: var(--space-md) !important;
+  }
+
+  .product-badges .badge {
+    font-size: 0.7rem;
+    padding: 0.35rem 0.75rem;
+    white-space: nowrap;
+  }
+
+  /* Make site link button more compact on mobile */
+  .site-link-modal {
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+    width: 100%;
+    justify-content: center;
+    margin-bottom: var(--space-sm);
+  }
+
+  .modal-site-link {
+    font-size: 0.9rem;
+  }
+
+  .site-link-modal i {
+    font-size: 1rem;
+  }
+
+  /* Close button adjustments */
+  .product-modal-close {
+    width: 38px;
+    height: 38px;
+    font-size: 32px;
+    top: 8px;
+    right: 15px;
   }
 }
