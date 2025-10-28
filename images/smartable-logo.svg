@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 700" width="600" height="700" role="img" aria-label="Smartable icon">
+  <defs>
+    <style>
+      .frame { fill:#1E73C9; }
+      .frame-top { fill:#184E80; }
+      .inner { fill:#FFFFFF; }
+      .cell { fill:#CFE9FF; }
+      .check { fill:none; stroke:#FF7A2D; stroke-width:30; stroke-linecap:round; stroke-linejoin:round; } 
+    </style>
+  </defs>
+
+  <g transform="translate(80,40)">
+    <rect x="0" y="40" width="440" height="380" rx="36" ry="36" class="frame"/>
+    <rect x="72" y="0" width="36" height="80" rx="18" ry="18" class="frame-top"/>
+    <rect x="332" y="0" width="36" height="80" rx="18" ry="18" class="frame-top"/>
+    <rect x="28" y="92" width="384" height="292" rx="10" ry="10" class="inner"/>
+
+    <g transform="translate(48,112)">
+      <!-- 3 rows x 3 columns -->
+      <rect x="0"   y="0"   width="96" height="64" rx="10" ry="10" class="cell"/>
+      <rect x="120" y="0"   width="96" height="64" rx="10" ry="10" class="cell"/>
+      <rect x="240" y="0"   width="96" height="64" rx="10" ry="10" class="cell"/>
+
+      <rect x="0"   y="86"  width="96" height="64" rx="10" ry="10" class="cell"/>
+      <rect x="120" y="86"  width="96" height="64" rx="10" ry="10" class="cell"/>
+      <rect x="240" y="86"  width="96" height="64" rx="10" ry="10" class="cell"/>
+
+      <rect x="0"   y="172" width="96" height="64" rx="10" ry="10" class="cell"/>
+      <rect x="120" y="172" width="96" height="64" rx="10" ry="10" class="cell"/>
+      <rect x="240" y="172" width="96" height="64" rx="10" ry="10" class="cell"/>
+
+      <path class="check" d="M36 140 L110 200 L300 40"/>
+    </g>
+  </g>
+</svg>

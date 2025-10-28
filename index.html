@@ -37,13 +37,16 @@
             <a class="nav-link" href="#home">Home</a>
           </li>
           <li class="nav-item">
-            <a class="nav-link" href="#clients">Clients</a>
-          </li>
-          <li class="nav-item">
             <a class="nav-link" href="#solutions">Services</a>
           </li>
           <li class="nav-item">
+            <a class="nav-link" href="#products">Products</a>
+          </li>
+          <li class="nav-item">
             <a class="nav-link" href="#technologies">Tech Stack</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#clients">Clients</a>
           </li>
           <li class="nav-item">
             <a class="nav-link" href="#contact">Contact</a>
@@ -103,73 +106,6 @@
               <p>Custom software solutions for your security needs</p>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Clients Section -->
-  <section id="clients" class="py-5 clients-section">
-    <div class="container">
-      <div class="row text-center mb-4">
-        <div class="col-lg-8 mx-auto">
-          <h2 class="section-title display-5 fw-bold mb-3">Trusted by Industry Leaders</h2>
-          <p class="section-subtitle lead text-muted mb-2">
-            Serving innovative companies across various sectors
-          </p>
-        </div>
-      </div>
-      <div class="row g-4 justify-content-center">
-        <div class="col-lg-4 col-md-6">
-          <a href="https://enkryptai.com" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
-            <div class="client-card text-center">
-              <div class="client-icon mb-3">
-                <img src="images/websites/enkrypt-new.png" alt="Enkrypt AI" class="client-logo">
-              </div>
-              <h5>Enkrypt AI</h5>
-              <p class="text-muted">AI Security & Compliance Platform</p>
-              <div class="client-tags mt-2">
-                <span class="badge bg-primary">AI Risk Detection</span>
-                <span class="badge bg-success">LLM Safety</span>
-                <span class="badge bg-info">Compliance</span>
-              </div>
-            </div>
-          </a>
-        </div>
-        <div class="col-lg-4 col-md-6">
-          <a href="https://www.cequence.ai" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
-            <div class="client-card text-center">
-              <div class="client-icon mb-3">
-                <img src="images/websites/Cequence_logo.svg" alt="Cequence AI" class="client-logo">
-              </div>
-              <h5>Cequence AI</h5>
-              <p class="text-muted">Unified API Protection Platform</p>
-              <div class="client-tags mt-2">
-                <span class="badge bg-primary">API Security</span>
-                <span class="badge bg-success">Bot Management</span>
-                <span class="badge bg-info">Threat Detection</span>
-              </div>
-            </div>
-          </a>
-        </div>
-        <div class="col-lg-4 col-md-6">
-          <a href="https://www.icurity.co.za" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
-            <div class="client-card text-center">
-              <div class="client-icon mb-3">
-                <img src="images/websites/icurity.png" alt="I'Curity Solutions" class="client-logo">
-              </div>
-              <h5>I'Curity Solutions</h5>
-              <p class="text-muted d-flex align-items-center justify-content-center gap-2">
-                <span>MTN South Africa Partner</span>
-                <img src="images/websites/mtn-logo.svg" alt="MTN South Africa" class="partner-logo" style="width: 60px; height: 30px; object-fit: contain;">
-              </p>
-              <div class="client-tags mt-2">
-                <span class="badge bg-primary">Telecom Security</span>
-                <span class="badge bg-success">Enterprise IAM</span>
-                <span class="badge bg-info">Africa Market</span>
-              </div>
-            </div>
-          </a>
         </div>
       </div>
     </div>
@@ -235,6 +171,192 @@
       </div>
     </div>
   </section>
+
+  <!-- Our Products Section -->
+  <section id="products" class="py-5 products-section">
+    <div class="container">
+      <div class="row text-center mb-4">
+        <div class="col-lg-8 mx-auto">
+          <h2 class="section-title display-5 fw-bold mb-3">Our Products</h2>
+          <p class="section-subtitle lead text-muted">
+            In-house developed software solutions - built entirely with cutting-edge technology
+          </p>
+        </div>
+      </div>
+      <div class="row g-4 justify-content-center">
+        <!-- Smartable Product Card -->
+        <div class="col-lg-6 col-md-8">
+          <div class="product-card" onclick="openProductModal('smartable')">
+            <div class="product-logo-container">
+              <img src="images/smartable-logo.svg" alt="Smartable Logo" class="product-logo">
+            </div>
+            <h3>Smartable</h3>
+            <p class="product-tagline">Education ERP with Smart Auto Timetabling</p>
+            <div class="product-badges">
+              <span class="badge bg-primary">API-First</span>
+              <span class="badge bg-success">Serverless</span>
+              <span class="badge bg-info">Multi-Tenant</span>
+            </div>
+            <p class="text-muted mt-3">Automated timetable generation using Google OR-Tools constraint programming</p>
+            <div class="product-link-highlight mt-3 mb-3">
+              <i class="fas fa-globe me-2"></i>
+              <a href="https://smartable.xyz" target="_blank" rel="noopener noreferrer" class="site-link" onclick="event.stopPropagation()">smartable.xyz</a>
+            </div>
+            <button class="btn btn-outline-primary mt-2">Learn More →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Product Modal -->
+  <div id="productModal" class="product-modal" onclick="closeProductModal(event)">
+    <div class="product-modal-content" onclick="event.stopPropagation()">
+      <span class="product-modal-close" onclick="closeProductModal(event)">&times;</span>
+
+      <!-- Smartable Modal Content -->
+      <div id="smartable-modal" class="modal-product-content">
+        <div class="modal-header-section">
+          <a href="https://smartable.xyz" target="_blank" rel="noopener noreferrer" class="modal-logo-link">
+            <div class="modal-logo-container">
+              <img src="images/smartable-logo.svg" alt="Smartable" class="modal-product-logo">
+            </div>
+          </a>
+          <div class="modal-header-text">
+            <h2>
+              <a href="https://smartable.xyz" target="_blank" rel="noopener noreferrer" class="product-title-link">Smartable</a>
+            </h2>
+            <p class="lead">API-First Education ERP with Smart Auto Timetabling</p>
+            <div class="site-link-modal mt-3 mb-3">
+              <i class="fas fa-external-link-alt me-2"></i>
+              <a href="https://smartable.xyz" target="_blank" rel="noopener noreferrer" class="modal-site-link">Visit smartable.xyz</a>
+            </div>
+            <div class="product-badges mt-2">
+              <span class="badge bg-primary">170+ API Endpoints</span>
+              <span class="badge bg-success">Multi-Campus</span>
+              <span class="badge bg-info">Multi-Tenant</span>
+              <span class="badge bg-warning text-dark">Serverless</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-body-section">
+          <div class="row">
+            <div class="col-md-6">
+              <h4><i class="fas fa-rocket text-primary me-2"></i>Key Features</h4>
+              <ul class="feature-list">
+                <li>Automated timetable generation using Google OR-Tools</li>
+                <li>Multi-tenant architecture with organization isolation</li>
+                <li>Multi-campus support with branch scoping</li>
+                <li>JWT authentication with refresh token rotation</li>
+                <li>Teacher absence & substitution management</li>
+                <li>Holiday management with automatic scheduling exclusion</li>
+                <li>PDF export with 5 different views</li>
+                <li>Advanced analytics & reporting</li>
+                <li>Break supervision roster automation</li>
+                <li>Conflict detection & constraint validation</li>
+              </ul>
+            </div>
+            <div class="col-md-6">
+              <h4><i class="fas fa-cogs text-primary me-2"></i>Technology Stack</h4>
+              <div class="tech-stack-section">
+                <h5>Frontend</h5>
+                <p>SvelteKit, TypeScript, TailwindCSS</p>
+
+                <h5>Backend API</h5>
+                <p>Cloudflare Workers, Hono.js, TypeScript</p>
+
+                <h5>Database</h5>
+                <p>Cloudflare D1 (SQLite at the edge)</p>
+
+                <h5>AI Computing</h5>
+                <p>Modal.com (Serverless Python), Google OR-Tools, ReportLab</p>
+
+                <h5>Authentication</h5>
+                <p>Custom OAuth implementation, JWT + Refresh Tokens, Bcrypt</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="row mt-4">
+            <div class="col-md-6">
+              <h4><i class="fas fa-server text-primary me-2"></i>Infrastructure</h4>
+              <ul class="feature-list">
+                <li><strong>Cloudflare Workers:</strong> Edge API with global distribution</li>
+                <li><strong>Cloudflare D1:</strong> SQLite database at the edge</li>
+                <li><strong>Modal.com:</strong> Serverless Python for OR-Tools computation</li>
+                <li><strong>GitHub Actions:</strong> Automated CI/CD pipeline</li>
+              </ul>
+            </div>
+            <div class="col-md-6">
+              <h4><i class="fas fa-check-circle text-primary me-2"></i>Quality & Testing</h4>
+              <ul class="feature-list">
+                <li><strong>Comprehensive Testing:</strong> 19 route test suites</li>
+                <li><strong>Integration Tests:</strong> End-to-end API testing</li>
+                <li><strong>CI/CD Pipeline:</strong> Automated testing on every commit</li>
+                <li><strong>Type Safety:</strong> Full TypeScript implementation</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="row mt-4 mb-0">
+            <div class="col-12">
+              <h4><i class="fas fa-database text-primary me-2"></i>Architecture</h4>
+              <div class="architecture-diagram">
+                <pre class="bg-light p-3 rounded">
+Users (Web Browser)
+    ↓
+Cloudflare Workers (Edge Runtime)
+    ├── SvelteKit UI (SSR/SPA)
+    └── REST API (170+ endpoints - internal calls)
+            ↓
+            ├── Cloudflare D1 Database (20 tables, SQLite at edge)
+            └── Modal.com Python Service (OR-Tools + ReportLab)
+                </pre>
+              </div>
+              <p class="text-muted">
+                <small>
+                  <strong>Note:</strong> The SvelteKit UI and REST API are served from the same Cloudflare Worker.
+                  The REST API interacts directly with both D1 (for data persistence) and Modal.com (for timetable generation & PDF export).
+                </small>
+              </p>
+            </div>
+          </div>
+
+          <div class="row mt-2">
+            <div class="col-12">
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <h3>170+</h3>
+                  <p>API Endpoints</p>
+                </div>
+                <div class="stat-card">
+                  <h3>20</h3>
+                  <p>Database Tables</p>
+                </div>
+                <div class="stat-card">
+                  <h3>19</h3>
+                  <p>Test Suites</p>
+                </div>
+                <div class="stat-card">
+                  <h3>5</h3>
+                  <p>PDF Export Views</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer-section mt-2">
+            <div class="modal-footer-cta">
+              <a href="https://smartable.xyz" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-lg">
+                <i class="fas fa-external-link-alt me-2"></i>Visit smartable.xyz
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Technologies Section -->
   <section id="technologies" class="py-5 technologies-section">
@@ -415,6 +537,7 @@
           <a href="https://developers.cloudflare.com/d1/" target="_blank" rel="noopener noreferrer" class="tech-item"><img src="images/websites/cloudflare-base.svg" alt="Cloudflare D1" class="tech-logo" loading="lazy"><span>Cloudflare D1</span></a>
           <a href="https://workers.cloudflare.com" target="_blank" rel="noopener noreferrer" class="tech-item"><img src="images/websites/cloudflare1.svg" alt="Cloudflare Workers" class="tech-logo" loading="lazy"><span>Cloudflare Workers</span></a>
           <a href="https://cloud.google.com/functions" target="_blank" rel="noopener noreferrer" class="tech-item"><i class="fab fa-google"></i><span>Google Cloud Functions</span></a>
+          <a href="https://modal.com" target="_blank" rel="noopener noreferrer" class="tech-item"><img src="images/websites/modal.png" alt="Modal" class="tech-logo" loading="lazy"><span>Modal</span></a>
           <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" class="tech-item"><img src="images/websites/supabase1.png" alt="Supabase" class="tech-logo" loading="lazy"><span>Supabase</span></a>
         </div>
       </div>
@@ -485,6 +608,24 @@
         </div>
       </div>
 
+      <!-- AI Tools -->
+      <div class="tech-category mb-5">
+        <div class="tech-category-header" data-bs-toggle="collapse" data-bs-target="#tech-ai" aria-expanded="true" aria-controls="tech-ai">
+          <h3 class="tech-category-title">
+            <i class="fas fa-chevron-down collapse-icon me-2"></i><i class="fas fa-brain me-2"></i>AI Tools
+          </h3>
+        </div>
+        <div class="tech-grid collapse show" id="tech-ai">
+          <a href="https://www.cursor.com" target="_blank" rel="noopener noreferrer" class="tech-item"><i class="fas fa-edit"></i><span>Cursor</span></a>
+          <a href="https://docs.claude.com/en/docs/claude-code" target="_blank" rel="noopener noreferrer" class="tech-item"><i class="fas fa-terminal"></i><span>Claude Code</span></a>
+          <a href="https://github.com/features/copilot" target="_blank" rel="noopener noreferrer" class="tech-item"><i class="fab fa-github"></i><span>GitHub Copilot</span></a>
+          <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer" class="tech-item"><i class="fas fa-comments"></i><span>ChatGPT</span></a>
+          <a href="https://claude.ai" target="_blank" rel="noopener noreferrer" class="tech-item"><i class="fas fa-robot"></i><span>Claude</span></a>
+          <a href="https://gemini.google.com" target="_blank" rel="noopener noreferrer" class="tech-item"><i class="fab fa-google"></i><span>Gemini</span></a>
+          <a href="https://www.notion.so/product/ai" target="_blank" rel="noopener noreferrer" class="tech-item"><i class="fas fa-lightbulb"></i><span>Notion AI</span></a>
+        </div>
+      </div>
+
       <!-- Expand/Collapse All Buttons (Bottom) -->
       <div class="text-center mt-4">
         <button class="btn btn-primary me-2" onclick="expandAllTech()">
@@ -493,6 +634,73 @@
         <button class="btn btn-outline-primary" onclick="collapseAllTech()">
           <i class="fas fa-minus-circle me-1"></i>Collapse All
         </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Clients Section -->
+  <section id="clients" class="py-5 clients-section">
+    <div class="container">
+      <div class="row text-center mb-4">
+        <div class="col-lg-8 mx-auto">
+          <h2 class="section-title display-5 fw-bold mb-3">Service Clients</h2>
+          <p class="section-subtitle lead text-muted mb-2">
+            Companies we've partnered with for IAM, API Security, and software development services
+          </p>
+        </div>
+      </div>
+      <div class="row g-4 justify-content-center">
+        <div class="col-lg-4 col-md-6">
+          <a href="https://enkryptai.com" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+            <div class="client-card text-center">
+              <div class="client-icon mb-3">
+                <img src="images/websites/enkrypt-new.png" alt="Enkrypt AI" class="client-logo">
+              </div>
+              <h5>Enkrypt AI</h5>
+              <p class="text-muted">AI Security & Compliance Platform</p>
+              <div class="client-tags mt-2">
+                <span class="badge bg-primary">AI Risk Detection</span>
+                <span class="badge bg-success">LLM Safety</span>
+                <span class="badge bg-info">Compliance</span>
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="col-lg-4 col-md-6">
+          <a href="https://www.cequence.ai" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+            <div class="client-card text-center">
+              <div class="client-icon mb-3">
+                <img src="images/websites/Cequence_logo.svg" alt="Cequence AI" class="client-logo">
+              </div>
+              <h5>Cequence AI</h5>
+              <p class="text-muted">Unified API Protection Platform</p>
+              <div class="client-tags mt-2">
+                <span class="badge bg-primary">API Security</span>
+                <span class="badge bg-success">Bot Management</span>
+                <span class="badge bg-info">Threat Detection</span>
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="col-lg-4 col-md-6">
+          <a href="https://www.icurity.co.za" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+            <div class="client-card text-center">
+              <div class="client-icon mb-3">
+                <img src="images/websites/icurity.png" alt="I'Curity Solutions" class="client-logo">
+              </div>
+              <h5>I'Curity Solutions</h5>
+              <p class="text-muted d-flex align-items-center justify-content-center gap-2">
+                <span>MTN South Africa Partner</span>
+                <img src="images/websites/mtn-logo.svg" alt="MTN South Africa" class="partner-logo" style="width: 60px; height: 30px; object-fit: contain;">
+              </p>
+              <div class="client-tags mt-2">
+                <span class="badge bg-primary">Telecom Security</span>
+                <span class="badge bg-success">Enterprise IAM</span>
+                <span class="badge bg-info">Africa Market</span>
+              </div>
+            </div>
+          </a>
+        </div>
       </div>
     </div>
   </section>

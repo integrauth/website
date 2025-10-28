@@ -272,3 +272,48 @@ window.IntegrAuth = {
 // Make collapse functions globally accessible
 window.expandAllTech = expandAllTech;
 window.collapseAllTech = collapseAllTech;
+
+// Product Modal Functions
+function openProductModal(productId) {
+  const modal = document.getElementById('productModal');
+  const productContent = document.getElementById(productId + '-modal');
+
+  if (modal && productContent) {
+    // Hide all product contents first
+    document.querySelectorAll('.modal-product-content').forEach(content => {
+      content.style.display = 'none';
+    });
+
+    // Show the selected product content
+    productContent.style.display = 'block';
+
+    // Show the modal
+    modal.classList.add('show');
+    document.body.style.overflow = 'hidden'; // Prevent background scrolling
+  }
+}
+
+function closeProductModal(event) {
+  const modal = document.getElementById('productModal');
+
+  // Close if clicking on the modal background or close button
+  if (event.target === modal || event.target.classList.contains('product-modal-close')) {
+    modal.classList.remove('show');
+    document.body.style.overflow = ''; // Restore scrolling
+  }
+}
+
+// Close modal on ESC key
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'Escape') {
+    const modal = document.getElementById('productModal');
+    if (modal && modal.classList.contains('show')) {
+      modal.classList.remove('show');
+      document.body.style.overflow = '';
+    }
+  }
+});
+
+// Make modal functions globally accessible
+window.openProductModal = openProductModal;
+window.closeProductModal = closeProductModal;
