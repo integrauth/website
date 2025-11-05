@@ -1,214 +1,87 @@
-// Modern IntegrAuth Website Functions
+// Modern IntegrAuth Website Functions - Optimized
 
+// Theme Management
 function toggleAndSaveTheme() {
-  console.log("🕹️ User changed preferred theme");
-
-  // Toggle body classes
   $("body").toggleClass("bg-light bg-dark");
-
-  // Update theme button
   const isDarkTheme = $("body").hasClass("bg-dark");
   const themeBtn = $(".theme-btn");
 
-  if (isDarkTheme) {
-    themeBtn.html('<i class="fas fa-sun"></i> Light');
-  } else {
-    themeBtn.html('<i class="fas fa-moon"></i> Dark');
-  }
-
-  // Save theme preference
-  console.log("Saving theme into 💾 localStorage");
-  const theme = isDarkTheme ? "dark" : "light";
-  localStorage.setItem("theme", theme);
-
-  // Trigger custom event for other components
-  $(document).trigger('themeChanged', [theme]);
+  themeBtn.html(isDarkTheme ? '<i class="fas fa-sun"></i> Light' : '<i class="fas fa-moon"></i> Dark');
+  localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
+  $(document).trigger('themeChanged', [isDarkTheme ? "dark" : "light"]);
 }
 
 function setDarkTheme() {
-  console.log("Setting to ⬛ Dark Theme");
   $("body").addClass("bg-dark").removeClass("bg-light");
-
-  // Update navbar for dark theme
   $(".navbar").addClass("navbar-dark").removeClass("navbar-light");
-
-  const themeBtn = $(".theme-btn");
-  themeBtn.html('<i class="fas fa-sun"></i> Light');
-  themeBtn.removeClass("btn-outline-dark").addClass("btn-outline-light");
-
-  // Trigger theme change event
+  $(".theme-btn").html('<i class="fas fa-sun"></i> Light')
+    .removeClass("btn-outline-dark").addClass("btn-outline-light");
   $(document).trigger('themeChanged', ['dark']);
 }
 
 function setLightTheme() {
-  console.log("Setting to ⬜ Light Theme");
   $("body").addClass("bg-light").removeClass("bg-dark");
-
-  // Update navbar for light theme
   $(".navbar").addClass("navbar-light").removeClass("navbar-dark");
-
-  const themeBtn = $(".theme-btn");
-  themeBtn.html('<i class="fas fa-moon"></i> Dark');
-  themeBtn.removeClass("btn-outline-light").addClass("btn-outline-dark");
-
-  // Trigger theme change event
+  $(".theme-btn").html('<i class="fas fa-moon"></i> Dark')
+    .removeClass("btn-outline-light").addClass("btn-outline-dark");
   $(document).trigger('themeChanged', ['light']);
-}
-
-// Smooth scrolling for navigation links
-function initSmoothScrolling() {
-  $('a[href^="#"]').on('click', function(e) {
-    e.preventDefault();
-    
-    const target = $(this.getAttribute('href'));
-    if (target.length) {
-      const offsetTop = target.offset().top - 80; // Account for fixed navbar
-      
-      $('html, body').animate({
-        scrollTop: offsetTop
-      }, 800, 'easeInOutQuart');
-    }
-  });
-}
-
-// Add easing function for smooth animations
-$.easing.easeInOutQuart = function (x, t, b, c, d) {
-  if ((t/=d/2) < 1) return c/2*t*t*t*t + b;
-  return -c/2 * ((t-=2)*t*t*t - 2) + b;
-};
-
-// Initialize tooltips and popovers
-function initBootstrapComponents() {
-  // Initialize tooltips
-  const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-  tooltipTriggerList.map(function (tooltipTriggerEl) {
-    return new bootstrap.Tooltip(tooltipTriggerEl);
-  });
-  
-  // Initialize popovers
-  const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
-  popoverTriggerList.map(function (popoverTriggerEl) {
-    return new bootstrap.Popover(popoverTriggerEl);
-  });
 }
 
 // Handle theme change events
 function handleThemeChange() {
   $(document).on('themeChanged', function(event, theme) {
-    console.log(`Theme changed to: ${theme}`);
-    
-    // Update any theme-specific elements here
     if (theme === 'dark') {
-      // Dark theme specific updates
       $('.navbar').removeClass('bg-light navbar-light').addClass('bg-dark navbar-dark');
     } else {
-      // Light theme specific updates
       $('.navbar').removeClass('bg-dark navbar-dark').addClass('bg-light navbar-light');
     }
   });
 }
 
-// Add loading states to buttons
-function initButtonLoadingStates() {
-  $('.btn').on('click', function() {
-    const $btn = $(this);
-    const originalText = $btn.html();
-    
-    // Add loading state
-    $btn.addClass('loading').html('<i class="fas fa-spinner fa-spin"></i> Loading...');
-    
-    // Remove loading state after a delay (simulate action)
-    setTimeout(() => {
-      $btn.removeClass('loading').html(originalText);
-    }, 2000);
-  });
-}
+// Optimized scroll handler with throttling
+let scrollTimeout;
+function handleScroll() {
+  if (scrollTimeout) return;
 
-// Initialize all functions when document is ready
-$(function () {
-  console.log("🚀 Initializing IntegrAuth Website");
-  
-  // Check for saved theme preference or default to system preference
-  const savedTheme = localStorage.getItem("theme");
-  const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  
-  console.log("Saved theme:", savedTheme);
-  console.log("System prefers dark:", systemPrefersDark);
-  
-  // Apply theme
-  if (savedTheme === "dark" || (!savedTheme && systemPrefersDark)) {
-    setDarkTheme();
-  } else {
-    setLightTheme();
-  }
-  
-  // Initialize all components
-  initSmoothScrolling();
-  initBootstrapComponents();
-  handleThemeChange();
-  fixWhatsAppLinks(); // Fix WhatsApp links for mobile devices
-  // initButtonLoadingStates(); // Disabled - not needed for this site
-  
-  // Add scroll effect to navbar
-  $(window).scroll(function() {
+  scrollTimeout = setTimeout(() => {
     const scroll = $(window).scrollTop();
     const navbar = $('.navbar');
-    
+
+    // Navbar scroll effect
     if (scroll >= 100) {
       navbar.addClass('navbar-scrolled');
     } else {
       navbar.removeClass('navbar-scrolled');
     }
-  });
-  
-  // Add active state to navigation based on scroll position
-  $(window).scroll(function() {
-    const scrollDistance = $(window).scrollTop();
-    
+
+    // Active navigation state
+    const scrollDistance = scroll + 100;
     $('section').each(function(i) {
-      if ($(this).position().top <= scrollDistance + 100) {
+      if ($(this).position().top <= scrollDistance) {
         $('.navbar-nav .nav-link.active').removeClass('active');
         $('.navbar-nav .nav-link').eq(i).addClass('active');
       }
     });
-  });
-  
-  // Add click outside to close mobile menu
-  $(document).on('click', function(e) {
-    if (!$(e.target).closest('.navbar').length) {
-      $('.navbar-collapse').collapse('hide');
-    }
-  });
-  
-  console.log("✅ Website initialization complete");
-});
+
+    scrollTimeout = null;
+  }, 100); // Throttle to 100ms
+}
 
 // Fix WhatsApp links for mobile devices
 function fixWhatsAppLinks() {
-  // Detect if user is on mobile or tablet
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   if (isMobile) {
-    // Find all WhatsApp links
     $('a[href*="wa.me"], a[href*="api.whatsapp"]').each(function() {
-      const $link = $(this);
-      const href = $link.attr('href');
-
-      // Extract phone number and text from wa.me link
+      const href = $(this).attr('href');
       const waMatch = href.match(/wa\.me\/(\d+)(?:\?text=(.+))?/);
 
       if (waMatch) {
         const phone = waMatch[1];
         const text = waMatch[2] ? decodeURIComponent(waMatch[2].replace(/\+/g, ' ')) : '';
-
-        // Convert to native WhatsApp protocol
         let nativeLink = `whatsapp://send?phone=${phone}`;
-        if (text) {
-          nativeLink += `&text=${encodeURIComponent(text)}`;
-        }
-
-        $link.attr('href', nativeLink);
-        console.log(`📱 Converted WhatsApp link to native protocol for mobile`);
+        if (text) nativeLink += `&text=${encodeURIComponent(text)}`;
+        $(this).attr('href', nativeLink);
       }
     });
   }
@@ -225,8 +98,56 @@ function collapseAllTech() {
   $('.tech-category-title .collapse-icon').removeClass('fa-chevron-down').addClass('fa-chevron-right');
 }
 
-// Handle chevron icon rotation on collapse toggle
-$(document).ready(function() {
+// Product Modal Functions
+function openProductModal(productId) {
+  const modal = document.getElementById('productModal');
+  const productContent = document.getElementById(productId + '-modal');
+
+  if (modal && productContent) {
+    document.querySelectorAll('.modal-product-content').forEach(content => {
+      content.style.display = 'none';
+    });
+    productContent.style.display = 'block';
+    modal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function closeProductModal(event) {
+  const modal = document.getElementById('productModal');
+  if (event.target === modal || event.target.classList.contains('product-modal-close')) {
+    modal.classList.remove('show');
+    document.body.style.overflow = '';
+  }
+}
+
+// Initialize on DOM ready
+$(function() {
+  // Apply saved theme or system preference
+  const savedTheme = localStorage.getItem("theme");
+  const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+  if (savedTheme === "dark" || (!savedTheme && systemPrefersDark)) {
+    setDarkTheme();
+  } else {
+    setLightTheme();
+  }
+
+  // Initialize components
+  handleThemeChange();
+  fixWhatsAppLinks();
+
+  // Attach scroll handler with passive listener for better performance
+  $(window).on('scroll', handleScroll);
+
+  // Close mobile menu when clicking outside
+  $(document).on('click', function(e) {
+    if (!$(e.target).closest('.navbar').length) {
+      $('.navbar-collapse').collapse('hide');
+    }
+  });
+
+  // Handle tech section collapse icons
   $('.tech-grid').on('show.bs.collapse', function() {
     $(this).siblings('.tech-category-header').find('.collapse-icon')
       .removeClass('fa-chevron-right').addClass('fa-chevron-down');
@@ -237,71 +158,22 @@ $(document).ready(function() {
       .removeClass('fa-chevron-down').addClass('fa-chevron-right');
   });
 
-  // Make entire tech-category card clickable when collapsed
+  // Make collapsed tech category cards clickable
   $('.tech-category').on('click', function(e) {
-    const $category = $(this);
-    const $techGrid = $category.find('.tech-grid');
-
-    // Only make card clickable if the section is collapsed
-    // And if the click is NOT on a tech-item link, button, or already on the header
+    const $techGrid = $(this).find('.tech-grid');
     if (!$techGrid.hasClass('show') &&
-        !$(e.target).closest('.tech-item, a, button, .btn').length &&
-        !$(e.target).closest('.tech-category-header').length) {
-      // Trigger the collapse directly
+        !$(e.target).closest('.tech-item, a, button, .btn, .tech-category-header').length) {
       $techGrid.collapse('show');
     }
   });
 
-  // Add cursor pointer to collapsed cards
+  // Add/remove collapsed card styling
   $('.tech-grid').on('hidden.bs.collapse', function() {
     $(this).closest('.tech-category').addClass('collapsed-card');
-  });
-
-  $('.tech-grid').on('shown.bs.collapse', function() {
+  }).on('shown.bs.collapse', function() {
     $(this).closest('.tech-category').removeClass('collapsed-card');
   });
 });
-
-// Export functions for global access (if needed)
-window.IntegrAuth = {
-  toggleTheme: toggleAndSaveTheme,
-  setDarkTheme: setDarkTheme,
-  setLightTheme: setLightTheme
-};
-
-// Make collapse functions globally accessible
-window.expandAllTech = expandAllTech;
-window.collapseAllTech = collapseAllTech;
-
-// Product Modal Functions
-function openProductModal(productId) {
-  const modal = document.getElementById('productModal');
-  const productContent = document.getElementById(productId + '-modal');
-
-  if (modal && productContent) {
-    // Hide all product contents first
-    document.querySelectorAll('.modal-product-content').forEach(content => {
-      content.style.display = 'none';
-    });
-
-    // Show the selected product content
-    productContent.style.display = 'block';
-
-    // Show the modal
-    modal.classList.add('show');
-    document.body.style.overflow = 'hidden'; // Prevent background scrolling
-  }
-}
-
-function closeProductModal(event) {
-  const modal = document.getElementById('productModal');
-
-  // Close if clicking on the modal background or close button
-  if (event.target === modal || event.target.classList.contains('product-modal-close')) {
-    modal.classList.remove('show');
-    document.body.style.overflow = ''; // Restore scrolling
-  }
-}
 
 // Close modal on ESC key
 document.addEventListener('keydown', function(event) {
@@ -314,6 +186,8 @@ document.addEventListener('keydown', function(event) {
   }
 });
 
-// Make modal functions globally accessible
+// Export functions for global access
+window.expandAllTech = expandAllTech;
+window.collapseAllTech = collapseAllTech;
 window.openProductModal = openProductModal;
 window.closeProductModal = closeProductModal;
