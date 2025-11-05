@@ -6,7 +6,37 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+package-lock.json
+
+# Build outputs and maps
+*.min.css.map
+*.min.js.map
+dist/
+build/
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.code-workspace
 
 # OS files
 .DS_Store
 Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+.tmp/
+.cache/
+.temp/
+
+# Testing
+coverage/
+.nyc_output/

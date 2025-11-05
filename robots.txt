@@ -1,0 +1,22 @@
+# robots.txt for IntegrAuth
+# Website: https://integrauth.com
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://integrauth.com/sitemap.xml
+
+# Disallow crawling of specific directories
+Disallow: /node_modules/
+Disallow: /docs/
+Disallow: /.git/
+Disallow: /.claude/
+
+# Allow crawling of CSS and JS for rendering
+Allow: /css/
+Allow: /js/
+Allow: /images/
+
+# Crawl delay (optional, be nice to servers)
+Crawl-delay: 1
