@@ -1613,12 +1613,124 @@ p, span, div {
 }
 
 
-/* Focus States */
+/* Accessibility: Skip Navigation Link */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--primary-color);
+  color: var(--white-color);
+  padding: 1rem 1.5rem;
+  text-decoration: none;
+  font-weight: 600;
+  z-index: 9999;
+  border-radius: 0 0 var(--radius-md) 0;
+  transform: translateY(-100%);
+  transition: transform 0.2s ease-in-out;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 3px solid var(--white-color);
+  outline-offset: 2px;
+}
+
+/* Accessibility: Screen Reader Only */
+.sr-only,
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.sr-only-focusable:focus,
+.visually-hidden-focusable:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* Enhanced Focus States for Accessibility */
 .btn:focus,
 .nav-link:focus,
-.social-link:focus {
+.social-link:focus,
+a:focus,
+button:focus {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
+}
+
+body.bg-dark .btn:focus,
+body.bg-dark .nav-link:focus,
+body.bg-dark .social-link:focus,
+body.bg-dark a:focus,
+body.bg-dark button:focus {
+  outline: 3px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+}
+
+/* Focus visible for keyboard users only (not mouse clicks) */
+.btn:focus-visible,
+.nav-link:focus-visible,
+.tech-item:focus-visible,
+.product-card:focus-visible {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(99, 102, 241, 0.2);
+}
+
+/* Ensure interactive elements have visible focus */
+.tech-category-header:focus-within,
+.tech-item:focus-within,
+.product-card:focus-within {
   outline: 2px solid var(--primary-color);
   outline-offset: 2px;
+}
+
+/* Accessibility: Color Contrast Improvements */
+.text-muted {
+  color: #5a6268 !important; /* Improved contrast from Bootstrap's default */
+}
+
+body.bg-dark .text-muted {
+  color: #b8bec4 !important; /* Improved contrast for dark mode */
+}
+
+/* Ensure sufficient contrast for links */
+a {
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .btn,
+  .card,
+  .tech-item,
+  .solution-card {
+    border: 2px solid currentColor !important;
+  }
+
+  a {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+  }
 }
 
 /* Print Styles */
