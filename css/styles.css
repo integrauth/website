@@ -1229,12 +1229,69 @@ a.text-decoration-none:hover .client-card {
 }
 
 /* Footer */
+footer {
+  padding-top: var(--space-3xl) !important;
+  padding-bottom: var(--space-3xl) !important;
+}
+
+/* Mobile: extra bottom padding */
+@media (max-width: 767.98px) {
+  footer {
+    padding-top: var(--space-2xl) !important;
+    padding-bottom: var(--space-4xl) !important;
+  }
+}
+
+/* Desktop: extra top padding */
+@media (min-width: 768px) {
+  footer {
+    padding-top: var(--space-4xl) !important;
+    padding-bottom: var(--space-3xl) !important;
+  }
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xl);
+  align-items: center;
+  justify-content: center;
+}
+
+/* Desktop: align to end */
+@media (min-width: 768px) {
+  .footer-links {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+}
+
 .footer-links a {
+  transition: var(--transition);
+  font-weight: 500;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  position: relative;
+  padding-bottom: 2px;
+}
+
+.footer-links a::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 2px;
+  bottom: 0;
+  left: 0;
+  background-color: var(--primary-color);
   transition: var(--transition);
 }
 
 .footer-links a:hover {
   color: var(--primary-color) !important;
+}
+
+.footer-links a:hover::after {
+  width: 100%;
 }
 
 /* Modern Buttons */
