@@ -17,6 +17,13 @@
   "license": "ISC",
   "devDependencies": {
     "browser-sync": "^3.0.4",
-    "live-server": "^1.2.2"
+    "clean-css-cli": "^5.6.3",
+    "html-minifier-terser": "^7.2.0",
+    "live-server": "^1.2.2",
+    "terser": "^5.44.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:24712/git/integrauth/website"
   }
 }
