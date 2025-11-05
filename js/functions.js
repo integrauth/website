@@ -27,15 +27,6 @@ function setLightTheme() {
   $(document).trigger('themeChanged', ['light']);
 }
 
-// Initialize Bootstrap Components
-function initBootstrapComponents() {
-  const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-  tooltipTriggerList.map(el => new bootstrap.Tooltip(el));
-
-  const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
-  popoverTriggerList.map(el => new bootstrap.Popover(el));
-}
-
 // Handle theme change events
 function handleThemeChange() {
   $(document).on('themeChanged', function(event, theme) {
@@ -143,7 +134,6 @@ $(function() {
   }
 
   // Initialize components
-  initBootstrapComponents();
   handleThemeChange();
   fixWhatsAppLinks();
 
@@ -197,12 +187,6 @@ document.addEventListener('keydown', function(event) {
 });
 
 // Export functions for global access
-window.IntegrAuth = {
-  toggleTheme: toggleAndSaveTheme,
-  setDarkTheme: setDarkTheme,
-  setLightTheme: setLightTheme
-};
-
 window.expandAllTech = expandAllTech;
 window.collapseAllTech = collapseAllTech;
 window.openProductModal = openProductModal;
