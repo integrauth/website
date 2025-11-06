@@ -368,7 +368,7 @@ body.bg-dark .hero-subtitle {
 .hero-features .row > [class*='col-'] {
   display: flex;
   flex: 1 1 0;
-  max-width: 25%;
+  max-width: 50%;
 }
 
 @media (max-width: 991.98px) {

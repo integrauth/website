@@ -1,6 +1,6 @@
 # CLAUDE.md - IntegrAuth Website
 
-> **Last Updated**: 2025-10-22
+> **Last Updated**: 2025-11-06
 > **Project**: IntegrAuth Official Website
 > **Repository**: github.com/integrauth/website
 > **Contact**: akhil@integrauth.com
@@ -106,6 +106,33 @@ website/
 **Add Client**: Place logo in `images/websites/`, update Clients section with name/description/badges
 
 **Modify Theme**: Update CSS custom properties in styles.css, test both light/dark modes
+
+### Asset Minification
+
+**Required Tools**: `clean-css-cli`, `terser`, `html-minifier-terser` (already in package.json)
+
+**Minify CSS**:
+```bash
+npx clean-css-cli -o css/styles.min.css css/styles.css
+```
+
+**Minify JavaScript**:
+```bash
+npx terser js/functions.js -o js/functions.min.js -c -m
+```
+
+**Minify HTML**:
+```bash
+npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
+  --collapse-whitespace --remove-comments --minify-css --minify-js
+```
+
+**After Minification**: Update cache version in index.html (e.g., `?v=1.7` → `?v=1.8`) for both CSS and JS references to ensure browsers load the new versions.
+
+**Cache Busting**: Increment version number in:
+- `<link rel="stylesheet" href="css/styles.min.css?v=X.X">`
+- `<link rel="preload" href="css/styles.min.css?v=X.X">`
+- `<script src="js/functions.min.js?v=X.X">`
 
 ---
 
