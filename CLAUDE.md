@@ -127,7 +127,7 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
   --collapse-whitespace --remove-comments --minify-css --minify-js
 ```
 
-**After Minification**: Update cache version in index.html (e.g., `?v=1.7` → `?v=1.8`) for both CSS and JS references to ensure browsers load the new versions.
+**After Minification**: Update cache version in index.html (e.g., `?v=1.7` → `?v=1.8`) for both CSS and JS references to ensure browsers load the new versions. And also update other html files like cancellation, privacy, support and terms.
 
 **Cache Busting**: Increment version number in:
 - `<link rel="stylesheet" href="css/styles.min.css?v=X.X">`
