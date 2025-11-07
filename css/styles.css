@@ -43,6 +43,32 @@
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Font Awesome - Override font-display for better performance */
+/* Ensures text remains visible during webfont load */
+@font-face {
+  font-family: 'Font Awesome 6 Brands';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-brands-400.woff2) format('woff2');
+}
+
+@font-face {
+  font-family: 'Font Awesome 6 Free';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2) format('woff2');
+}
+
+@font-face {
+  font-family: 'Font Awesome 6 Free';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url(https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2) format('woff2');
+}
+
 /* Performance Optimizations */
 /* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
@@ -674,6 +700,15 @@ body.bg-dark .tech-category {
   transition: background 0.3s ease;
   border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
   margin-bottom: var(--space-lg);
+  /* Button-specific styles for accessibility */
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
 
 .tech-category-header:hover {
