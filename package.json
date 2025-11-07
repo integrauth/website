@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "browser-sync start --server --files \"**/*.html, **/*.css, **/*.js\" --port 3000 --no-notify",
     "dev:live": "live-server --port=3000 --host=localhost --open=/index.html --watch=.",
-    "start": "npm run dev"
+    "start": "npm run dev",
+    "build:css": "cleancss -o css/styles.min.css css/styles.css",
+    "build:js": "terser js/functions.js -o js/functions.min.js --compress --mangle",
+    "build:html": "html-minifier-terser --input-dir ./ --output-dir ./dist --file-ext html --remove-comments --collapse-whitespace --minify-js true --minify-css true",
+    "build": "npm run build:css && npm run build:js && npm run build:html"
   },
   "keywords": [
     "IAM",
