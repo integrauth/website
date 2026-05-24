@@ -3093,3 +3093,709 @@ body.bg-dark .closing-hero-subtitle {
     background-position: 0% 50%;
   }
 }
+
+/* ==========================================================================
+   Theme Picker (dropdown) — shared by all themes
+   ========================================================================== */
+.theme-dropdown {
+  position: relative;
+  overflow: visible;
+}
+
+.theme-dropdown .theme-btn.dropdown-toggle::after,
+.theme-btn.dropdown-toggle::after {
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+/* Menu is portaled to <body> on open, so selectors are unscoped from .theme-dropdown */
+.theme-menu {
+  display: none;
+  z-index: 1100;
+  min-width: 220px;
+  padding: 0.5rem !important;
+  margin: 0;
+  list-style: none;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.98) !important;
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-xl);
+}
+
+.theme-menu.show {
+  display: block !important;
+}
+
+.theme-menu > li {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+body.bg-light .theme-menu {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.theme-option {
+  display: flex !important;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+body.bg-light .theme-option {
+  color: #212529;
+}
+
+.theme-option:hover,
+.theme-option:focus {
+  background: rgba(99, 102, 241, 0.15);
+  color: inherit;
+  outline: none;
+}
+
+.theme-option .theme-check {
+  margin-left: auto;
+  opacity: 0;
+  font-size: 0.8rem;
+  color: var(--primary-color);
+}
+
+.theme-option.active .theme-check {
+  opacity: 1;
+}
+
+.theme-option.active {
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   High-Contrast theme (body.bg-light.theme-contrast)
+   WCAG AAA-friendly: pure black/white, bold borders, no blur/gradients
+   ========================================================================== */
+body.bg-light.theme-contrast {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+body.theme-contrast,
+body.theme-contrast * {
+  text-shadow: none !important;
+}
+
+body.theme-contrast .navbar,
+body.theme-contrast .navbar-scrolled {
+  background-color: #ffffff !important;
+  backdrop-filter: none !important;
+  border-bottom: 2px solid #000000 !important;
+  box-shadow: none !important;
+}
+
+body.theme-contrast .navbar-brand,
+body.theme-contrast .navbar-nav .nav-link {
+  color: #000000 !important;
+}
+
+body.theme-contrast .navbar-nav .nav-link:hover,
+body.theme-contrast .navbar-nav .nav-link.active {
+  color: #000000 !important;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+body.theme-contrast .navbar-nav .nav-link::after {
+  background-color: #000000 !important;
+}
+
+body.theme-contrast .theme-btn {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 2px solid #000000 !important;
+  backdrop-filter: none !important;
+}
+
+body.theme-contrast .theme-btn:hover {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.theme-contrast .theme-menu {
+  background: #ffffff !important;
+  border: 2px solid #000000 !important;
+  backdrop-filter: none !important;
+  box-shadow: 4px 4px 0 #000000;
+}
+
+body.theme-contrast .theme-option {
+  color: #000000 !important;
+}
+
+body.theme-contrast .theme-option:hover,
+body.theme-contrast .theme-option:focus {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.theme-contrast .theme-option:hover .theme-check,
+body.theme-contrast .theme-option:focus .theme-check {
+  color: #ffffff !important;
+}
+
+body.theme-contrast .theme-option .theme-check {
+  color: #000000 !important;
+}
+
+body.theme-contrast .hero-section {
+  background: #ffffff !important;
+  animation: none !important;
+  border-bottom: 2px solid #000000;
+}
+
+body.theme-contrast .hero-section::before {
+  display: none !important;
+}
+
+body.theme-contrast .hero-title {
+  background: none !important;
+  -webkit-text-fill-color: #000000 !important;
+  color: #000000 !important;
+  filter: none !important;
+  animation: none !important;
+  text-shadow: none !important;
+}
+
+body.theme-contrast .hero-subtitle {
+  color: #000000 !important;
+  text-shadow: none !important;
+}
+
+body.theme-contrast .hero-logo {
+  filter: none !important;
+}
+
+body.theme-contrast .feature-card,
+body.theme-contrast .hero-features .row > [class*='col-']:nth-child(n) .feature-card,
+body.theme-contrast .solution-card,
+body.theme-contrast .solution-card:nth-child(n),
+body.theme-contrast .client-card,
+body.theme-contrast .client-card:nth-child(n),
+body.theme-contrast .tech-category,
+body.theme-contrast .tech-item,
+body.theme-contrast a.tech-item,
+body.theme-contrast .tech-item:nth-child(n),
+body.theme-contrast .product-card {
+  background: #ffffff !important;
+  border: 2px solid #000000 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+body.theme-contrast .feature-card h5,
+body.theme-contrast .feature-card p,
+body.theme-contrast .solution-card h4,
+body.theme-contrast .solution-card p,
+body.theme-contrast .client-card h5,
+body.theme-contrast .client-card p,
+body.theme-contrast .client-card .text-muted,
+body.theme-contrast .tech-category-title,
+body.theme-contrast .tech-item,
+body.theme-contrast .section-title,
+body.theme-contrast .section-subtitle,
+body.theme-contrast .product-card h3,
+body.theme-contrast .product-tagline,
+body.theme-contrast .product-card .text-muted {
+  color: #000000 !important;
+  text-shadow: none !important;
+}
+
+body.theme-contrast .feature-card i,
+body.theme-contrast .card-icon,
+body.theme-contrast .tech-category-title i,
+body.theme-contrast .tech-item i {
+  background: none !important;
+  -webkit-text-fill-color: #000000 !important;
+  color: #000000 !important;
+  animation: none !important;
+}
+
+body.theme-contrast .section-title::after {
+  background: #000000 !important;
+}
+
+body.theme-contrast .tech-item:hover,
+body.theme-contrast a.tech-item:hover {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+}
+
+body.theme-contrast .tech-item:hover i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+body.theme-contrast .tech-category-header:hover {
+  background: #f0f0f0 !important;
+}
+
+body.theme-contrast .products-section {
+  background: #ffffff !important;
+  animation: none !important;
+  border-top: 2px solid #000000 !important;
+  border-bottom: 2px solid #000000 !important;
+  box-shadow: none !important;
+}
+
+body.theme-contrast .products-section::before,
+body.theme-contrast .products-section::after {
+  display: none !important;
+}
+
+body.theme-contrast .products-section .section-title,
+body.theme-contrast .products-section .section-subtitle {
+  color: #000000 !important;
+  text-shadow: none !important;
+}
+
+body.theme-contrast #contact {
+  background: #000000 !important;
+  animation: none !important;
+  color: #ffffff !important;
+}
+
+body.theme-contrast #contact::before {
+  background: transparent !important;
+}
+
+body.theme-contrast #contact .section-title,
+body.theme-contrast #contact .lead,
+body.theme-contrast #contact .contact-info h5,
+body.theme-contrast #contact .social-links h6,
+body.theme-contrast #contact .contact-info a {
+  color: #ffffff !important;
+  text-shadow: none !important;
+}
+
+body.theme-contrast .social-link {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 2px solid #ffffff !important;
+  backdrop-filter: none !important;
+}
+
+body.theme-contrast .social-link i {
+  color: #000000 !important;
+}
+
+body.theme-contrast .social-link:hover {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border-color: #ffffff !important;
+}
+
+body.theme-contrast .social-link:hover i {
+  color: #ffffff !important;
+}
+
+body.theme-contrast .btn,
+body.theme-contrast .btn-outline-light {
+  border: 2px solid currentColor !important;
+}
+
+body.theme-contrast .closing-hero-title,
+body.theme-contrast .closing-hero-subtitle {
+  background: none !important;
+  -webkit-text-fill-color: #ffffff !important;
+  color: #ffffff !important;
+  animation: none !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+body.theme-contrast .closing-hero-title .text-primary {
+  background: none !important;
+  -webkit-text-fill-color: #ffffff !important;
+  color: #ffffff !important;
+}
+
+body.theme-contrast .product-modal-content {
+  background: #ffffff !important;
+  border: 2px solid #000000 !important;
+  box-shadow: 4px 4px 0 #000000 !important;
+}
+
+body.theme-contrast a {
+  color: #000000;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+body.theme-contrast a:hover,
+body.theme-contrast a:focus {
+  color: #000000;
+  background: #ffff00;
+}
+
+body.theme-contrast :focus-visible {
+  outline: 3px solid #000000 !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+body.theme-contrast ::selection {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.theme-contrast ::-moz-selection {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.theme-contrast ::-webkit-scrollbar-thumb {
+  background: #000000 !important;
+}
+
+/* ==========================================================================
+   Midnight Cyber theme (body.bg-dark.theme-cyber)
+   Deep navy + neon cyan accents
+   ========================================================================== */
+body.bg-dark.theme-cyber {
+  --primary-color: #22d3ee;
+  --primary-gradient: linear-gradient(135deg, #22d3ee 0%, #6366f1 50%, #a78bfa 100%);
+  background-color: #020617 !important;
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .navbar {
+  background-color: rgba(2, 6, 23, 0.85) !important;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.2);
+}
+
+body.theme-cyber .navbar-scrolled {
+  background-color: rgba(2, 6, 23, 0.98) !important;
+  box-shadow: 0 2px 30px rgba(34, 211, 238, 0.15);
+}
+
+body.theme-cyber .navbar-brand,
+body.theme-cyber .navbar-nav .nav-link {
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .navbar-nav .nav-link:hover,
+body.theme-cyber .navbar-nav .nav-link.active {
+  color: #22d3ee !important;
+  text-shadow: 0 0 8px rgba(34, 211, 238, 0.6);
+}
+
+body.theme-cyber .navbar-nav .nav-link::after {
+  background-color: #22d3ee !important;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.8);
+}
+
+body.theme-cyber .theme-btn {
+  background: rgba(34, 211, 238, 0.08) !important;
+  color: #67e8f9 !important;
+  border: 1px solid rgba(34, 211, 238, 0.5) !important;
+}
+
+body.theme-cyber .theme-btn:hover {
+  background: rgba(34, 211, 238, 0.2) !important;
+  color: #e0f2fe !important;
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
+}
+
+body.theme-cyber .theme-menu {
+  background: rgba(2, 6, 23, 0.98) !important;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.15);
+}
+
+body.theme-cyber .theme-option {
+  color: #cbd5e1 !important;
+}
+
+body.theme-cyber .theme-option:hover,
+body.theme-cyber .theme-option:focus {
+  background: rgba(34, 211, 238, 0.15) !important;
+  color: #22d3ee !important;
+}
+
+body.theme-cyber .theme-option .theme-check {
+  color: #22d3ee !important;
+}
+
+body.theme-cyber .hero-section {
+  background: linear-gradient(135deg, #020617 0%, #0c4a6e 25%, #155e75 50%, #312e81 75%, #1e1b4b 100%) !important;
+  background-size: 400% 400% !important;
+  animation: gradientShift 15s ease infinite !important;
+}
+
+body.theme-cyber .hero-title {
+  background: linear-gradient(45deg, #22d3ee, #67e8f9, #a78bfa, #c4b5fd, #22d3ee) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  filter: drop-shadow(0 0 20px rgba(34, 211, 238, 0.6)) !important;
+}
+
+body.theme-cyber .hero-subtitle {
+  color: rgba(186, 230, 253, 0.95);
+}
+
+body.theme-cyber .feature-card {
+  background: linear-gradient(145deg, rgba(2, 6, 23, 0.9), rgba(15, 23, 42, 0.85)) !important;
+  border: 1px solid rgba(34, 211, 238, 0.35) !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.15), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.theme-cyber .feature-card:hover {
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.4), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.theme-cyber .feature-card h5 {
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .feature-card p {
+  color: #cbd5e1 !important;
+}
+
+body.theme-cyber .feature-card i,
+body.theme-cyber .card-icon {
+  background: linear-gradient(135deg, #22d3ee, #a78bfa) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+body.theme-cyber .section-title {
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .section-title::after {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa) !important;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.6);
+}
+
+body.theme-cyber .section-subtitle {
+  color: #94a3b8 !important;
+}
+
+body.theme-cyber .solutions-section,
+body.theme-cyber .technologies-section,
+body.theme-cyber .clients-section {
+  background: #020617 !important;
+}
+
+body.theme-cyber .solution-card,
+body.theme-cyber .solution-card:nth-child(n) {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.85)) !important;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.1), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.theme-cyber .solution-card:hover {
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.35) !important;
+}
+
+body.theme-cyber .solution-card::before {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa) !important;
+}
+
+body.theme-cyber .solution-card h4 {
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .solution-card p {
+  color: #cbd5e1 !important;
+}
+
+body.theme-cyber .tech-category {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.8), rgba(2, 6, 23, 0.7)) !important;
+  border: 1px solid rgba(34, 211, 238, 0.2) !important;
+}
+
+body.theme-cyber .tech-category::before {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa) !important;
+}
+
+body.theme-cyber .tech-category-title {
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .tech-category-title i,
+body.theme-cyber .tech-category-header:hover .tech-category-title {
+  color: #22d3ee !important;
+}
+
+body.theme-cyber .tech-category-header:hover {
+  background: rgba(34, 211, 238, 0.06) !important;
+}
+
+body.theme-cyber .tech-category.collapsed-card:hover {
+  box-shadow: 0 12px 40px rgba(34, 211, 238, 0.25) !important;
+}
+
+body.theme-cyber .tech-category.collapsed-card:hover .tech-category-header {
+  background: rgba(34, 211, 238, 0.1) !important;
+}
+
+body.theme-cyber .tech-item,
+body.theme-cyber a.tech-item,
+body.theme-cyber .tech-item:nth-child(n) {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.7)) !important;
+  border: 1px solid rgba(34, 211, 238, 0.25) !important;
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .tech-item:hover,
+body.theme-cyber a.tech-item:hover {
+  background: linear-gradient(135deg, #22d3ee, #6366f1) !important;
+  border-color: #22d3ee !important;
+  color: #020617 !important;
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.5) !important;
+}
+
+body.theme-cyber .tech-item i {
+  color: #22d3ee !important;
+}
+
+body.theme-cyber .tech-item:hover i {
+  color: #020617 !important;
+}
+
+body.theme-cyber .client-card,
+body.theme-cyber .client-card:nth-child(n) {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.85)) !important;
+  border: 1px solid rgba(34, 211, 238, 0.25) !important;
+}
+
+body.theme-cyber .client-card::after {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa) !important;
+}
+
+body.theme-cyber .client-card h5 {
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .client-card p,
+body.theme-cyber .client-card .text-muted {
+  color: #cbd5e1 !important;
+}
+
+body.theme-cyber .client-icon,
+body.theme-cyber .partner-logo {
+  background: rgba(224, 242, 254, 0.95);
+}
+
+body.theme-cyber #contact {
+  background: linear-gradient(135deg, #020617 0%, #0c4a6e 25%, #155e75 50%, #312e81 75%, #020617 100%) !important;
+  background-size: 400% 400% !important;
+  animation: gradientShift 18s ease infinite !important;
+}
+
+body.theme-cyber .social-link:hover {
+  background: linear-gradient(135deg, #22d3ee, #6366f1) !important;
+  box-shadow: 0 0 25px rgba(34, 211, 238, 0.6) !important;
+}
+
+body.theme-cyber .products-section {
+  background:
+    linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(99, 102, 241, 0.15) 25%, rgba(167, 139, 250, 0.15) 50%, rgba(99, 102, 241, 0.15) 75%, rgba(34, 211, 238, 0.15) 100%),
+    linear-gradient(to bottom, #020617, #0a1628, #020617) !important;
+  background-size: 400% 400%, 100% 100% !important;
+  border-top-color: rgba(34, 211, 238, 0.4) !important;
+  border-bottom-color: rgba(34, 211, 238, 0.4) !important;
+  box-shadow:
+    inset 0 10px 30px rgba(34, 211, 238, 0.15),
+    inset 0 -10px 30px rgba(34, 211, 238, 0.15) !important;
+}
+
+body.theme-cyber .products-section .section-title,
+body.theme-cyber .products-section .section-subtitle {
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .product-card {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.85)) !important;
+  border: 1px solid rgba(34, 211, 238, 0.35) !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.15), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.theme-cyber .product-card:hover {
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 35px rgba(34, 211, 238, 0.4), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.theme-cyber .product-card::before {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa) !important;
+}
+
+body.theme-cyber .product-card h3 {
+  color: #e0f2fe !important;
+}
+
+body.theme-cyber .product-tagline,
+body.theme-cyber .product-card .text-muted {
+  color: #cbd5e1 !important;
+}
+
+body.theme-cyber .closing-hero-title {
+  background: linear-gradient(45deg, #22d3ee, #67e8f9, #a78bfa, #c4b5fd, #22d3ee) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+}
+
+body.theme-cyber .closing-hero-title .text-primary {
+  background: linear-gradient(45deg, #22d3ee, #a78bfa) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+body.theme-cyber .closing-hero-subtitle {
+  color: rgba(186, 230, 253, 0.9);
+}
+
+body.theme-cyber :focus-visible {
+  outline: 2px solid #22d3ee !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.6) !important;
+}
+
+body.theme-cyber ::selection {
+  background: #22d3ee !important;
+  color: #020617 !important;
+}
+
+body.theme-cyber ::-moz-selection {
+  background: #22d3ee !important;
+  color: #020617 !important;
+}
+
+body.theme-cyber ::-webkit-scrollbar-track {
+  background: #020617 !important;
+}
+
+body.theme-cyber ::-webkit-scrollbar-thumb {
+  background: #22d3ee !important;
+}
+
+body.theme-cyber ::-webkit-scrollbar-thumb:hover {
+  background: #67e8f9 !important;
+}

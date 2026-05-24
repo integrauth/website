@@ -1,41 +1,41 @@
 // Modern IntegrAuth Website Functions - Optimized
 
 // Theme Management
-function toggleAndSaveTheme() {
-  $("body").toggleClass("bg-light bg-dark");
-  const isDarkTheme = $("body").hasClass("bg-dark");
-  const themeBtn = $(".theme-btn");
+// Themes: light | dark | contrast (high-contrast, light-based) | cyber (midnight cyber, dark-based)
+const THEMES = {
+  light:    { base: 'bg-light', modifier: null,             icon: 'fa-sun',                label: 'Light' },
+  dark:     { base: 'bg-dark',  modifier: null,             icon: 'fa-moon',               label: 'Dark' },
+  contrast: { base: 'bg-light', modifier: 'theme-contrast', icon: 'fa-circle-half-stroke', label: 'High Contrast' },
+  cyber:    { base: 'bg-dark',  modifier: 'theme-cyber',    icon: 'fa-bolt',               label: 'Midnight Cyber' }
+};
 
-  themeBtn.html(isDarkTheme ? '<i class="fas fa-sun"></i> Light' : '<i class="fas fa-moon"></i> Dark');
-  localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
-  $(document).trigger('themeChanged', [isDarkTheme ? "dark" : "light"]);
-}
+function applyTheme(themeName) {
+  const theme = THEMES[themeName] || THEMES.light;
+  const $body = $('body');
+  const $navbar = $('.navbar');
 
-function setDarkTheme() {
-  $("body").addClass("bg-dark").removeClass("bg-light");
-  $(".navbar").addClass("navbar-dark").removeClass("navbar-light");
-  $(".theme-btn").html('<i class="fas fa-sun"></i> Light')
-    .removeClass("btn-outline-dark").addClass("btn-outline-light");
-  $(document).trigger('themeChanged', ['dark']);
-}
+  // Reset all theme classes, then apply the selected one
+  $body.removeClass('bg-light bg-dark theme-contrast theme-cyber');
+  $body.addClass(theme.base);
+  if (theme.modifier) $body.addClass(theme.modifier);
 
-function setLightTheme() {
-  $("body").addClass("bg-light").removeClass("bg-dark");
-  $(".navbar").addClass("navbar-light").removeClass("navbar-dark");
-  $(".theme-btn").html('<i class="fas fa-moon"></i> Dark')
-    .removeClass("btn-outline-light").addClass("btn-outline-dark");
-  $(document).trigger('themeChanged', ['light']);
-}
+  // Sync navbar Bootstrap utility classes with base theme
+  if (theme.base === 'bg-dark') {
+    $navbar.removeClass('bg-light navbar-light').addClass('bg-dark navbar-dark');
+  } else {
+    $navbar.removeClass('bg-dark navbar-dark').addClass('bg-light navbar-light');
+  }
 
-// Handle theme change events
-function handleThemeChange() {
-  $(document).on('themeChanged', function(event, theme) {
-    if (theme === 'dark') {
-      $('.navbar').removeClass('bg-light navbar-light').addClass('bg-dark navbar-dark');
-    } else {
-      $('.navbar').removeClass('bg-dark navbar-dark').addClass('bg-light navbar-light');
-    }
-  });
+  // Update toggle button label/icon
+  $('.theme-btn .theme-icon').attr('class', 'fas ' + theme.icon + ' theme-icon');
+  $('.theme-btn .theme-label').text(theme.label);
+
+  // Update active state in dropdown
+  $('.theme-option').removeClass('active').attr('aria-checked', 'false');
+  $('.theme-option[data-theme="' + themeName + '"]').addClass('active').attr('aria-checked', 'true');
+
+  localStorage.setItem('theme', themeName);
+  $(document).trigger('themeChanged', [themeName]);
 }
 
 // Optimized scroll handler with throttling
@@ -123,18 +123,81 @@ function closeProductModal(event) {
 
 // Initialize on DOM ready
 $(function() {
-  // Apply saved theme or system preference
+  // Apply saved theme; first-time visitors get Midnight Cyber by default
   const savedTheme = localStorage.getItem("theme");
-  const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const initialTheme = (savedTheme && THEMES[savedTheme]) ? savedTheme : 'cyber';
+  applyTheme(initialTheme);
 
-  if (savedTheme === "dark" || (!savedTheme && systemPrefersDark)) {
-    setDarkTheme();
-  } else {
-    setLightTheme();
+  // Theme picker: manual open/close (bypasses Bootstrap dropdown plugin)
+  // Menu is portaled to <body> on open so it escapes the navbar's backdrop-filter
+  // stacking context (which otherwise traps absolute/fixed descendants invisibly).
+  function positionThemeMenu($toggle, $menu) {
+    const rect = $toggle[0].getBoundingClientRect();
+    $menu.css({
+      position: 'fixed',
+      top: (rect.bottom + 8) + 'px',
+      right: (window.innerWidth - rect.right) + 'px',
+      left: 'auto',
+      margin: 0
+    });
   }
 
+  $(document).on('click', '.theme-btn.dropdown-toggle', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const $toggle = $(this);
+    const $menu = $('.theme-menu').first();
+    const wasOpen = $menu.hasClass('show');
+
+    $('.theme-menu').removeClass('show');
+    $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
+
+    if (!wasOpen) {
+      if (!$menu.parent().is('body')) {
+        $('body').append($menu);
+      }
+      positionThemeMenu($toggle, $menu);
+      $menu.addClass('show');
+      $toggle.attr('aria-expanded', 'true');
+    }
+  });
+
+  // Reposition on scroll/resize while open
+  $(window).on('scroll resize', function() {
+    const $menu = $('.theme-menu.show');
+    if ($menu.length) {
+      const $toggle = $('.theme-btn.dropdown-toggle');
+      positionThemeMenu($toggle, $menu);
+    }
+  });
+
+  // Close picker on outside click
+  $(document).on('click', function(e) {
+    if (!$(e.target).closest('.theme-dropdown').length) {
+      $('.theme-menu').removeClass('show');
+      $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
+    }
+  });
+
+  // Close picker on ESC
+  $(document).on('keydown', function(e) {
+    if (e.key === 'Escape') {
+      $('.theme-menu').removeClass('show');
+      $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
+    }
+  });
+
+  // Theme option selection
+  $(document).on('click', '.theme-option', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const themeName = $(this).data('theme');
+    if (themeName && THEMES[themeName]) applyTheme(themeName);
+    $('.theme-menu').removeClass('show');
+    $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
+  });
+
   // Initialize components
-  handleThemeChange();
   fixWhatsAppLinks();
 
   // Attach scroll handler with passive listener for better performance
