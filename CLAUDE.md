@@ -1,6 +1,6 @@
 # CLAUDE.md - IntegrAuth Website
 
-> **Last Updated**: 2025-11-06
+> **Last Updated**: 2026-07-06
 > **Project**: IntegrAuth Official Website
 > **Repository**: github.com/integrauth/website
 > **Contact**: akhil@integrauth.com
@@ -9,9 +9,11 @@
 
 ## Overview
 
-Enterprise-grade IAM and API Security company website. Static single-page application deployed on **integrauth.com** via GitHub Pages.
+Enterprise-grade IAM, API Security, and AI Security company website. Static single-page application deployed on **integrauth.com** via GitHub Pages.
 
-**Core Services**: Enterprise IAM, API Security Gateway, Cloud Integration (AWS/Azure/GCP), Enterprise SSO
+**Core Services**: AI & Agent Security (agent authentication, non-human identities, MCP security & secure MCP libraries, FGA/ReBAC, AI integrations), Enterprise IAM, API Security Gateway, Cloud Integration (AWS/Azure/GCP), Enterprise SSO
+
+**Brand line**: "Identity & Security for Humans, Machines & AI Agents" (AI-first rebrand, 2026-07)
 
 **Tech Stack**: HTML5, CSS3, JavaScript ES6+, jQuery 3.7.1, Bootstrap 5.3.3, Font Awesome 6.4.0
 
@@ -38,13 +40,14 @@ website/
 
 ### Page Sections (index.html)
 
-1. **Navbar** - Fixed top, smooth scroll, theme toggle, responsive menu
-2. **Hero** - Animated gradient background (15s), logo, feature cards
-3. **Solutions** - Cloud-Native IAM, API Security Gateway, Enterprise SSO
-4. **Tech Stack** - IAM platforms, API gateways, languages, IaC, testing tools
-5. **Clients** - Enkrypt AI, Cequence AI, I'Curity Solutions
-6. **Contact** - Email and social links
-7. **Footer** - Legal pages links
+1. **Navbar** - Fixed top, smooth scroll, theme picker dropdown (Light / Dark / High Contrast / Midnight Cyber), responsive menu
+2. **Hero** - Animated gradient background (15s), logo, tagline "Identity & Security for Humans, Machines & AI Agents", 6 feature cards (3×2 desktop, 2-across tablet)
+3. **Solutions** - Single auto-scrolling marquee row (`.services-marquee > .services-track > .service-slide`) with all 10 service cards; each card carries a `.service-tag` category pill ("AI & Agent Security" on the first 5: AI Integration Services, Agent Auth & Non-Human Identity, MCP Security & Secure Libraries, Fine-Grained Authorization, Securing AI Applications; "Identity, API & Engineering" on the last 5: Cloud-Native IAM, API Security Consulting, Enterprise SSO, Custom Software Development, Architecture & Design). Marquee pauses on hover/focus/touch, supports mouse drag + native touch scroll, loops seamlessly via cloned slides, and respects `prefers-reduced-motion`
+4. **Products** - Smartable, Wrenchub (cards + detail modals)
+5. **Tech Stack** - 17 collapsible categories, incl. Authorization & Policy (OpenFGA, OPA), Agent Identity & NHI (OAuth 2.1, Token Exchange, mTLS, service accounts, JWT), AI Tools, AI Agent Frameworks, AI Model Providers, AI Security & Guardrails (MCP Gateways, Enkrypt AI Guardrails, LiteLLM)
+6. **Clients** - Enkrypt AI, Cequence AI, I'Curity Solutions
+7. **Contact** - Email and social links, plus closing hero
+8. **Footer** - Legal pages links
 
 ### Design System (css/styles.css)
 
@@ -64,13 +67,21 @@ website/
 
 **Navigation**: Smooth scroll with custom easing, active link highlighting
 
+**Services Marquee**: `initServicesMarquee()` — rAF-driven `scrollLeft` auto-scroll (30px/s, direction via `data-direction`), pause on hover/focus/pointerdown, mouse drag-to-scroll, seamless wrap by normalizing `scrollLeft` into the first card set's range
+
 **Bootstrap**: Tooltips, popovers initialization
 
 ---
 
 ## Supported Technologies
 
-**IAM**: Auth0, Keycloak, Oracle IDM, Supabase
+**IAM**: Auth0, Keycloak, Oracle IDM, Supabase, AWS Cognito, Entra ID, Okta, Firebase Auth
+
+**Authorization & Policy**: OpenFGA, Open Policy Agent (OPA), ReBAC/FGA modeling, policy as code
+
+**Agent Identity & NHI**: OAuth 2.1, Token Exchange (RFC 8693), mTLS, service accounts & workload identity, JWT
+
+**AI Security & Guardrails**: MCP Gateways, Enkrypt AI Guardrails, LiteLLM, secure MCP libraries, prompt injection defense
 
 **API Gateways**: AWS, Azure, GCP, Kong, MuleSoft, WSO2, IBM DataPower, KrakenD, Cloudflare
 
@@ -140,7 +151,9 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
 
 **Key Functions**: `toggleAndSaveTheme()`, `initSmoothScrolling()`, `initBootstrapComponents()`
 
-**Sections**: #navbar, #home, #solutions, #technologies, #clients, #contact
+**Sections**: #navbar, #home, #solutions, #products, #technologies, #clients, #contact
+
+**Verification**: See [.claude/skills/verify/SKILL.md](.claude/skills/verify/SKILL.md) — serve locally + Playwright across all 4 themes and 3 viewports; check FA glyphs render (CDN is FA 6.4.0) and no 404s
 
 **File Sizes**: index.html (19KB), styles.css (31KB), functions.js (6KB), images (568KB), terms.html (226KB)
 

@@ -98,6 +98,121 @@ function collapseAllTech() {
   $('.tech-category-title .collapse-icon').removeClass('fa-chevron-down').addClass('fa-chevron-right');
 }
 
+// Services marquee: auto-scroll, pause on hover/focus/touch, mouse drag to scroll.
+// Each .services-marquee loops its .services-track seamlessly by cloning the card
+// set and normalizing scrollLeft back into the first set's range each frame.
+function initServicesMarquee() {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  document.querySelectorAll('.services-marquee').forEach(function (marquee) {
+    const track = marquee.querySelector('.services-track');
+    if (!track || !track.children.length) return;
+
+    const originals = Array.prototype.slice.call(track.children);
+    const setCount = originals.length;
+
+    function cloneSet() {
+      originals.forEach(function (node) {
+        const clone = node.cloneNode(true);
+        clone.setAttribute('aria-hidden', 'true');
+        track.appendChild(clone);
+      });
+    }
+
+    // Duplicate until there is a full set plus a viewport of overflow to hide the wrap
+    cloneSet();
+    let setWidth = track.children[setCount].offsetLeft - track.children[0].offsetLeft;
+    while (setWidth > 0 && track.scrollWidth < marquee.clientWidth + setWidth * 2) cloneSet();
+
+    const SPEED = 30; // px per second
+    const dir = marquee.getAttribute('data-direction') === 'rtl' ? -1 : 1;
+    let pos = dir === 1 ? 1 : setWidth;
+    let paused = false;
+    let dragging = false;
+    let resumeTimer = null;
+    let lastT = null;
+
+    marquee.scrollLeft = pos;
+
+    function pause() {
+      clearTimeout(resumeTimer);
+      paused = true;
+    }
+
+    function scheduleResume(delay) {
+      clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(function () { paused = false; }, delay);
+    }
+
+    // Hover pauses; leaving resumes (unless mid-drag)
+    marquee.addEventListener('mouseenter', pause);
+    marquee.addEventListener('mouseleave', function () {
+      if (!dragging) scheduleResume(300);
+    });
+
+    // Keyboard focus pauses so arrow-key scrolling isn't fought
+    marquee.addEventListener('focusin', pause);
+    marquee.addEventListener('focusout', function () { scheduleResume(800); });
+
+    // Mouse drag to scroll; touch uses native scrolling, just pause while it happens
+    let lastX = 0;
+    marquee.addEventListener('pointerdown', function (e) {
+      pause();
+      if (e.pointerType !== 'mouse') return;
+      dragging = true;
+      lastX = e.clientX;
+      marquee.classList.add('dragging');
+      marquee.setPointerCapture(e.pointerId);
+    });
+
+    marquee.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      marquee.scrollLeft -= e.clientX - lastX;
+      lastX = e.clientX;
+    });
+
+    function endDrag(e) {
+      if (e.pointerType !== 'mouse') {
+        scheduleResume(1800); // let touch momentum finish before resuming
+        return;
+      }
+      if (!dragging) return;
+      dragging = false;
+      marquee.classList.remove('dragging');
+      if (!marquee.matches(':hover')) scheduleResume(300);
+    }
+    marquee.addEventListener('pointerup', endDrag);
+    marquee.addEventListener('pointercancel', endDrag);
+
+    // Card widths change at the mobile breakpoint
+    window.addEventListener('resize', function () {
+      setWidth = track.children[setCount].offsetLeft - track.children[0].offsetLeft;
+    });
+
+    function frame(t) {
+      if (lastT === null) lastT = t;
+      const dt = Math.min((t - lastT) / 1000, 0.1);
+      lastT = t;
+
+      const auto = !paused && !dragging && !reduceMotion;
+      if (auto) {
+        pos += dir * SPEED * dt;
+      } else {
+        pos = marquee.scrollLeft; // follow the user while they interact
+      }
+
+      // Seamless wrap: keep position within [1, setWidth + 1)
+      if (pos < 1) pos += setWidth;
+      else if (pos >= setWidth + 1) pos -= setWidth;
+
+      if (auto || Math.abs(pos - marquee.scrollLeft) > 1) marquee.scrollLeft = pos;
+
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
 // Product Modal Functions
 function openProductModal(productId) {
   const modal = document.getElementById('productModal');
@@ -199,6 +314,7 @@ $(function() {
 
   // Initialize components
   fixWhatsAppLinks();
+  initServicesMarquee();
 
   // Attach scroll handler with passive listener for better performance
   $(window).on('scroll', handleScroll);
