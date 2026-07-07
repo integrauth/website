@@ -40,3 +40,6 @@ logs/
 # Testing
 coverage/
 .nyc_output/
+
+# Internal product planning docs (never deploy to public site)
+product-plans/
