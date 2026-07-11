@@ -1,6 +1,6 @@
 # CLAUDE.md - IntegrAuth Website
 
-> **Last Updated**: 2026-07-06
+> **Last Updated**: 2026-07-11
 > **Project**: IntegrAuth Official Website
 > **Repository**: github.com/integrauth/website
 > **Contact**: akhil@integrauth.com
@@ -25,7 +25,7 @@ Enterprise-grade IAM, API Security, and AI Security company website. Static sing
 
 ```
 website/
-├── index.html, privacy.html, terms.html, support.html, cancellation.html
+├── index.html, academy.html, privacy.html, terms.html, support.html, cancellation.html
 ├── css/styles.css (31KB, 1353 lines)
 ├── js/functions.js (6KB, 192 lines)
 ├── images/
@@ -42,13 +42,25 @@ website/
 
 1. **Navbar** - Fixed top, smooth scroll, theme picker dropdown (Light / Dark / High Contrast / Midnight Cyber), responsive menu
 2. **Hero** - Animated gradient background (15s), logo, tagline "Identity & Security for Humans, Machines & AI Agents", subtitle listing core services (no feature cards — they duplicated the Services marquee and were removed 2026-07)
-3. **Solutions** - Single auto-scrolling marquee row (`.services-marquee > .services-track > .service-slide`) with all 10 service cards; each card carries a `.service-tag` category pill ("AI & Agent Security" on the first 5: AI Integration Services, Agent Auth & Non-Human Identity, MCP Security & Secure Libraries, Fine-Grained Authorization, Securing AI Applications; "Identity, API & Engineering" on the last 5: Cloud-Native IAM, API Security Consulting, Enterprise SSO, Custom Software Development, Architecture & Design). Marquee pauses on hover/focus/touch, supports mouse drag + native touch scroll, loops seamlessly via cloned slides, and respects `prefers-reduced-motion`
+3. **Solutions** - Single auto-scrolling marquee row (`.services-marquee > .services-track > .service-slide`) with all 12 service cards; each card carries a `.service-tag` category pill ("AI & Agent Security" on the first 5: AI Integration Services, Agent Auth & Non-Human Identity, MCP Security & Secure Libraries, Fine-Grained Authorization, Securing AI Applications; "Identity, API & Engineering" on the last 7: Cloud-Native IAM, API Security Consulting, Enterprise SSO, Custom Software Development, Architecture & Design, Customer Identity & Advanced Authentication, Identity Threat Detection & Response). Marquee pauses on hover/focus/touch, supports mouse drag + native touch scroll, loops seamlessly via cloned slides, and respects `prefers-reduced-motion`
 4. **Free Security Tools** (`#tools`) - 27 micro-tool cards linking to `*.integrauth.com` subdomains, split into two Bootstrap-collapse groups ("AI & Agent Security · 5 tools" `#tools-ai`, "Identity, API & Engineering · 22 tools" `#tools-iam`), both collapsed by default; group pill (`.tools-group-header`) toggles with chevron flip
-5. **Products** - Smartable, Wrenchub (cards + detail modals)
-6. **Tech Stack** - 17 collapsible categories, all collapsed by default (headers ship `aria-expanded="false"` + `collapsed-card` class, grids without `.show`), incl. Authorization & Policy (OpenFGA, OPA), Agent Identity & NHI (OAuth 2.1, Token Exchange, mTLS, service accounts, JWT), AI Tools, AI Agent Frameworks, AI Model Providers, AI Security & Guardrails (MCP Gateways, Enkrypt AI Guardrails, LiteLLM)
-7. **Clients** - Enkrypt AI, Cequence AI, I'Curity Solutions
-8. **Contact** - Email and social links, plus closing hero
-9. **Footer** - Legal pages links
+5. **Academy promo banner** (`#academy-promo`, a `<div>` not a `<section>` so the scroll-spy section↔nav-link index mapping stays intact) - gradient `.acad-banner` CTA linking to academy.html
+6. **Products** - Smartable, Wrenchub (cards + detail modals)
+7. **Tech Stack** - 17 collapsible categories, all collapsed by default (headers ship `aria-expanded="false"` + `collapsed-card` class, grids without `.show`), incl. Authorization & Policy (OpenFGA, OPA), Agent Identity & NHI (OAuth 2.1, Token Exchange, mTLS, service accounts, JWT), AI Tools, AI Agent Frameworks, AI Model Providers, AI Security & Guardrails (MCP Gateways, Enkrypt AI Guardrails, LiteLLM)
+8. **Clients** - Enkrypt AI, Cequence AI, I'Curity Solutions
+9. **Contact** - Email and social links, plus closing hero
+10. **Footer** - Legal pages links
+
+### IntegrAuth Academy (academy.html, added 2026-07-11)
+
+Standalone free-learning page: 5 tracks / 37 byte-sized lessons (Foundations "Identity 101" ×13, Modern Authentication ×8, Token Security ×5, AI & Agent Security ×7, Identity Operations ×4), ported (genericized, standards-based) from a client sample app's learning modules. Structure:
+
+- **Hub** (`#acadHub`): 5 `.acad-track-card`s with static lesson TOCs (SEO/noscript-friendly)
+- **Reader** (`#acadReader`): one-lesson-at-a-time via `initAcademy()` in functions.js — hash routing (`#lesson-id`), chip nav per track, prev/next pager, localStorage progress (`acad_pos`/`acad_read`), quiz reveal buttons, glossary live filter (input injected by JS)
+- **Lessons**: `<section class="acad-lesson" data-track data-num data-short data-title>`; content blocks: `.acad-chnum`, `.acad-lead`, `.acad-grid`/`.acad-card`, callouts `.acad-box.acad-{analogy,story,why,watch}`, `.acad-table`, `.acad-try` (links to the free tools), `.acad-quiz`, `.acad-glossary`
+- **Diagrams**: hand-authored inline SVG `<figure class="acad-fig">`, colored ONLY via `ax-*` classes (`ax-actor/ax-human/ax-bad/ax-atext/ax-life/ax-msg/ax-ret/ax-note/ax-em/ax-block/ax-ring/ax-arrowhead`) backed by `--acad-*` CSS variables themed per body class — never hardcode colors in lesson SVGs
+- **Fictional cast** (keep consistent): Maya (customer), Sam (partner agent), Priya (employee), Bot A (RPA bot), Kai (AI agent), Zara (security operator)
+- Vendor-neutral rule: lessons cite standards (RFCs, OpenID, W3C/FIDO, NIST) and open source (OpenFGA/OPA/SPIFFE) only — no IdP vendor or client names
 
 ### Design System (css/styles.css)
 
@@ -69,6 +81,8 @@ website/
 **Navigation**: Smooth scroll with custom easing, active link highlighting
 
 **Services Marquee**: `initServicesMarquee()` — rAF-driven `scrollLeft` auto-scroll (30px/s, direction via `data-direction`), pause on hover/focus/pointerdown, mouse drag-to-scroll, seamless wrap by normalizing `scrollLeft` into the first card set's range
+
+**Academy**: `initAcademy()` — no-ops unless `#acadReader` exists (academy.html only)
 
 **Bootstrap**: Tooltips, popovers initialization
 
@@ -152,7 +166,7 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
 
 **Key Functions**: `toggleAndSaveTheme()`, `initSmoothScrolling()`, `initBootstrapComponents()`
 
-**Sections**: #navbar, #home, #solutions, #tools, #products, #technologies, #clients, #contact
+**Sections**: #navbar, #home, #solutions, #tools, #academy-promo, #products, #technologies, #clients, #contact; academy.html: #acadHub, #acadReader
 
 **Verification**: See [.claude/skills/verify/SKILL.md](.claude/skills/verify/SKILL.md) — serve locally + Playwright across all 4 themes and 3 viewports; check FA glyphs render (CDN is FA 6.4.0) and no 404s
 

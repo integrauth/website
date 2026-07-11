@@ -7,9 +7,17 @@
   <!-- Homepage -->
   <url>
     <loc>https://integrauth.com/</loc>
-    <lastmod>2025-11-05</lastmod>
+    <lastmod>2026-07-11</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+  </url>
+
+  <!-- IntegrAuth Academy -->
+  <url>
+    <loc>https://integrauth.com/academy.html</loc>
+    <lastmod>2026-07-11</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
   </url>
 
   <!-- Privacy Policy -->

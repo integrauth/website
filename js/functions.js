@@ -54,14 +54,16 @@ function handleScroll() {
       navbar.removeClass('navbar-scrolled');
     }
 
-    // Active navigation state
-    const scrollDistance = scroll + 100;
-    $('section').each(function(i) {
-      if ($(this).position().top <= scrollDistance) {
-        $('.navbar-nav .nav-link.active').removeClass('active');
-        $('.navbar-nav .nav-link').eq(i).addClass('active');
-      }
-    });
+    // Active navigation state (single-page index only)
+    if (document.getElementById('home')) {
+      const scrollDistance = scroll + 100;
+      $('section').each(function(i) {
+        if ($(this).position().top <= scrollDistance) {
+          $('.navbar-nav .nav-link.active').removeClass('active');
+          $('.navbar-nav .nav-link').eq(i).addClass('active');
+        }
+      });
+    }
 
     scrollTimeout = null;
   }, 100); // Throttle to 100ms
@@ -315,6 +317,7 @@ $(function() {
   // Initialize components
   fixWhatsAppLinks();
   initServicesMarquee();
+  initAcademy();
 
   // Attach scroll handler with passive listener for better performance
   $(window).on('scroll', handleScroll);
@@ -370,3 +373,240 @@ window.expandAllTech = expandAllTech;
 window.collapseAllTech = collapseAllTech;
 window.openProductModal = openProductModal;
 window.closeProductModal = closeProductModal;
+
+// ===== IntegrAuth Academy (academy.html) =====
+// One-lesson-at-a-time reader with track hub, chip nav, pager,
+// localStorage progress, quiz reveals, and glossary live filter.
+function initAcademy() {
+  const reader = document.getElementById('acadReader');
+  const hub = document.getElementById('acadHub');
+  if (!reader || !hub) return;
+
+  const TRACK_LABELS = {
+    foundations: 'Foundations',
+    authn: 'Modern Authentication',
+    tokens: 'Token Security',
+    ai: 'AI & Agents',
+    ops: 'Identity Operations'
+  };
+
+  const lessons = Array.prototype.slice.call(document.querySelectorAll('.acad-lesson'));
+  const byId = {};
+  lessons.forEach(function (s) { byId[s.id] = s; });
+
+  const KEY_POS = 'acad_pos';
+  const KEY_READ = 'acad_read';
+
+  function readSet() {
+    try { return new Set(JSON.parse(localStorage.getItem(KEY_READ) || '[]')); }
+    catch (e) { return new Set(); }
+  }
+
+  function saveRead(set) {
+    try { localStorage.setItem(KEY_READ, JSON.stringify(Array.from(set))); } catch (e) {}
+  }
+
+  function trackOf(lesson) { return lesson.getAttribute('data-track'); }
+
+  function trackLessons(track) {
+    return lessons.filter(function (s) { return trackOf(s) === track; });
+  }
+
+  function updateProgress() {
+    const read = readSet();
+    const opened = lessons.filter(function (s) { return read.has(s.id); }).length;
+    const fill = document.getElementById('acadProgressFill');
+    const text = document.getElementById('acadProgressText');
+    if (fill) fill.style.width = Math.round((opened / lessons.length) * 100) + '%';
+    if (text) text.textContent = opened + '/' + lessons.length + ' lessons read';
+    // Hub: per-track counts + checkmarks
+    document.querySelectorAll('.acad-track-toc a').forEach(function (a) {
+      const id = (a.getAttribute('href') || '').slice(1);
+      const done = read.has(id);
+      a.classList.toggle('acad-read', done);
+      let check = a.querySelector('.acad-toc-check');
+      if (done && !check) {
+        check = document.createElement('i');
+        check.className = 'fas fa-check acad-toc-check';
+        check.setAttribute('aria-hidden', 'true');
+        a.appendChild(check);
+      } else if (!done && check) {
+        check.remove();
+      }
+    });
+    document.querySelectorAll('.acad-track-card').forEach(function (card) {
+      const track = card.getAttribute('data-track');
+      const items = trackLessons(track);
+      const done = items.filter(function (s) { return read.has(s.id); }).length;
+      const meta = card.querySelector('.acad-track-done');
+      if (meta) meta.textContent = done ? done + '/' + items.length + ' read' : items.length + ' lessons';
+    });
+  }
+
+  function buildChips(track, activeId) {
+    const chips = document.getElementById('acadChips');
+    if (!chips) return;
+    chips.innerHTML = '';
+    const read = readSet();
+    trackLessons(track).forEach(function (s) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'acad-chip' + (s.id === activeId ? ' active' : '');
+      btn.setAttribute('data-goto', s.id);
+      const num = s.getAttribute('data-num');
+      btn.innerHTML = '<span class="acad-chip-num">' + (num === '0' ? '★' : num) + '</span>' +
+        (s.getAttribute('data-short') || s.getAttribute('data-title') || s.id) +
+        (read.has(s.id) ? ' <i class="fas fa-check acad-chip-check" aria-hidden="true"></i>' : '');
+      chips.appendChild(btn);
+    });
+  }
+
+  function buildPager(lesson) {
+    const pager = document.getElementById('acadPager');
+    if (!pager) return;
+    pager.innerHTML = '';
+    const idx = lessons.indexOf(lesson);
+    const prev = lessons[idx - 1];
+    const next = lessons[idx + 1];
+    if (prev) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'acad-page-btn';
+      b.setAttribute('data-goto', prev.id);
+      b.textContent = '← ' + prev.getAttribute('data-title');
+      pager.appendChild(b);
+    } else {
+      pager.appendChild(document.createElement('span'));
+    }
+    if (next) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'acad-page-btn';
+      b.setAttribute('data-goto', next.id);
+      b.textContent = next.getAttribute('data-title') + ' →';
+      pager.appendChild(b);
+    } else {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'acad-page-btn';
+      b.setAttribute('data-goto', '__hub__');
+      b.textContent = 'Back to all tracks ↺';
+      pager.appendChild(b);
+    }
+  }
+
+  function showHub() {
+    reader.hidden = true;
+    hub.hidden = false;
+    lessons.forEach(function (s) { s.classList.remove('is-active'); });
+    if (location.hash) history.replaceState(null, '', location.pathname);
+    try { localStorage.removeItem(KEY_POS); } catch (e) {}
+    updateProgress();
+    window.scrollTo({ top: 0 });
+  }
+
+  function showLesson(id, skipScroll) {
+    const lesson = byId[id];
+    if (!lesson) return false;
+    hub.hidden = true;
+    reader.hidden = false;
+    lessons.forEach(function (s) { s.classList.toggle('is-active', s === lesson); });
+    const track = trackOf(lesson);
+    const label = document.getElementById('acadTrackLabel');
+    if (label) label.textContent = TRACK_LABELS[track] || track;
+    const read = readSet();
+    read.add(id);
+    saveRead(read);
+    try { localStorage.setItem(KEY_POS, id); } catch (e) {}
+    buildChips(track, id);
+    buildPager(lesson);
+    updateProgress();
+    if ('#' + id !== location.hash) history.replaceState(null, '', '#' + id);
+    if (!skipScroll) window.scrollTo({ top: 0 });
+    return true;
+  }
+
+  // Delegated navigation: chips, pager, hub links, in-lesson cross-links
+  document.addEventListener('click', function (e) {
+    const gotoBtn = e.target.closest('[data-goto]');
+    if (gotoBtn) {
+      e.preventDefault();
+      const id = gotoBtn.getAttribute('data-goto');
+      if (id === '__hub__') showHub(); else showLesson(id);
+      return;
+    }
+    const link = e.target.closest('a[href^="#"]');
+    if (link && byId[(link.getAttribute('href') || '').slice(1)]) {
+      e.preventDefault();
+      showLesson(link.getAttribute('href').slice(1));
+      return;
+    }
+    const reveal = e.target.closest('.acad-reveal');
+    if (reveal) {
+      const answer = reveal.parentElement.querySelector('.acad-answer');
+      if (answer) {
+        answer.hidden = !answer.hidden;
+        reveal.textContent = answer.hidden ? 'Reveal answer' : 'Hide answer';
+      }
+    }
+  });
+
+  const backBtn = document.getElementById('acadBack');
+  if (backBtn) backBtn.addEventListener('click', showHub);
+
+  const resetBtn = document.getElementById('acadReset');
+  if (resetBtn) resetBtn.addEventListener('click', function () {
+    try {
+      localStorage.removeItem(KEY_POS);
+      localStorage.removeItem(KEY_READ);
+    } catch (e) {}
+    showHub();
+  });
+
+  window.addEventListener('hashchange', function () {
+    const id = location.hash.slice(1);
+    if (byId[id]) showLesson(id); else if (!id) showHub();
+  });
+
+  // Glossary live filter (input injected here so no-JS pages stay clean)
+  const glossary = document.querySelector('.acad-glossary');
+  if (glossary) {
+    const input = document.createElement('input');
+    input.type = 'search';
+    input.className = 'acad-filter';
+    input.placeholder = 'Filter terms…';
+    input.setAttribute('aria-label', 'Filter glossary terms');
+    glossary.insertBefore(input, glossary.firstChild);
+    input.addEventListener('input', function () {
+      const q = input.value.trim().toLowerCase();
+      glossary.querySelectorAll('.acad-dl').forEach(function (dl) {
+        let any = false;
+        let show = false;
+        Array.prototype.forEach.call(dl.children, function (el) {
+          if (el.tagName === 'DT') {
+            show = !q || (el.textContent + ' ' +
+              (el.nextElementSibling ? el.nextElementSibling.textContent : ''))
+              .toLowerCase().indexOf(q) !== -1;
+            if (show) any = true;
+          }
+          el.style.display = show ? '' : 'none';
+        });
+        dl.style.display = any ? '' : 'none';
+        const letter = dl.previousElementSibling;
+        if (letter && letter.classList.contains('acad-letter')) {
+          letter.style.display = any ? '' : 'none';
+        }
+      });
+    });
+  }
+
+  // Boot: URL hash wins > saved position > hub
+  const initial = location.hash.slice(1);
+  if (initial && byId[initial]) {
+    showLesson(initial, true);
+  } else {
+    let saved = null;
+    try { saved = localStorage.getItem(KEY_POS); } catch (e) {}
+    if (saved && byId[saved]) showLesson(saved, true); else showHub();
+  }
+}
