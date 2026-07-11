@@ -61,7 +61,6 @@
 .hero-logo,
 .hero-title,
 .navbar,
-.feature-card,
 .solution-card,
 .client-card,
 .tech-item {
@@ -347,171 +346,6 @@ body.bg-dark .hero-subtitle {
 
 .hero-tagline strong {
   font-weight: 800;
-}
-
-/* Modern Feature Cards */
-.feature-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.95));
-  backdrop-filter: blur(20px);
-  padding: var(--space-2xl) var(--space-lg);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-xl);
-  transition: var(--transition);
-  height: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  position: relative;
-  overflow: visible;
-  min-height: 260px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-
-/* Ensure all cards in the row have equal height and width */
-.hero-features {
-  max-width: 100%;
-  width: 100%;
-}
-
-.hero-features .row {
-  display: flex;
-  flex-wrap: wrap;
-  margin-left: 0;
-  margin-right: 0;
-}
-
-.hero-features .row > [class*='col-'] {
-  display: flex;
-  flex: 1 1 0;
-  max-width: 50%;
-}
-
-/* Six feature cards: 3 per row on desktop */
-@media (min-width: 992px) {
-  .hero-features .row > [class*='col-'] {
-    flex: 1 1 33.3333%;
-    max-width: 33.3333%;
-  }
-}
-
-@media (max-width: 991.98px) {
-  .hero-features .row > [class*='col-'] {
-    flex: 1 1 50%;
-    max-width: 50%;
-  }
-}
-
-@media (max-width: 575.98px) {
-  .hero-features .row > [class*='col-'] {
-    flex: 1 1 0;
-    max-width: 100%;
-  }
-}
-
-/* Target cards via their parent columns */
-.hero-features .row > [class*='col-']:nth-child(1) .feature-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.92));
-  border: 2px solid rgba(99, 102, 241, 0.6);
-  box-shadow: 0 8px 25px rgba(99, 102, 241, 0.35), 0 4px 12px rgba(99, 102, 241, 0.25);
-}
-
-.hero-features .row > [class*='col-']:nth-child(2) .feature-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.92));
-  border: 2px solid rgba(16, 185, 129, 0.6);
-  box-shadow: 0 8px 25px rgba(16, 185, 129, 0.35), 0 4px 12px rgba(16, 185, 129, 0.25);
-}
-
-.hero-features .row > [class*='col-']:nth-child(3) .feature-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.92));
-  border: 2px solid rgba(245, 158, 11, 0.6);
-  box-shadow: 0 8px 25px rgba(245, 158, 11, 0.35), 0 4px 12px rgba(245, 158, 11, 0.25);
-}
-
-.hero-features .row > [class*='col-']:nth-child(4) .feature-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.92));
-  border: 2px solid rgba(236, 72, 153, 0.6);
-  box-shadow: 0 8px 25px rgba(236, 72, 153, 0.35), 0 4px 12px rgba(236, 72, 153, 0.25);
-}
-
-.hero-features .row > [class*='col-']:nth-child(5) .feature-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.92));
-  border: 2px solid rgba(6, 182, 212, 0.6);
-  box-shadow: 0 8px 25px rgba(6, 182, 212, 0.35), 0 4px 12px rgba(6, 182, 212, 0.25);
-}
-
-.hero-features .row > [class*='col-']:nth-child(6) .feature-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.92));
-  border: 2px solid rgba(139, 92, 246, 0.6);
-  box-shadow: 0 8px 25px rgba(139, 92, 246, 0.35), 0 4px 12px rgba(139, 92, 246, 0.25);
-}
-
-body.bg-dark .feature-card {
-  background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92)) !important;
-  border: 2px solid rgba(255, 255, 255, 0.4) !important;
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4) !important;
-}
-
-.feature-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s;
-}
-
-.feature-card:hover::before {
-  left: 100%;
-}
-
-.feature-card:hover {
-  transform: translateY(-5px);
-  box-shadow: var(--shadow-lg);
-}
-
-.feature-card i {
-  background: var(--primary-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: iconPulse 2s ease-in-out infinite;
-}
-
-@keyframes iconPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.1); }
-}
-
-.feature-card h5 {
-  font-weight: 700;
-  font-size: 1.1rem;
-  margin-bottom: var(--space-md);
-  color: #1a1a1a;
-  letter-spacing: -0.01em;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
-}
-
-.feature-card p {
-  color: #2d3748;
-  line-height: 1.7;
-  font-weight: 600;
-  font-size: 0.95rem;
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.3);
-}
-
-body.bg-dark .feature-card h5 {
-  color: #f8f9fa;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
-}
-
-body.bg-dark .feature-card p {
-  color: #e9ecef;
-  font-weight: 600;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
 }
 
 /* Modern Section Titles */
@@ -3423,8 +3257,6 @@ body.theme-contrast .hero-logo {
   filter: none !important;
 }
 
-body.theme-contrast .feature-card,
-body.theme-contrast .hero-features .row > [class*='col-']:nth-child(n) .feature-card,
 body.theme-contrast .solution-card,
 body.theme-contrast .solution-card:nth-child(n),
 body.theme-contrast .client-card,
@@ -3440,8 +3272,6 @@ body.theme-contrast .product-card {
   backdrop-filter: none !important;
 }
 
-body.theme-contrast .feature-card h5,
-body.theme-contrast .feature-card p,
 body.theme-contrast .solution-card h4,
 body.theme-contrast .solution-card p,
 body.theme-contrast .client-card h5,
@@ -3458,7 +3288,6 @@ body.theme-contrast .product-card .text-muted {
   text-shadow: none !important;
 }
 
-body.theme-contrast .feature-card i,
 body.theme-contrast .card-icon,
 body.theme-contrast .tech-category-title i,
 body.theme-contrast .tech-item i {
@@ -3705,26 +3534,6 @@ body.theme-cyber .service-tag {
   border-color: rgba(34, 211, 238, 0.4) !important;
 }
 
-body.theme-cyber .feature-card {
-  background: linear-gradient(145deg, rgba(2, 6, 23, 0.9), rgba(15, 23, 42, 0.85)) !important;
-  border: 1px solid rgba(34, 211, 238, 0.35) !important;
-  box-shadow: 0 0 20px rgba(34, 211, 238, 0.15), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
-}
-
-body.theme-cyber .feature-card:hover {
-  border-color: #22d3ee !important;
-  box-shadow: 0 0 30px rgba(34, 211, 238, 0.4), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
-}
-
-body.theme-cyber .feature-card h5 {
-  color: #e0f2fe !important;
-}
-
-body.theme-cyber .feature-card p {
-  color: #cbd5e1 !important;
-}
-
-body.theme-cyber .feature-card i,
 body.theme-cyber .card-icon {
   background: linear-gradient(135deg, #22d3ee, #a78bfa) !important;
   -webkit-background-clip: text !important;
@@ -3999,6 +3808,27 @@ body.theme-cyber ::-webkit-scrollbar-thumb:hover {
 .tools-group-tag {
   font-size: 0.8rem;
   padding: 0.35rem 1rem;
+}
+
+.tools-group-header {
+  cursor: pointer;
+}
+
+/* Tighten spacing while a tools group is collapsed */
+.tools-group:has(.tools-grid:not(.show)) {
+  margin-bottom: var(--space-lg);
+}
+
+.tools-group:has(.tools-grid:not(.show)) .tools-group-header {
+  margin-bottom: 0 !important;
+}
+
+.tools-group-header .collapse-icon {
+  transition: transform 0.3s ease;
+}
+
+.tools-group-header:hover .tools-group-tag {
+  filter: brightness(1.15);
 }
 
 .tools-grid {

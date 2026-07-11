@@ -326,14 +326,14 @@ $(function() {
     }
   });
 
-  // Handle tech section collapse icons
-  $('.tech-grid').on('show.bs.collapse', function() {
-    $(this).siblings('.tech-category-header').find('.collapse-icon')
+  // Handle tech section and tools group collapse icons
+  $('.tech-grid, .tools-grid').on('show.bs.collapse', function() {
+    $(this).siblings('.tech-category-header, .tools-group-header').find('.collapse-icon')
       .removeClass('fa-chevron-right').addClass('fa-chevron-down');
   });
 
-  $('.tech-grid').on('hide.bs.collapse', function() {
-    $(this).siblings('.tech-category-header').find('.collapse-icon')
+  $('.tech-grid, .tools-grid').on('hide.bs.collapse', function() {
+    $(this).siblings('.tech-category-header, .tools-group-header').find('.collapse-icon')
       .removeClass('fa-chevron-down').addClass('fa-chevron-right');
   });
 
