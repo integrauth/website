@@ -165,19 +165,29 @@ function initServicesMarquee() {
 
     // Mouse drag to scroll; touch uses native scrolling, just pause while it happens
     let lastX = 0;
+    let dragStartX = 0;
+    let dragMoved = false;
     marquee.addEventListener('pointerdown', function (e) {
       pause();
       if (e.pointerType !== 'mouse') return;
       dragging = true;
       lastX = e.clientX;
+      dragStartX = e.clientX;
+      dragMoved = false;
       marquee.classList.add('dragging');
-      marquee.setPointerCapture(e.pointerId);
     });
 
     marquee.addEventListener('pointermove', function (e) {
       if (!dragging) return;
       marquee.scrollLeft -= e.clientX - lastX;
       lastX = e.clientX;
+      // Capture the pointer only once this is a real drag: capturing on
+      // pointerdown would retarget the resulting click to the marquee itself,
+      // so clicks on cards inside it (product modals) would never fire.
+      if (!dragMoved && Math.abs(e.clientX - dragStartX) > 6) {
+        dragMoved = true;
+        marquee.setPointerCapture(e.pointerId);
+      }
     });
 
     function endDrag(e) {
@@ -188,6 +198,15 @@ function initServicesMarquee() {
       if (!dragging) return;
       dragging = false;
       marquee.classList.remove('dragging');
+      // A real drag must not count as a click on whatever card it ended over
+      // (product cards open modals on click). Swallow the click the browser
+      // fires right after pointerup; disarm on the next tick so genuine
+      // clicks are unaffected.
+      if (dragMoved) {
+        const swallow = function (ev) { ev.stopPropagation(); ev.preventDefault(); };
+        marquee.addEventListener('click', swallow, true);
+        setTimeout(function () { marquee.removeEventListener('click', swallow, true); }, 0);
+      }
       if (!marquee.matches(':hover')) scheduleResume(300);
     }
     marquee.addEventListener('pointerup', endDrag);

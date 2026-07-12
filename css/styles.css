@@ -5548,3 +5548,33 @@ body.theme-cyber .back-to-top {
     font-size: 0.95rem;
   }
 }
+
+/* ============================================
+   Products marquee (reuses .services-marquee)
+   ============================================ */
+
+.product-slide {
+  flex: 0 0 400px;
+  width: 400px;
+}
+
+.product-slide .product-card {
+  width: 100%;
+  min-height: 0;
+  padding: var(--space-2xl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Pin the Learn More button to the card foot so all five cards align */
+.product-slide .product-card .btn {
+  margin-top: auto;
+}
+
+@media (max-width: 575.98px) {
+  .product-slide {
+    flex-basis: 310px;
+    width: 310px;
+  }
+}

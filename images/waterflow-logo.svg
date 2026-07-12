@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600" role="img" aria-label="waterflow icon">
+  <defs>
+    <style>
+      .drop { fill:#1E9BD7; }
+      .drop-rim { fill:#14608F; }
+      .shine { fill:#CFEBFF; }
+      .route { fill:none; stroke:#FFFFFF; stroke-width:30; stroke-linecap:round; }
+      .route-head { fill:#FFFFFF; }
+      .stop { fill:#FF7A2D; stroke:#FFFFFF; stroke-width:12; }
+      .rupee { fill:none; stroke:#14608F; stroke-width:18; stroke-linecap:round; }
+    </style>
+  </defs>
+
+  <!-- water drop -->
+  <path class="drop-rim" d="M300 28 C300 28 108 250 108 388 C108 496 194 576 300 576 C406 576 492 496 492 388 C492 250 300 28 300 28 Z"/>
+  <path class="drop" d="M300 70 C300 70 136 262 136 386 C136 480 210 548 300 548 C390 548 464 480 464 386 C464 262 300 70 300 70 Z"/>
+  <path class="shine" d="M212 300 C186 340 168 382 172 420 C176 452 196 478 224 488 C204 428 202 362 212 300 Z"/>
+
+  <!-- circular delivery route with arrowhead and a stop pin -->
+  <path class="route" d="M300 268 A118 118 0 1 0 418 386"/>
+  <path class="route-head" d="M300 218 L354 268 L300 318 Z"/>
+  <circle class="stop" cx="418" cy="386" r="30"/>
+
+  <!-- rupee mark at the route's center (monthly statements + UPI) -->
+  <g transform="translate(300,388)">
+    <path class="rupee" d="M-36 -44 H36 M-36 -12 H36 M-14 -44 C16 -44 24 -30 24 -14 C24 6 8 16 -14 16 L28 58"/>
+  </g>
+</svg>

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600" role="img" aria-label="hallbook icon">
+  <defs>
+    <style>
+      .arch { fill:#D9480F; }
+      .arch-dark { fill:#A33409; }
+      .opening { fill:#FFF4EC; }
+      .light { fill:#FFC53D; }
+      .cal { fill:#1E73C9; }
+      .cal-top { fill:#184E80; }
+      .cal-face { fill:#FFFFFF; }
+      .cell { fill:#CFE9FF; }
+      .cell-busy { fill:#FF7A2D; }
+      .check { fill:none; stroke:#22A06B; stroke-width:26; stroke-linecap:round; stroke-linejoin:round; }
+    </style>
+  </defs>
+
+  <!-- function-hall arch -->
+  <path class="arch" d="M80 560 V300 C80 160 178 70 300 70 C422 70 520 160 520 300 V560 H448 V308 C448 200 384 138 300 138 C216 138 152 200 152 308 V560 Z"/>
+  <rect class="arch-dark" x="64" y="536" width="472" height="40" rx="14"/>
+  <path class="opening" d="M152 560 V308 C152 200 216 138 300 138 C384 138 448 200 448 308 V560 Z"/>
+
+  <!-- festival lights along the arch -->
+  <circle class="light" cx="184" cy="212" r="16"/>
+  <circle class="light" cx="242" cy="164" r="16"/>
+  <circle class="light" cx="300" cy="148" r="16"/>
+  <circle class="light" cx="358" cy="164" r="16"/>
+  <circle class="light" cx="416" cy="212" r="16"/>
+
+  <!-- booking calendar inside the hall -->
+  <g transform="translate(192,268)">
+    <rect class="cal" x="0" y="24" width="216" height="196" rx="20"/>
+    <rect class="cal-top" x="36" y="0" width="24" height="48" rx="12"/>
+    <rect class="cal-top" x="156" y="0" width="24" height="48" rx="12"/>
+    <rect class="cal-face" x="16" y="64" width="184" height="140" rx="10"/>
+    <rect class="cell" x="32" y="80" width="44" height="34" rx="8"/>
+    <rect class="cell-busy" x="86" y="80" width="44" height="34" rx="8"/>
+    <rect class="cell" x="140" y="80" width="44" height="34" rx="8"/>
+    <rect class="cell" x="32" y="124" width="44" height="34" rx="8"/>
+    <rect class="cell" x="86" y="124" width="44" height="34" rx="8"/>
+    <path class="check" d="M140 138 L162 160 L204 112"/>
+  </g>
+</svg>
