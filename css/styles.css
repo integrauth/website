@@ -5083,36 +5083,23 @@ body.theme-contrast .acad-banner .btn {
   .acad-banner { padding: 1.5rem 1.4rem; }
 }
 
-/* Homepage banner: all-tracks summary grid (collapsed by default) */
+/* Homepage banner: all-tracks dropdown — reuses the .tools-group-header
+   component so it matches the site's other collapse bars in every theme;
+   only layout inside the banner flex + a CSS chevron rotate differ */
 .acad-banner-tracks-toggle {
   flex: 1 1 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: var(--radius-lg);
-  padding: 0.6rem 0.9rem;
-  color: #fff;
-  font-weight: 700;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: var(--transition);
-  margin-top: 0.4rem;
+  width: 100%;
+  margin: 0.4rem 0 0;
+  color: var(--dark-color); /* don't inherit the banner's #fff — match body text like the tools bars */
 }
 
-.acad-banner-tracks-toggle:hover,
-.acad-banner-tracks-toggle:focus-visible {
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
-}
+body.bg-dark .acad-banner-tracks-toggle { color: var(--light-color); }
+body.theme-contrast .acad-banner-tracks-toggle { color: #000; }
 
-.acad-btt-chevron { transition: transform 0.25s ease; }
-.acad-banner-tracks-toggle:not(.collapsed) .acad-btt-chevron { transform: rotate(180deg); }
+.acad-banner-tracks-toggle:not(.collapsed) .collapse-icon { transform: rotate(90deg); }
 
 @media (prefers-reduced-motion: reduce) {
-  .acad-btt-chevron { transition: none; }
+  .acad-banner-tracks-toggle .collapse-icon { transition: none; }
 }
 
 .acad-banner-tracks-wrap { flex: 1 1 100%; }
@@ -5172,7 +5159,6 @@ body.theme-contrast .acad-banner .btn {
 }
 
 body.theme-contrast .acad-banner-track { background: #000; border-color: #fff; }
-body.theme-contrast .acad-banner-tracks-toggle { background: #000; border-color: #fff; }
 body.theme-contrast .acad-bt-num { background: #ffd60a; color: #000; }
 
 @media (max-width: 991px) {
