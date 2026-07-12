@@ -1573,6 +1573,7 @@ AcadLabs.register('lab-fga', {
   title: 'The tuple playground',
   blurb: 'Write and delete relationship tuples in a tiny ReBAC store, then run Check() and watch the resolution path (or the denial) change.',
   render: function (root, h) {
+    var log = h.logPanel();
     // Tuple = {s: subject, r: relation, o: object}. Subject may be a userset like group:x#member.
     var tuples = [
       { s: 'folder:strategy', r: 'parent', o: 'doc:roadmap' },
@@ -1616,7 +1617,10 @@ AcadLabs.register('lab-fga', {
       tuples.forEach(function (t, idx) {
         listBox.appendChild(h.row([
           h.badge(t.s + ' · ' + t.r + ' · ' + t.o, 'info'),
-          h.button('✕', 'ghost', function () { tuples.splice(idx, 1); renderList(); })
+          h.button('✕', 'ghost', function () {
+            tuples.splice(idx, 1); renderList();
+            log.add('warn', 'DELETE tuple (' + t.s + ', ' + t.r + ', ' + t.o + ') — the fact is gone, so any path through it collapses');
+          })
         ]));
       });
       if (!tuples.length) listBox.appendChild(h.note('Store is empty — every Check will DENY.'));
@@ -1637,8 +1641,9 @@ AcadLabs.register('lab-fga', {
       h.row([h.field('subject', subj), h.field('relation', addRel), h.field('object', addObj)]),
       h.button('+ Write tuple', 'primary', function () {
         var s = subj.value, r = addRel.value, o = addObj.value;
-        if (tuples.some(function (t) { return t.s === s && t.r === r && t.o === o; })) return;
+        if (tuples.some(function (t) { return t.s === s && t.r === r && t.o === o; })) { log.add('info', 'Tuple (' + s + ', ' + r + ', ' + o + ') already in the store — writes are idempotent'); return; }
         tuples.push({ s: s, r: r, o: o }); renderList(); h.flash(listBox);
+        log.add('ok', 'WRITE tuple (' + s + ', ' + r + ', ' + o + ')');
       })
     ]);
 
@@ -1656,9 +1661,11 @@ AcadLabs.register('lab-fga', {
         if (path) {
           result.appendChild(h.badge('ALLOW', 'ok'));
           result.appendChild(h.el('p', { class: 'acad-lab-note' }, u + ' → ' + path.join(' → ') + ' ⇒ ' + r));
+          log.add('ok', 'Check(' + u + ', ' + r + ', ' + o + ') → ALLOW via ' + path.join(' → '));
         } else {
           result.appendChild(h.badge('DENY', 'bad'));
           result.appendChild(h.note('No relationship path from ' + u + ' to ' + r + ' of ' + o + '.'));
+          log.add('bad', 'Check(' + u + ', ' + r + ', ' + o + ') → DENY — no relationship path');
         }
         h.flash(result);
       })
@@ -1670,6 +1677,8 @@ AcadLabs.register('lab-fga', {
       h.col([checkForm, h.panel('Result', result)])
     ]));
     root.appendChild(h.note('Try: remove "user:priya · member · group:leadership" then re-check priya/viewer/doc:roadmap — the whole inherited path collapses. Or make Maya a viewer of just doc:roadmap and watch folder:strategy stay off-limits.'));
+    root.appendChild(h.panel('Event log', log.root));
+    log.add('info', 'Store seeded with 4 tuples. Every write, delete, and Check lands here.');
   }
 });
 
@@ -1819,6 +1828,15 @@ AcadLabs.register('lab-ciba', {
     function show(node) { out.innerHTML = ''; out.appendChild(node); h.flash(out); }
 
     var clock = h.meter(100, 'ok');
+    var clockWrap = h.field('time left', clock.root);
+    var clockLabel = clockWrap.querySelector('.acad-lab-field-label');
+    clockWrap.style.display = 'none'; // only meaningful while a request is pending
+    function setClock(secs) {
+      if (secs == null) { clockWrap.style.display = 'none'; return; }
+      clockWrap.style.display = '';
+      clockLabel.textContent = secs > 0 ? 'time left · ' + secs + 's' : 'time left · expired';
+      clock.set(secs / 60 * 100, secs <= 0 ? 'bad' : secs > 15 ? 'ok' : 'warn');
+    }
     var phoneBox = h.el('div', {});
     function renderPhone() {
       phoneBox.innerHTML = '';
@@ -1838,7 +1856,10 @@ AcadLabs.register('lab-ciba', {
 
     function decide(d) {
       if (expired || decision) return;
-      decision = d; renderPhone();
+      decision = d;
+      if (timer) { clearInterval(timer); timer = null; }
+      setClock(null); // Maya answered — the expiry countdown no longer applies
+      renderPhone();
       log.add(d === 'approve' ? 'ok' : 'bad', 'Maya ' + (d === 'approve' ? 'APPROVED' : 'DENIED') + ' ' + binding + ' on her phone');
     }
 
@@ -1846,9 +1867,10 @@ AcadLabs.register('lab-ciba', {
       reqId = 'req-' + h.rand(12); decision = null; expired = false; remaining = 60;
       binding = 'PAY-' + h.rand(4).toUpperCase() + ' · $120 · to ' + acct;
       if (timer) clearInterval(timer);
+      setClock(remaining);
       timer = h.interval(function () {
-        remaining--; clock.set(remaining / 60 * 100, remaining > 15 ? 'ok' : 'warn');
-        if (remaining <= 0) { expired = true; clock.set(0, 'bad'); clearInterval(timer); renderPhone(); log.add('warn', 'auth_req_id expired — Maya never answered'); }
+        remaining--; setClock(remaining);
+        if (remaining <= 0) { expired = true; clearInterval(timer); timer = null; renderPhone(); log.add('warn', 'auth_req_id expired — Maya never answered'); }
       }, 1000);
       renderPhone();
       log.add('info', 'Sam → POST /bc-authorize (login_hint=maya, binding_message="' + binding + '")');
@@ -1884,7 +1906,7 @@ AcadLabs.register('lab-ciba', {
       h.panel('Sam (partner agent · no browser)', [
         h.button('1 · Initiate  /bc-authorize', 'primary', initiate),
         h.button('2 · Poll  /token', 'ghost', poll),
-        h.field('time left', clock.root)
+        clockWrap
       ]),
       h.panel('Endpoint response', out)
     ]);
