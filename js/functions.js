@@ -710,6 +710,65 @@ function initAcademy() {
     updateProgress();
   });
 
+  // Progress export / import — portability without accounts (all client-side).
+  const KEY_EXAM = 'acad_exam';
+  if (resetAllBtn && resetAllBtn.parentNode) {
+    const foot = resetAllBtn.parentNode;
+
+    const exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.id = 'acadExport';
+    exportBtn.textContent = '⬇ Export progress';
+    exportBtn.addEventListener('click', function () {
+      let data = { v: 1, read: [], quiz: {}, exam: null };
+      try { data.read = JSON.parse(localStorage.getItem(KEY_READ) || '[]'); } catch (e) {}
+      try { data.quiz = JSON.parse(localStorage.getItem(KEY_QUIZ) || '{}'); } catch (e) {}
+      try { data.exam = JSON.parse(localStorage.getItem(KEY_EXAM) || 'null'); } catch (e) {}
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'integrauth-academy-progress.json';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    });
+
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = 'application/json,.json';
+    importInput.style.display = 'none';
+    importInput.addEventListener('change', function () {
+      const file = importInput.files && importInput.files[0];
+      if (!file) return;
+      const fr = new FileReader();
+      fr.onload = function () {
+        let data;
+        try { data = JSON.parse(fr.result); } catch (e) { window.alert('That file is not valid Academy progress.'); return; }
+        if (!data || !Array.isArray(data.read)) { window.alert('That file is not valid Academy progress.'); return; }
+        if (!window.confirm('Restore progress from this file? It replaces your current progress on this device.')) { importInput.value = ''; return; }
+        try {
+          localStorage.setItem(KEY_READ, JSON.stringify(data.read));
+          localStorage.setItem(KEY_QUIZ, JSON.stringify(data.quiz || {}));
+          if (data.exam) localStorage.setItem(KEY_EXAM, JSON.stringify(data.exam));
+        } catch (e) {}
+        document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
+        updateProgress();
+        importInput.value = '';
+        window.alert('Progress restored — ' + data.read.length + ' lessons marked read.');
+      };
+      fr.readAsText(file);
+    });
+
+    const importBtn = document.createElement('button');
+    importBtn.type = 'button';
+    importBtn.id = 'acadImport';
+    importBtn.textContent = '⬆ Import progress';
+    importBtn.addEventListener('click', function () { importInput.click(); });
+
+    foot.appendChild(exportBtn);
+    foot.appendChild(importBtn);
+    foot.appendChild(importInput);
+  }
+
   window.addEventListener('hashchange', function () {
     const id = location.hash.slice(1);
     if (byId[id]) showLesson(id); else if (!id) showHub();

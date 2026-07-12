@@ -9840,3 +9840,164 @@ AcadLabs.register('lab-recon', {
     log.add('info', 'Priya left 3 months ago but an app account still works. Run reconciliation to find every account that drifted out of sync.');
   }
 });
+
+/* ================= Challenge mode — break it, then fix it (hub widget) ================= */
+
+var ACAD_CHALLENGES = [
+  {
+    title: 'The leaky single-page app',
+    scene: 'A team ships a browser SPA that stores the access token AND refresh token in localStorage so JavaScript can attach them to API calls. It works perfectly in the demo.',
+    setup: { 'Token storage': 'localStorage (readable by any script)', 'Transport': 'HTTPS', 'CSP': 'none' },
+    flawQ: 'What is the real vulnerability here?',
+    flaws: ['HTTPS is too slow', 'Any XSS-injected script can read the tokens straight out of localStorage', 'localStorage is too small for tokens', 'Refresh tokens should be in localStorage, access tokens in cookies'],
+    flawA: 1,
+    fixQ: 'What is the right fix?',
+    fixes: ['Obfuscate the JavaScript', 'Use a longer token', 'Move tokens server-side behind a BFF; give the browser only an HttpOnly session cookie', 'Store tokens in a regular cookie the JS can read'],
+    fixA: 2,
+    ref: 'r1-bff', refLabel: 'Where tokens live & the BFF'
+  },
+  {
+    title: 'The over-trusting pipeline',
+    scene: 'To let the nightly CI job deploy to the cloud, an engineer pastes a long-lived cloud access key into the CI system’s environment variables. Deploys work great.',
+    setup: { 'Credential': 'Long-lived static cloud key', 'Stored in': 'CI environment variables', 'Rotation': 'never' },
+    flawQ: 'Why is this dangerous?',
+    flaws: ['CI is too slow for cloud keys', 'A static secret in CI can leak via logs, forks or screenshots and never expires — huge blast radius', 'The key is too short', 'Cloud keys should be in the code instead'],
+    flawA: 1,
+    fixQ: 'The right fix?',
+    fixes: ['Email the key to the team', 'Use workload identity federation: CI presents its signed OIDC identity and exchanges it for short-lived cloud credentials — zero stored secrets', 'Rotate the key once a year', 'Base64-encode the key'],
+    fixA: 1,
+    ref: 'w2-wif', refLabel: 'Workload identity federation'
+  },
+  {
+    title: 'The forgotten tenant filter',
+    scene: 'A multi-tenant SaaS stores every customer’s records in one shared table with a tenant_id column. A new endpoint runs GET /invoice/:id looking up by id only.',
+    setup: { 'Isolation model': 'Pool (shared table + tenant_id)', 'Query': 'SELECT * FROM invoices WHERE id = :id', 'Tenant check': 'none' },
+    flawQ: 'What breaks here?',
+    flaws: ['The table is too big', 'Tenant A can read Tenant B’s invoice by guessing an id — cross-tenant BOLA', 'tenant_id should be a string', 'Shared tables are always fine'],
+    flawA: 1,
+    fixQ: 'The fix?',
+    fixes: ['Add more columns', 'Scope EVERY query by the tenant claim from the token: WHERE id = :id AND tenant_id = :tenant, and test it', 'Hide the id in the UI', 'Trust the frontend to filter'],
+    fixA: 1,
+    ref: 'r3-tenancy', refLabel: 'Multi-tenancy isolation'
+  },
+  {
+    title: 'The blind approval',
+    scene: 'An app uses push MFA: after a correct password, the user gets an "Approve sign-in?" prompt with a single tap. An attacker who bought the password from a breach dump starts spamming prompts at 3am.',
+    setup: { 'Second factor': 'Push approve/deny', 'Number matching': 'off', 'Rate limit': 'none' },
+    flawQ: 'What’s the weakness?',
+    flaws: ['Push is unbreakable', 'MFA fatigue — a tired or rushed user taps Approve to make the buzzing stop, handing over the account', 'Passwords are fine alone', 'The prompt is too small'],
+    flawA: 1,
+    fixQ: 'Best fix?',
+    fixes: ['Send more prompts', 'Require number matching (type the 2 digits shown on the login screen) plus lockout after repeated denials — and prefer passkeys', 'Remove MFA', 'Use SMS instead'],
+    fixA: 1,
+    ref: 'atk2-fatigue', refLabel: 'MFA fatigue'
+  },
+  {
+    title: 'The unverified link-up',
+    scene: 'A consumer app lets people sign up with email+password OR a social login. To be helpful, it auto-links a social login to any existing account with the same email address.',
+    setup: { 'Linking rule': 'Auto-link by email', 'Email verified by provider?': 'not checked', 'Re-auth on link': 'no' },
+    flawQ: 'Where’s the hole?',
+    flaws: ['Social login is always unsafe', 'An attacker using a provider that asserts a victim’s email (unverified) gets auto-linked into the victim’s account — takeover', 'Passwords are too long', 'Email is a bad username'],
+    flawA: 1,
+    fixQ: 'The correct fix?',
+    fixes: ['Ban social login', 'Only link when the upstream email is verified AND the user proves control of the existing account (fresh re-login), or link only via explicit user action', 'Link by phone instead', 'Trust every provider'],
+    fixA: 1,
+    ref: 'c3-social', refLabel: 'Social login & the linking trap'
+  }
+];
+
+AcadLabs.register('lab-challenge', {
+  title: 'Challenge mode — break it, then fix it',
+  blurb: 'Five real-world misconfigurations from across the Academy. For each: spot the flaw, then choose the fix. No hints — this is where it all comes together.',
+  render: function (root, h) {
+    var idx = 0, score = 0, answered = false;
+    var host = h.el('div');
+    root.appendChild(host);
+
+    function render() {
+      var c = ACAD_CHALLENGES[idx];
+      host.innerHTML = '';
+      answered = false;
+
+      var setupRows = Object.keys(c.setup).map(function (k) {
+        return h.el('div', { 'class': 'acad-chal-row' }, [
+          h.el('span', { 'class': 'acad-chal-k' }, k),
+          h.el('span', { 'class': 'acad-chal-v' }, c.setup[k])
+        ]);
+      });
+
+      var flawPicked = null, fixPicked = null;
+      var fixWrap = h.el('div');
+      var result = h.el('div', { 'class': 'acad-chal-result', 'aria-live': 'polite' });
+
+      function optList(opts, onPick) {
+        return h.el('div', { 'class': 'acad-chal-opts' }, opts.map(function (t, i) {
+          var b = h.button(t, '', function () { onPick(i, b); });
+          b.classList.add('acad-chal-opt');
+          return b;
+        }));
+      }
+
+      function lock(container, correctIdx, pickedIdx) {
+        var btns = container.querySelectorAll('.acad-chal-opt');
+        for (var i = 0; i < btns.length; i++) {
+          btns[i].disabled = true;
+          if (i === correctIdx) btns[i].classList.add('is-correct');
+          else if (i === pickedIdx) btns[i].classList.add('is-wrong');
+        }
+      }
+
+      var flawBox = optList(c.flaws, function (i, b) {
+        if (flawPicked !== null) return;
+        flawPicked = i;
+        lock(flawBox, c.flawA, i);
+        // reveal the fix question
+        fixWrap.appendChild(h.el('p', { 'class': 'acad-chal-q' }, c.fixQ));
+        var fixBox = optList(c.fixes, function (j) {
+          if (fixPicked !== null) return;
+          fixPicked = j;
+          lock(fixBox, c.fixA, j);
+          answered = true;
+          var got = (i === c.flawA) && (j === c.fixA);
+          if (got) score++;
+          result.appendChild(h.badge(got ? 'Solved — flaw and fix both correct' : 'Not quite — see the highlighted answers', got ? 'ok' : 'bad'));
+          result.appendChild(h.el('p', { 'class': 'acad-chal-learn' }, [
+            document.createTextNode('Learn more: '),
+            (function () { var a = h.el('a', { href: '#' + c.ref, 'data-goto': c.ref }, c.refLabel); return a; })()
+          ]));
+          var next = h.button(idx + 1 < ACAD_CHALLENGES.length ? 'Next challenge ▶' : 'See your score', 'primary', function () {
+            if (idx + 1 < ACAD_CHALLENGES.length) { idx++; render(); } else finish();
+          });
+          result.appendChild(next);
+        });
+        fixWrap.appendChild(fixBox);
+      });
+
+      host.appendChild(h.panel(null, [
+        h.el('div', { 'class': 'acad-chal-head' }, [
+          h.badge('Challenge ' + (idx + 1) + ' / ' + ACAD_CHALLENGES.length, 'info'),
+          h.el('h4', { 'class': 'acad-chal-title' }, c.title)
+        ]),
+        h.el('p', { 'class': 'acad-chal-scene' }, c.scene),
+        h.el('div', { 'class': 'acad-chal-setup' }, setupRows),
+        h.el('p', { 'class': 'acad-chal-q' }, c.flawQ),
+        flawBox,
+        fixWrap,
+        result
+      ]));
+    }
+
+    function finish() {
+      host.innerHTML = '';
+      host.appendChild(h.panel(null, [
+        h.el('h4', { 'class': 'acad-chal-title' }, 'You solved ' + score + ' / ' + ACAD_CHALLENGES.length),
+        h.badge(score === ACAD_CHALLENGES.length ? 'Flawless — you think like a defender' : 'Good — replay the ones you missed', score === ACAD_CHALLENGES.length ? 'ok' : 'warn'),
+        h.el('div', { 'class': 'acad-lab-row' }, [
+          h.button('Replay', '', function () { idx = 0; score = 0; render(); })
+        ])
+      ]));
+    }
+
+    render();
+  }
+});

@@ -161,6 +161,7 @@ body.bg-dark .navbar-nav .nav-link {
 
 .navbar-nav .nav-link:hover {
   color: var(--primary-color) !important;
+  text-decoration: none; /* the ::after bar is the hover underline */
 }
 
 .navbar-nav .nav-link.active {
@@ -5938,4 +5939,102 @@ body.theme-cyber .back-to-top {
 
 @media (prefers-reduced-motion: reduce) {
   .acad-search-hit, .acad-path-link, .acad-path-card { transition: none; }
+}
+
+/* --- Academy Challenge mode --- */
+.acad-chal-title {
+  margin: 0.3rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--acad-ink);
+}
+
+.acad-chal-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.acad-chal-scene {
+  color: var(--acad-ink);
+  line-height: 1.55;
+}
+
+.acad-chal-setup {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.6rem 0 0.9rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 8px;
+  background: var(--acad-block);
+}
+
+.acad-chal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.acad-chal-k { color: var(--acad-muted); }
+.acad-chal-v { color: var(--acad-ink); font-weight: 600; text-align: right; }
+
+.acad-chal-q {
+  font-weight: 700;
+  color: var(--acad-ink);
+  margin: 0.7rem 0 0.4rem;
+}
+
+.acad-chal-opts {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.acad-chal-opt {
+  text-align: left;
+  white-space: normal;
+  width: 100%;
+}
+
+.acad-chal-opt.is-correct {
+  border-color: #16a34a;
+  box-shadow: inset 0 0 0 1px #16a34a;
+}
+
+.acad-chal-opt.is-wrong {
+  border-color: var(--acad-bad);
+  box-shadow: inset 0 0 0 1px var(--acad-bad);
+}
+
+.acad-chal-result {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.acad-chal-learn { margin: 0; color: var(--acad-muted); }
+
+/* --- Print: clean single-lesson output (great for cheat sheets) --- */
+@media print {
+  .navbar, .acad-toolbar, #acadChips, .acad-pager, .acad-reader-foot,
+  .acad-progress, footer, .acad-hubtools, .acad-hub-foot, .acad-lab-reset,
+  .acad-reset-track, #acadFlows, #acadExam, #acadChallenge, .acad-try {
+    display: none !important;
+  }
+  body { background: #fff !important; color: #000 !important; }
+  .acad-lesson { display: block !important; }
+  .acad-lesson:not(.is-active) { display: none !important; }
+  #acadReader[hidden] { display: none !important; }
+  #acadHub[hidden] { display: none !important; }
+  .acad-lab { border: 1px solid #ccc; }
+  a { color: #000 !important; text-decoration: underline; }
+  .acad-box, .acad-table, .acad-fig, .acad-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }
