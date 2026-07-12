@@ -5083,13 +5083,44 @@ body.theme-contrast .acad-banner .btn {
   .acad-banner { padding: 1.5rem 1.4rem; }
 }
 
-/* Homepage banner: all-tracks summary grid */
-.acad-banner-tracks {
+/* Homepage banner: all-tracks summary grid (collapsed by default) */
+.acad-banner-tracks-toggle {
   flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius-lg);
+  padding: 0.6rem 0.9rem;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: var(--transition);
+  margin-top: 0.4rem;
+}
+
+.acad-banner-tracks-toggle:hover,
+.acad-banner-tracks-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.acad-btt-chevron { transition: transform 0.25s ease; }
+.acad-banner-tracks-toggle:not(.collapsed) .acad-btt-chevron { transform: rotate(180deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .acad-btt-chevron { transition: none; }
+}
+
+.acad-banner-tracks-wrap { flex: 1 1 100%; }
+
+.acad-banner-tracks {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.6rem;
-  margin-top: 0.4rem;
 }
 
 .acad-banner-track {
@@ -5141,6 +5172,7 @@ body.theme-contrast .acad-banner .btn {
 }
 
 body.theme-contrast .acad-banner-track { background: #000; border-color: #fff; }
+body.theme-contrast .acad-banner-tracks-toggle { background: #000; border-color: #fff; }
 body.theme-contrast .acad-bt-num { background: #ffd60a; color: #000; }
 
 @media (max-width: 991px) {
