@@ -6680,7 +6680,12 @@ var ACAD_EXAM_POOL = [
   { t: 'Attacks & defenses', q: 'The golden rule against device-code phishing is:', o: ['Always approve codes from IT', 'Never enter or approve a device code you did not personally start', 'Use SMS instead', 'Share the code'], a: 1 },
   { t: 'Attacks & defenses', q: 'Consent phishing is dangerous because the granted access:', o: ['Expires instantly', 'Is a token that persists even after a password reset', 'Requires the password again', 'Only reads public data'], a: 1 },
   { t: 'Attacks & defenses', q: 'A stolen session cookie is blocked from replay when the session is:', o: ['Longer', 'Bound to a device/key so a copy alone fails', 'Named differently', 'Stored in the URL'], a: 1 },
-  { t: 'Attacks & defenses', q: 'SIM swap defeats which factor, pushing you toward phishing-resistant recovery?', o: ['Passkeys', 'SMS one-time codes', 'Hardware keys', 'Offline recovery codes'], a: 1 }
+  { t: 'Attacks & defenses', q: 'SIM swap defeats which factor, pushing you toward phishing-resistant recovery?', o: ['Passkeys', 'SMS one-time codes', 'Hardware keys', 'Offline recovery codes'], a: 1 },
+  // ciam (exam)
+  { t: 'Customer identity', q: 'On a signup form, every extra field you require tends to:', o: ['Improve security for free', 'Lower conversion — more people abandon', 'Speed up the page', 'Verify the email'], a: 1 },
+  { t: 'Customer identity', q: 'Why is the account-recovery path a favourite attack target?', o: ['It is encrypted', 'It is a route that bypasses the normal login', 'It is rarely used', 'It needs a passkey'], a: 1 },
+  { t: 'Customer identity', q: 'Auto-linking a social login to an existing account by email is unsafe when:', o: ['The user has a long password', 'The email was not verified by the upstream provider', 'The account is new', 'MFA is on'], a: 1 },
+  { t: 'Customer identity', q: 'Lazy (just-in-time) user migration avoids a reset storm by:', o: ['Emailing everyone a new password', 'Verifying against the old system on first login, then re-hashing locally', 'Deleting old accounts', 'Disabling login'], a: 1 },
 ];
 
 AcadLabs.register('lab-exam', {
@@ -6858,5 +6863,717 @@ AcadLabs.register('lab-exam', {
       ctx.fillStyle = '#64748b'; ctx.font = '400 16px Inter, Arial, sans-serif';
       ctx.fillText('integrauth.com/academy', W / 2, 675);
     }
+  }
+});
+/* lab-signup | lesson: c1-signup */
+AcadLabs.register('lab-signup', {
+  title: 'Design the signup funnel',
+  blurb: 'Toggle the fields you demand and the verification you require, then run 100 visitors through and watch conversion fight assurance.',
+  render: function (root, h) {
+    // Each field: fric = friction cost to conversion, asr = assurance it adds.
+    var fields = {
+      email:    { on: true,  fric: 4,  asr: 5,  label: 'Email' },
+      password: { on: true,  fric: 8,  asr: 10, label: 'Password' },
+      phone:    { on: false, fric: 15, asr: 8,  label: 'Phone number' },
+      name:     { on: false, fric: 6,  asr: 3,  label: 'Full name' },
+      company:  { on: false, fric: 10, asr: 2,  label: 'Company' },
+      everify:  { on: false, fric: 12, asr: 25, label: 'Email verification' },
+      potp:     { on: false, fric: 20, asr: 30, label: 'Phone OTP' }
+    };
+    var order = ['email', 'password', 'phone', 'name', 'company', 'everify', 'potp'];
+    var method = 'link';
+
+    var log = h.logPanel();
+    var convMeter = h.meter(0, 'ok');
+    var asrMeter = h.meter(0, 'warn');
+    var convLbl = h.el('div', { class: 'acad-lab-panel-title' }, 'Conversion —');
+    var asrLbl = h.el('div', { class: 'acad-lab-panel-title' }, 'Assurance —');
+    var funnelOut = h.el('div', {});
+
+    function calc() {
+      var fric = 0, asr = 0, k;
+      for (k in fields) {
+        if (fields[k].on) { fric += fields[k].fric; asr += fields[k].asr; }
+      }
+      if (fields.everify.on && method === 'code') { fric += 3; asr += 3; }
+      var conv = Math.max(5, Math.min(100, 100 - fric));
+      asr = Math.max(0, Math.min(100, asr));
+      return { conv: conv, asr: asr };
+    }
+
+    function kindFor(pct) { return pct >= 70 ? 'ok' : (pct >= 40 ? 'warn' : 'bad'); }
+
+    function refresh() {
+      var m = calc();
+      convMeter.set(m.conv, kindFor(m.conv));
+      asrMeter.set(m.asr, kindFor(m.asr));
+      convLbl.textContent = 'Conversion — ' + m.conv + '%';
+      asrLbl.textContent = 'Assurance — ' + m.asr + '%';
+    }
+
+    function runSignups() {
+      var m = calc();
+      var complete = Math.round(m.conv);      // out of 100 visitors
+      var abandon = 100 - complete;
+      var anyVerify = fields.everify.on || fields.potp.on;
+      var unvPct;
+      if (!anyVerify) unvPct = 100;           // nothing was ever proven
+      else if (fields.everify.on && fields.potp.on) unvPct = 5;
+      else if (fields.potp.on) unvPct = 8;
+      else unvPct = 15;
+      var unverified = Math.round(complete * unvPct / 100);
+      var verified = complete - unverified;
+
+      funnelOut.innerHTML = '';
+      funnelOut.appendChild(h.httpCard({
+        method: 'SIM', path: '100 visitors → signup funnel', status: 200,
+        resBody: {
+          reached_form: 100,
+          completed: complete,
+          abandoned: abandon,
+          verified_account: verified,
+          unverified_contact: unverified
+        },
+        note: anyVerify
+          ? unvPct + '% of completers never confirmed their channel (mistypes, disposable inboxes, drop-off).'
+          : 'No verification required, so every completed account has UNPROVEN contact info — operationally worthless.'
+      }));
+      h.flash(funnelOut);
+      log.add(abandon > 55 ? 'warn' : 'info',
+        complete + ' completed, ' + abandon + ' abandoned (each extra field is a tax).');
+      log.add(anyVerify ? (unverified > verified ? 'warn' : 'ok') : 'bad',
+        verified + ' verified, ' + unverified + ' unverified — '
+        + (anyVerify ? 'verification filtered the throwaways.' : 'add a verification step to earn trust.'));
+    }
+
+    // --- field chips ---
+    var chipRow = h.el('div', { class: 'acad-lab-row' });
+    order.forEach(function (k) {
+      var f = fields[k];
+      var required = (k === 'email' || k === 'password');
+      var c = h.chip(f.label + (required ? ' *' : ''), f.on, function (now) {
+        f.on = now;
+        refresh();
+        log.add('info', (now ? 'Require ' : 'Drop ') + f.label
+          + ' → conversion ' + (now ? '↓' : '↑') + ', assurance ' + (now ? '↑' : '↓') + '.');
+      });
+      chipRow.appendChild(c);
+    });
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Choose the fields you demand', [
+          h.note('Email + password are the minimum. Everything else is progressive profiling you could ask for later.'),
+          chipRow,
+          h.field('Email verification method', h.select([
+            { value: 'link', label: 'Verification link (click to confirm)', selected: true },
+            { value: 'code', label: 'One-time code / OTP (type it back)' }
+          ], function (v) {
+            method = v; refresh();
+            log.add('info', 'Verification method: ' + (v === 'code' ? 'OTP code' : 'click link')
+              + (fields.everify.on ? '.' : ' (turn on Email verification to use it).'));
+          }))
+        ]),
+        h.panel('2 · Run the funnel', [
+          h.button('Run 100 signups', 'primary', runSignups),
+          funnelOut
+        ])
+      ]),
+      h.col([
+        h.panel('Live trade-off', [
+          convLbl, convMeter.root,
+          asrLbl, asrMeter.root,
+          h.note('More fields → lower conversion. More verification → higher assurance. There is no free lunch — only a chosen balance.')
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    refresh();
+    log.add('info', 'Maya is at your door. Ask for the least you can, verify the little you keep. Toggle a chip to begin.');
+  }
+});
+
+/* lab-recovery | lesson: c2-recovery */
+AcadLabs.register('lab-recovery', {
+  title: 'Rank your recovery routes',
+  blurb: 'Enable recovery methods, watch the weakest one set your real security, then let an attacker target it — and fix your reset-link hygiene.',
+  render: function (root, h) {
+    // strength: how hard to steal remotely (higher = stronger)
+    var routes = {
+      passkey:   { on: false, s: 100, label: 'Backup passkey' },
+      codes:     { on: false, s: 90,  label: 'Offline recovery codes' },
+      email:     { on: true,  s: 55,  label: 'Email reset link' },
+      sms:       { on: false, s: 30,  label: 'SMS code' },
+      questions: { on: false, s: 10,  label: 'Security questions' }
+    };
+    var order = ['passkey', 'codes', 'email', 'sms', 'questions'];
+    var hygiene = { single: false, expiry: false, noleak: false };
+
+    var log = h.logPanel();
+    var meter = h.meter(0, 'bad');
+    var meterLbl = h.el('div', { class: 'acad-lab-panel-title' }, 'Real recovery strength —');
+    var attackOut = h.el('div', {});
+    var hygieneBadge = h.el('span', {});
+
+    function enabled() {
+      return order.filter(function (k) { return routes[k].on; });
+    }
+
+    function weakest() {
+      var list = enabled(), w = null, i;
+      for (i = 0; i < list.length; i++) {
+        if (!w || routes[list[i]].s < routes[w].s) w = list[i];
+      }
+      return w;
+    }
+    function strongest() {
+      var list = enabled(), s = null, i;
+      for (i = 0; i < list.length; i++) {
+        if (!s || routes[list[i]].s > routes[s].s) s = list[i];
+      }
+      return s;
+    }
+
+    function refresh() {
+      var w = weakest(), s = strongest();
+      var val = w ? routes[w].s : 0;
+      var kind = val >= 80 ? 'ok' : (val >= 50 ? 'warn' : 'bad');
+      meter.set(val, kind);
+      if (!w) {
+        meterLbl.textContent = 'Real recovery strength — no routes enabled (nobody can recover, including Maya)';
+      } else {
+        meterLbl.textContent = 'Real recovery strength — ' + val + '% · set by the WEAKEST enabled ('
+          + routes[w].label + '), even though your strongest is ' + routes[s].label;
+      }
+    }
+
+    function attack() {
+      var w = weakest();
+      attackOut.innerHTML = '';
+      if (!w) { log.add('info', 'No routes enabled — nothing to attack, but nobody can recover either.'); return; }
+      var r = routes[w], out, kind, msg;
+      if (w === 'questions') {
+        out = 403; kind = 'bad';
+        msg = 'Security questions guessed from public records / social media. Account taken over.';
+      } else if (w === 'sms') {
+        out = 403; kind = 'bad';
+        msg = 'SIM swap: attacker ported Maya’s number and received the SMS code. Account taken over. (See atk6-simswap.)';
+      } else if (w === 'email') {
+        out = 428; kind = 'warn';
+        msg = 'Depends: the reset link is only as strong as Maya’s email account. If that inbox has MFA, the attacker is stuck; if not, it is game over.';
+      } else {
+        out = 401; kind = 'ok';
+        msg = 'Weakest enabled route is ' + r.label + ' — bound to hardware / printed once. Nothing to phish or swap remotely. Attacker stuck.';
+      }
+      attackOut.appendChild(h.httpCard({
+        method: 'ATTACK', path: 'recovery via ' + r.label, status: out,
+        note: msg
+      }));
+      h.flash(attackOut);
+      log.add(kind, 'Attacker targeted the weakest route (' + r.label + '): '
+        + (kind === 'ok' ? 'blocked ✅' : (kind === 'warn' ? 'it depends ⚠️' : 'takeover ⛔')) + '.');
+    }
+
+    function refreshHygiene() {
+      var all = hygiene.single && hygiene.expiry && hygiene.noleak;
+      hygieneBadge.innerHTML = '';
+      if (all) hygieneBadge.appendChild(h.badge('✅ reset link hygienic', 'ok'));
+      else {
+        var miss = [];
+        if (!hygiene.single) miss.push('single-use');
+        if (!hygiene.expiry) miss.push('short expiry');
+        if (!hygiene.noleak) miss.push('no account-existence leak');
+        hygieneBadge.appendChild(h.badge('⚠️ missing: ' + miss.join(', '), 'warn'));
+      }
+    }
+
+    // --- route chips ---
+    var routeRow = h.el('div', { class: 'acad-lab-row' });
+    order.forEach(function (k) {
+      var r = routes[k];
+      routeRow.appendChild(h.chip(r.label, r.on, function (now) {
+        r.on = now; refresh();
+        log.add('info', (now ? 'Enabled ' : 'Disabled ') + r.label + ' (strength ' + r.s + ').');
+      }));
+    });
+
+    // --- hygiene toggles ---
+    var hRow = h.el('div', { class: 'acad-lab-row' });
+    [['single', 'Single-use'], ['expiry', 'Short expiry'], ['noleak', 'No account-existence leak']].forEach(function (pair) {
+      hRow.appendChild(h.chip(pair[1], false, function (now) {
+        hygiene[pair[0]] = now; refreshHygiene();
+        log.add(now ? 'ok' : 'warn', pair[1] + (now ? ' on.' : ' OFF — a reset link should never ship without it.'));
+      }));
+    });
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Enable recovery routes', [
+          h.note('The weakest ENABLED route is your real security — an attacker always picks it, never your strongest.'),
+          routeRow
+        ]),
+        h.panel('2 · Attack the weakest route', [
+          h.button('Simulate an attacker targeting recovery', 'danger', attack),
+          attackOut
+        ])
+      ]),
+      h.col([
+        h.panel('Real strength', [meterLbl, meter.root]),
+        h.panel('3 · Reset-link hygiene', [
+          h.note('All three must be on before a password-reset link is safe to send.'),
+          hRow, hygieneBadge
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    refresh(); refreshHygiene();
+    log.add('info', 'Recovery is the side door. Rank your routes, and remember: a chain is as strong as its weakest link.');
+  }
+});
+/* lab-linkcollide | lesson: c3-social */
+AcadLabs.register('lab-linkcollide', {
+  title: 'Link the accounts — safely',
+  blurb: 'Pick a linking policy, then send three people through it: a new user, Maya, and an attacker forging her email. See who gets in.',
+  render: function (root, h) {
+    var policy = 'relogin';
+    var log = h.logPanel();
+    var out = h.el('div', {});
+    var verdict = h.el('div', { class: 'acad-lab-row' });
+
+    // Three arrivals. verified = did the upstream provider verify the email?
+    var PEOPLE = [
+      { who: 'New visitor', email: 'newperson@example.com', verified: true, existing: false, imposter: false },
+      { who: 'Maya (real owner)', email: 'maya@example.com', verified: true, existing: true, imposter: false },
+      { who: 'Attacker', email: 'maya@example.com', verified: false, existing: true, imposter: true }
+    ];
+
+    function decide(p) {
+      // returns { label, kind, why }
+      if (policy === 'auto') {
+        if (!p.existing) return { label: 'new account', kind: 'ok', why: 'No email match — a fresh account is created. Fine.' };
+        if (p.imposter) return { label: '🔓 TAKEOVER', kind: 'bad', why: 'Unverified email auto-linked by match alone — attacker is now inside Maya’s account.' };
+        return { label: 'linked (no proof)', kind: 'warn', why: 'Linked on the email match — works for Maya this time, but only by luck.' };
+      }
+      if (policy === 'relogin') {
+        if (!p.existing) return { label: 'new account', kind: 'ok', why: 'No match — fresh account, no link needed.' };
+        if (p.imposter) return { label: 'BLOCKED', kind: 'ok', why: 'Unverified email AND no re-login proof of the existing account — link refused.' };
+        return { label: 'linked-safely', kind: 'ok', why: 'Verified email + a fresh password re-login → merged into one account.' };
+      }
+      // manual: never auto-link
+      if (!p.existing) return { label: 'new account', kind: 'ok', why: 'No match — fresh account.' };
+      if (p.imposter) return { label: 'isolated account', kind: 'neutral', why: 'Attacker only gets their own empty account — Maya is untouched.' };
+      return { label: 'duplicate account', kind: 'warn', why: 'Safe, but Maya now has TWO accounts — she must link manually in settings. Friction.' };
+    }
+
+    function score() {
+      // safe = attacker never takes over; friction = duplicates or extra dead-ends for real users
+      if (policy === 'auto') return { safe: false, friction: false, note: 'Low-friction, but an unverified email is a takeover button. ⛔ Unsafe.' };
+      if (policy === 'relogin') return { safe: true, friction: false, note: 'Attacker blocked, Maya linked in one extra step, no duplicates. ✅ Safe AND low-friction.' };
+      return { safe: true, friction: true, note: 'Safe, but real users get duplicate accounts and manual linking. ⚠️ High-friction.' };
+    }
+
+    function run() {
+      out.innerHTML = '';
+      log.add('info', 'Three social logins arrive under policy: ' + policy + '.');
+      PEOPLE.forEach(function (p) {
+        var d = decide(p);
+        var line = h.panel(null, [
+          h.row([h.badge(d.label, d.kind), p.who + ' — ' + p.email]),
+          h.note(vflag(p) + '  ·  ' + d.why)
+        ]);
+        out.appendChild(line);
+        log.add(d.kind === 'bad' ? 'bad' : (d.kind === 'warn' ? 'warn' : 'ok'), p.who + ' → ' + d.label);
+      });
+      var s = score();
+      verdict.innerHTML = '';
+      verdict.appendChild(h.badge(s.safe ? 'safe' : 'unsafe', s.safe ? 'ok' : 'bad'));
+      verdict.appendChild(h.badge(s.friction ? 'high friction' : 'low friction', s.friction ? 'warn' : 'ok'));
+      verdict.appendChild(h.note(s.note));
+      h.flash(verdict);
+    }
+
+    function vflag(p) { return 'email_verified: ' + p.verified + (p.existing ? ' · matches an existing account' : ''); }
+
+    root.appendChild(h.field('Account-linking policy', h.select([
+      { value: 'auto', label: 'Auto-link by email' },
+      { value: 'relogin', label: 'Link only after re-login to existing account', selected: true },
+      { value: 'manual', label: 'Never auto-link (manual only)' }
+    ], function (v) { policy = v; out.innerHTML = ''; verdict.innerHTML = ''; log.add('info', 'Policy set to ' + v + '.'); })));
+    root.appendChild(h.button('Three people arrive', 'primary', run));
+    root.appendChild(h.panel('Outcomes', [out]));
+    root.appendChild(h.panel('Scoreboard', [verdict]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'Safe linking needs BOTH a verified email and fresh proof of the existing account. Match on the provider sub, never the email string alone.');
+  }
+});
+
+/* lab-consentux | lesson: c4-profiling */
+AcadLabs.register('lab-consentux', {
+  title: 'Build a consent that users trust',
+  blurb: 'Choose what to ask for, flip the dark-pattern switches, and watch the trust meter and the stored consent record react.',
+  render: function (root, h) {
+    var SIM_TS = '2026-07-12T09:00:00Z';
+    var VERSION = 'terms-2026-07';
+    var OPTIONAL = [
+      { k: 'name', label: 'name', purpose: 'personalize greeting', wary: false },
+      { k: 'birthday', label: 'birthday', purpose: 'birthday rewards', wary: false },
+      { k: 'location', label: 'location', purpose: 'nearest branch', wary: false },
+      { k: 'marketing', label: 'marketing emails', purpose: 'marketing', wary: false },
+      { k: 'partners', label: 'share with partners', purpose: 'partner sharing', wary: true },
+      { k: 'analytics', label: 'analytics cookies', purpose: 'analytics', wary: true }
+    ];
+    var req = {}; OPTIONAL.forEach(function (o) { req[o.k] = false; });
+    var preTick = false, bundle = false;
+
+    var log = h.logPanel();
+    var previewBox = h.el('div', {});
+    var warnBox = h.el('div', {});
+    var recordBox = h.el('div', {});
+    var m = h.meter(95, 'ok');
+
+    function requested() { return OPTIONAL.filter(function (o) { return req[o.k]; }); }
+
+    function trust() {
+      var s = 95, warns = [];
+      var reqs = requested();
+      if (preTick) { s -= 35; warns.push('Pre-ticking optional boxes is a dark pattern — consent must be a positive opt-in (no pre-ticked boxes).'); }
+      if (bundle) { s -= 40; warns.push('Bundling necessary + optional into one "Accept all" denies granular choice — a recognized dark pattern.'); }
+      reqs.forEach(function (o) { if (o.wary) s -= 5; });
+      if (reqs.length >= 4) { s -= 10; warns.push('That’s a lot to ask at once — spread it out with progressive profiling.'); }
+      return { score: Math.max(0, Math.min(100, s)), warns: warns };
+    }
+
+    function renderPreview() {
+      previewBox.innerHTML = '';
+      previewBox.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'What Maya sees'));
+      if (bundle) {
+        var labels = ['email'].concat(requested().map(function (o) { return o.label; }));
+        previewBox.appendChild(h.row([h.badge('☑', 'warn'), 'Accept all (' + labels.join(' + ') + ')']));
+        previewBox.appendChild(h.note('One checkbox, everything or nothing.'));
+        return;
+      }
+      previewBox.appendChild(h.row([h.badge('☑', 'ok'), 'email — necessary (required to run the service)']));
+      var reqs = requested();
+      if (!reqs.length) { previewBox.appendChild(h.note('No optional data requested — the leanest, most trusted screen.')); return; }
+      reqs.forEach(function (o) {
+        previewBox.appendChild(h.row([h.badge(preTick ? '☑' : '☐', preTick ? 'warn' : 'neutral'),
+          o.label + ' — optional (' + o.purpose + ')']));
+      });
+    }
+
+    function renderRecord() {
+      var rec = [{ purpose: 'run the service (email)', granted: true, version: VERSION, granted_at: SIM_TS }];
+      requested().forEach(function (o) {
+        rec.push({ purpose: o.purpose, granted: bundle ? true : (preTick ? true : false), version: VERSION, granted_at: SIM_TS });
+      });
+      recordBox.innerHTML = '';
+      recordBox.appendChild(h.jsonView(rec));
+    }
+
+    function update(reason) {
+      var t = trust();
+      m.set(t.score, t.score >= 80 ? 'ok' : (t.score >= 50 ? 'warn' : 'bad'));
+      warnBox.innerHTML = '';
+      warnBox.appendChild(h.row([h.badge('trust ' + t.score, t.score >= 80 ? 'ok' : (t.score >= 50 ? 'warn' : 'bad'))]));
+      t.warns.forEach(function (w) { warnBox.appendChild(h.note('⚠️ ' + w)); });
+      renderPreview(); renderRecord();
+      if (reason) log.add(t.score >= 80 ? 'ok' : (t.score >= 50 ? 'warn' : 'bad'), reason + ' → trust ' + t.score + '.');
+    }
+
+    var chipRow = h.el('div', { class: 'acad-lab-row' });
+    chipRow.appendChild(h.chip('email · necessary', true, function () { /* locked on */ }));
+    OPTIONAL.forEach(function (o) {
+      chipRow.appendChild(h.chip(o.label + ' · optional', false, function (on) {
+        req[o.k] = on; update((on ? 'Ask for ' : 'Drop ') + o.label);
+      }));
+    });
+
+    root.appendChild(h.panel('1 · What do you ask for?', [chipRow, h.note('email is necessary and always requested; everything else is optional.')]));
+    root.appendChild(h.panel('2 · Dark-pattern switches', [h.row([
+      h.chip('pre-tick optional boxes', false, function (on) { preTick = on; update('Pre-tick optional = ' + on); }),
+      h.chip('bundle all into one Accept', false, function (on) { bundle = on; update('Bundle into one Accept = ' + on); })
+    ])]));
+    root.appendChild(h.panel('Trust score', [m.root, warnBox]));
+    root.appendChild(h.panel('Consent screen preview', [previewBox]));
+    root.appendChild(h.panel('Consent record stored', [recordBox]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'Granular + clearly-labeled = trusted. Pre-ticking or bundling tanks it. Every "yes" is stored with purpose, version and timestamp.');
+    update();
+  }
+});
+/* lab-ato | lesson: c5-ato */
+AcadLabs.register('lab-ato', {
+  title: 'Stop the takeover wave',
+  blurb: 'Toggle Maya’s defenses, launch a 1000-credential stuffing wave, and watch each gate knock out a deterministic slice before cash-out.',
+  render: function (root, h) {
+    var START = 1000;
+
+    // Sequential gates: each removes a fixed fraction of whatever reaches it.
+    var GATES = [
+      { id: 'breached', label: 'Breached-password block', keep: 0.4 },
+      { id: 'bots', label: 'Bot / stuffing detection', keep: 0.3 },
+      { id: 'adaptive', label: 'Adaptive MFA', keep: 0.1 },
+      { id: 'anomaly', label: 'Post-login anomaly alerts', keep: 0.05 }
+    ];
+    var on = { breached: false, bots: false, adaptive: false, anomaly: false, passkeys: false };
+
+    var log = h.logPanel();
+    var takeMeter = h.meter(0, 'neutral');
+    var verdict = h.el('div', { class: 'acad-lab-row' });
+
+    var chipRow = h.el('div', { class: 'acad-lab-row' });
+    GATES.forEach(function (g) {
+      chipRow.appendChild(h.chip(g.label, false, function (now) { on[g.id] = now; }));
+    });
+    chipRow.appendChild(h.chip('Passkeys (kill password reuse)', false, function (now) { on.passkeys = now; }));
+
+    function launch() {
+      verdict.innerHTML = '';
+      log.add('bad', 'Attacker launches a stuffing wave: ' + START + ' leaked credentials from a breach dump.');
+
+      // Passkeys short-circuit: there is no reusable password to stuff or phish.
+      if (on.passkeys) {
+        takeMeter.set(0, 'ok');
+        log.add('ok', 'Passkeys enabled — accounts have no reusable password. The entire stuffing wave fails at the door: 1000 → 0.');
+        verdict.appendChild(h.badge('✅ 0 takeovers', 'ok'));
+        verdict.appendChild(h.badge('Passkeys removed the reusable secret entirely', 'info'));
+        return;
+      }
+
+      var n = START;
+      var bestLabel = null, bestStopped = -1;
+      var anyGate = false;
+      GATES.forEach(function (g) {
+        if (!on[g.id]) return;
+        anyGate = true;
+        var after = Math.floor(n * g.keep);
+        var stopped = n - after;
+        log.add('ok', g.label + ' — stopped ' + stopped + ' (' + n + ' → ' + after + ').');
+        if (stopped > bestStopped) { bestStopped = stopped; bestLabel = g.label; }
+        n = after;
+      });
+
+      if (!anyGate) {
+        log.add('bad', 'No defenses enabled — all ' + START + ' credentials sail through to takeover.');
+      }
+
+      var pct = Math.round(n / START * 100);
+      takeMeter.set(pct, n === 0 ? 'ok' : 'bad');
+      log.add(n === 0 ? 'ok' : 'bad', 'Successful takeovers reaching cash-out: ' + n + ' of ' + START + '.');
+
+      verdict.appendChild(h.badge((n === 0 ? '✅ ' : '⛔ ') + n + ' takeovers', n === 0 ? 'ok' : 'bad'));
+      if (bestLabel) verdict.appendChild(h.badge('Biggest single gate: ' + bestLabel + ' (' + bestStopped + ' stopped)', 'info'));
+      if (n > 0) verdict.appendChild(h.badge('Add more gates — or move Maya to a passkey', 'warn'));
+    }
+
+    root.appendChild(h.panel('1 · Maya’s defenses (toggle any)', [chipRow]));
+    root.appendChild(h.button('Launch a stuffing wave (1000 attempts)', 'danger', launch));
+    root.appendChild(h.panel('Successful takeovers', [takeMeter.root, verdict]));
+    root.appendChild(h.note('Gates run in order: breached-password → bot detection → adaptive MFA → post-login anomaly. Turn them all on and nothing survives to cash-out; breached-password block stops the most because it works on the widest slice first. Passkeys aren’t a gate — they delete the reusable password the whole wave depends on.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'You are Zara, defending Maya’s consumer accounts. Enable gates, then launch the wave. Each gate removes a fixed fraction — no luck involved.');
+  }
+});
+
+/* lab-migrate | lesson: c6-migration */
+AcadLabs.register('lab-migrate', {
+  title: 'Cut over without a reset storm',
+  blurb: 'Pick a migration strategy, move 1,000,000 customers, and compare how many get disrupted versus silently migrated.',
+  render: function (root, h) {
+    var TOTAL = 1000000;
+    var strategy = 'reset';
+
+    var out = h.el('div', {});
+    var log = h.logPanel();
+    var mDisrupt = h.meter(0, 'neutral');
+    var mSilent = h.meter(0, 'neutral');
+
+    function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+    function migrate() {
+      out.innerHTML = '';
+      var disrupted = 0, silent = 0, pending = 0, tickets = 0, churn = 0, note = '';
+
+      if (strategy === 'reset') {
+        disrupted = TOTAL; silent = 0;
+        tickets = Math.round(TOTAL * 0.18); churn = Math.round(TOTAL * 0.08);
+        log.add('bad', 'Force reset: emailed all ' + fmt(TOTAL) + ' users “please reset your password”.');
+        log.add('warn', '~' + fmt(tickets) + ' support tickets and ~' + fmt(churn) + ' users who never come back.');
+        note = 'Every customer is disrupted. This is the reset storm you were trying to avoid.';
+      } else if (strategy === 'bulk') {
+        disrupted = 0; silent = TOTAL;
+        log.add('ok', 'Bulk hash import: imported ' + fmt(TOTAL) + ' password hashes as-is. First login just works for everyone.');
+        note = 'Catch: you must know and trust the old hashing algorithm (e.g. bcrypt at a known cost). Unknown format → fall back to lazy.';
+      } else if (strategy === 'lazy') {
+        silent = Math.round(TOTAL * 0.7); pending = TOTAL - silent; disrupted = 0;
+        log.add('ok', 'Lazy migration: ' + fmt(silent) + ' active users migrated silently on their next login.');
+        log.add('info', fmt(pending) + ' dormant accounts will migrate the moment they return — not disrupted, just not moved yet.');
+        note = 'Catch: the old system must stay reachable for the whole window so first-login verification can happen.';
+      } else { // import+lazy
+        disrupted = 0; silent = TOTAL;
+        log.add('ok', 'Bulk import + lazy fallback: imported every hash we trusted, lazy-migrated the rest on login.');
+        log.add('ok', 'Best coverage — all ' + fmt(TOTAL) + ' users move with zero forced resets.');
+        note = 'Belt and suspenders: import what you can verify, catch the odd formats on first login.';
+      }
+
+      mDisrupt.set(disrupted / TOTAL * 100, disrupted > 0 ? 'bad' : 'ok');
+      mSilent.set((silent + pending) / TOTAL * 100, silent === TOTAL ? 'ok' : (silent > 0 ? 'warn' : 'bad'));
+
+      out.appendChild(h.row([h.badge('Users disrupted: ' + fmt(disrupted), disrupted > 0 ? 'bad' : 'ok')]));
+      out.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Users disrupted (forced to reset)'));
+      out.appendChild(mDisrupt.root);
+      out.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Silently migrated'));
+      out.appendChild(mSilent.root);
+      if (pending) out.appendChild(h.badge(fmt(pending) + ' pending (migrate on return)', 'info'));
+      out.appendChild(h.note(note));
+      h.flash(out);
+    }
+
+    root.appendChild(h.field('Migration strategy', h.select([
+      { value: 'reset', label: 'Force password reset for all', selected: true },
+      { value: 'bulk', label: 'Bulk hash import (algorithm known)' },
+      { value: 'lazy', label: 'Lazy migration on login' },
+      { value: 'combo', label: 'Bulk import + lazy fallback' }
+    ], function (v) { strategy = v; })));
+    root.appendChild(h.button('Migrate 1,000,000 users', 'primary', migrate));
+    root.appendChild(h.panel('Outcome', [out]));
+    root.appendChild(h.note('The win condition is that nobody notices they were moved: zero disrupted, everyone silently migrated. Force-reset scores worst; bulk import and the combo score best; lazy is silent for active users and defers the dormant ones.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'You are moving every customer to a new identity system. Pick a strategy, then migrate — outcomes are deterministic, no luck involved.');
+  }
+});
+/* lab-orgs | lesson: c7-b2b */
+AcadLabs.register('lab-orgs', {
+  title: 'Run a B2B tenant',
+  blurb: 'Be Sam, the org admin: invite members with roles, flip org policies, and watch invites get accepted, rerouted to SSO, or bounced — then see one person hold two roles in two orgs.',
+  render: function (root, h) {
+    var DOMAIN = 'sams-co.com';
+    var members = [];      // {name, email, role, status: 'pending'|'active', via: 'password'|'sso'}
+    var policy = { mfa: false, domain: false, sso: false };
+    var seq = 0;
+    var NAMES = ['priya', 'dev', 'lena', 'omar', 'tess', 'raj', 'nina', 'cole'];
+
+    var listBox = h.el('div', {});
+    var noteBox = h.el('div', {});
+    var polBox = h.el('div', {});
+    var multiBox = h.el('div', {});
+    var log = h.logPanel();
+
+    var emailIn = h.input({ value: 'priya@' + DOMAIN, 'aria-label': 'invitee email' });
+    var roleSel = h.select([
+      { value: 'Admin', label: 'Admin — manages people & settings' },
+      { value: 'Member', label: 'Member — uses the product', selected: true },
+      { value: 'Billing', label: 'Billing — sees invoices only' }
+    ]);
+
+    function domainOf(email) {
+      var at = String(email).indexOf('@');
+      return at < 0 ? '' : email.slice(at + 1).toLowerCase();
+    }
+    function nameOf(email) {
+      var at = String(email).indexOf('@');
+      return at < 0 ? email : email.slice(0, at);
+    }
+
+    function renderPolicy() {
+      polBox.innerHTML = '';
+      var bits = [];
+      if (policy.mfa) bits.push('MFA required');
+      if (policy.domain) bits.push('company email only (@' + DOMAIN + ')');
+      if (policy.sso) bits.push('company SSO enforced');
+      polBox.appendChild(h.note(bits.length ? 'Org A policy: ' + bits.join(' · ') : 'Org A policy: none — anyone can be invited, password login, no MFA.'));
+    }
+
+    function renderList() {
+      listBox.innerHTML = '';
+      if (!members.length) { listBox.appendChild(h.note('No members yet. Invite someone.')); return; }
+      members.forEach(function (m) {
+        var roleBadge = h.badge(m.role, m.role === 'Admin' ? 'info' : (m.role === 'Billing' ? 'warn' : 'neutral'));
+        var statusBadge = h.badge(m.status === 'active' ? 'active ✓' : 'pending', m.status === 'active' ? 'ok' : 'neutral');
+        var viaBadge = h.badge(m.via === 'sso' ? 'via company SSO' : 'via password', 'neutral');
+        var toggle = h.button(m.status === 'active' ? 'Set pending' : 'Accept invite', '', function () {
+          m.status = m.status === 'active' ? 'pending' : 'active';
+          log.add(m.status === 'active' ? 'ok' : 'info', m.name + ' is now ' + m.status + ' in Org A.');
+          renderList();
+        });
+        listBox.appendChild(h.row([m.name + ' (' + m.role + ')', roleBadge, statusBadge, viaBadge, toggle]));
+      });
+    }
+
+    function invite() {
+      noteBox.innerHTML = '';
+      var email = emailIn.value.trim();
+      var role = roleSel.value;
+      if (!email || email.indexOf('@') < 0) {
+        noteBox.appendChild(h.badge('⛔ enter a valid email', 'bad'));
+        log.add('warn', 'Invite rejected — invalid email.');
+        return;
+      }
+      if (policy.domain && domainOf(email) !== DOMAIN) {
+        noteBox.appendChild(h.badge('⛔ domain not allowed', 'bad'));
+        noteBox.appendChild(h.note('Policy allows @' + DOMAIN + ' only. ' + email + ' is a personal address — invite bounced.'));
+        log.add('bad', 'Invite to ' + email + ' bounced — company-email-only policy.');
+        h.flash(noteBox);
+        return;
+      }
+      var via = policy.sso ? 'sso' : 'password';
+      var m = { name: nameOf(email), email: email, role: role, status: 'pending', via: via };
+      members.push(m);
+      log.add('info', 'Invited ' + email + ' as ' + role + ' → pending (invite email sent).');
+      var msg = 'Invite sent to ' + email + ' as ' + role + '. ';
+      if (via === 'sso') { msg += 'On click they skip your login and get routed to the company IdP (home-realm discovery). '; noteBox.appendChild(h.badge('routed to company SSO', 'info')); }
+      if (policy.mfa) { msg += 'They must enroll MFA on first login.'; noteBox.appendChild(h.badge('MFA enrollment required', 'warn')); }
+      noteBox.appendChild(h.note(msg));
+      // rotate the prefill to the next colleague
+      seq = (seq + 1) % NAMES.length;
+      emailIn.value = NAMES[seq] + '@' + DOMAIN;
+      renderList();
+    }
+
+    function showMultiOrg() {
+      multiBox.innerHTML = '';
+      multiBox.appendChild(h.row([
+        h.col([h.panel('Org B · Maya’s studio', [
+          h.row(['Maya', h.badge('Admin', 'info')]),
+          h.note('Full control here — she owns this tenant.')
+        ])]),
+        h.col([h.panel('Org C · Acme Retail', [
+          h.row(['Maya', h.badge('Billing', 'warn')]),
+          h.note('Read-only invoices here — same human, different org.')
+        ])])
+      ]));
+      multiBox.appendChild(h.note('One authenticated Maya, two org memberships. Promoting her in Org B does NOT touch Org C — tenants are isolated.'));
+      log.add('ok', 'Maya: Admin in Org B, Billing in Org C — one person, two isolated orgs.');
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('Invite a member (you are Sam, admin of Org A)', [
+          h.field('Invitee email', emailIn),
+          h.field('Role in Org A', roleSel),
+          h.button('Send invite', 'primary', invite),
+          noteBox
+        ]),
+        h.panel('Org A policy', [
+          h.row([
+            h.chip('Require MFA', false, function (on) { policy.mfa = on; renderPolicy(); log.add('info', 'Policy: MFA ' + (on ? 'required' : 'off') + '.'); }),
+            h.chip('Restrict to company email domain', false, function (on) { policy.domain = on; renderPolicy(); log.add('info', 'Policy: domain restriction ' + (on ? 'on (@' + DOMAIN + ')' : 'off') + '.'); }),
+            h.chip('Enforce company SSO', false, function (on) { policy.sso = on; renderPolicy(); log.add('info', 'Policy: company SSO ' + (on ? 'enforced' : 'off') + '.'); })
+          ]),
+          polBox
+        ])
+      ]),
+      h.col([
+        h.panel('Org A members', [listBox]),
+        h.panel('Same person, second org', [
+          h.button('Show Maya across two orgs', '', showMultiOrg),
+          multiBox
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Invite log', [log.root]));
+    renderPolicy();
+    renderList();
+    log.add('info', 'A B2B customer is an organization, not a person. You (Sam) run Org A: invite members, set org-scoped roles & policy — delegated admin means the vendor never touches your users.');
   }
 });

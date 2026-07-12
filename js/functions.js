@@ -432,7 +432,8 @@ function initAcademy() {
     ops: 'Track 5 · Identity Operations',
     authz: 'Track 6 · Authorization & API Security',
     proto: 'Track 7 · Protocols & Federation',
-    atk: 'Track 8 · Identity Attacks & Defenses'
+    atk: 'Track 8 · Identity Attacks & Defenses',
+    ciam: 'Track 9 · Customer Identity (CIAM)'
   };
 
   const lessons = Array.prototype.slice.call(document.querySelectorAll('.acad-lesson'));
