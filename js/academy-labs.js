@@ -6686,6 +6686,11 @@ var ACAD_EXAM_POOL = [
   { t: 'Customer identity', q: 'Why is the account-recovery path a favourite attack target?', o: ['It is encrypted', 'It is a route that bypasses the normal login', 'It is rarely used', 'It needs a passkey'], a: 1 },
   { t: 'Customer identity', q: 'Auto-linking a social login to an existing account by email is unsafe when:', o: ['The user has a long password', 'The email was not verified by the upstream provider', 'The account is new', 'MFA is on'], a: 1 },
   { t: 'Customer identity', q: 'Lazy (just-in-time) user migration avoids a reset storm by:', o: ['Emailing everyone a new password', 'Verifying against the old system on first login, then re-hashing locally', 'Deleting old accounts', 'Disabling login'], a: 1 },
+  // cloud (exam)
+  { t: 'Cloud & workload', q: 'Workload identity federation lets a CI job get a cloud token by:', o: ['Storing a long-lived secret in the repo', 'Exchanging a signed identity it already has for a short-lived cloud token — no stored secret', 'Using the developer\'s password', 'Emailing an admin'], a: 1 },
+  { t: 'Cloud & workload', q: 'A SPIFFE SVID is best described as:', o: ['A password for servers', 'A short-lived, verifiable identity document for a workload', 'A firewall rule', 'An API key'], a: 1 },
+  { t: 'Cloud & workload', q: 'The blast radius of a leaked long-lived secret is reduced most by:', o: ['Making it longer', 'Replacing it with short-lived, automatically-rotated credentials', 'Emailing it encrypted', 'Writing it in the wiki'], a: 1 },
+  { t: 'Cloud & workload', q: 'Least-privilege for a cloud role means:', o: ['Grant admin to be safe', 'Grant only the specific permissions the workload actually needs', 'Grant nothing', 'Grant by IP'], a: 1 },
 ];
 
 AcadLabs.register('lab-exam', {
@@ -7575,5 +7580,736 @@ AcadLabs.register('lab-orgs', {
     renderPolicy();
     renderList();
     log.add('info', 'A B2B customer is an organization, not a person. You (Sam) run Org A: invite members, set org-scoped roles & policy — delegated admin means the vendor never touches your users.');
+  }
+});
+/* lab-principals | lesson: w1-principals */
+AcadLabs.register('lab-principals', {
+  title: 'Assume the role',
+  blurb: 'Pick a principal, assume a role, and watch the policy engine issue short-lived credentials — or deny you — then test least privilege action by action.',
+  render: function (root, h) {
+    var principal = 'app';   // human | ci | app | anon
+    var role = 'readonly';   // readonly | deploy | admin | none
+    var creds = null;        // null until issued
+
+    // Who may assume which role (trust). anon may assume nothing.
+    var trust = {
+      readonly: { human: true, ci: true, app: true, anon: false },
+      deploy:   { human: true, ci: true, app: false, anon: false },
+      admin:    { human: true, ci: false, app: false, anon: false }
+    };
+    // What each role's policy permits (least privilege).
+    var perms = {
+      readonly: { read: true, del: false, mkuser: false },
+      deploy:   { read: true, del: true, mkuser: false },
+      admin:    { read: true, del: true, mkuser: true }
+    };
+    var principalLabel = { human: 'human developer', ci: 'CI job', app: 'running app (Kai)', anon: 'anonymous' };
+    var roleLabel = { readonly: 'read-only', deploy: 'deploy', admin: 'admin', none: '(assume nothing)' };
+
+    var log = h.logPanel();
+    var credOut = h.el('div', {});
+    var actionOut = h.el('div', {});
+    var policyBox = h.el('div', {});
+
+    function renderPolicy() {
+      policyBox.innerHTML = '';
+      if (role === 'none') { policyBox.appendChild(h.note('No role selected — no permissions to show.')); return; }
+      var p = perms[role];
+      policyBox.appendChild(h.jsonView({
+        role: roleLabel[role],
+        allow: [
+          (p.read ? 'read:bucket' : null),
+          (p.del ? 'delete:bucket' : null),
+          (p.mkuser ? 'create:user' : null)
+        ].filter(function (x) { return x; }),
+        effect_default: 'deny'
+      }));
+    }
+
+    function assume() {
+      creds = null; actionOut.innerHTML = ''; credOut.innerHTML = '';
+      if (role === 'none') {
+        credOut.appendChild(h.httpCard({
+          method: 'POST', path: '/iam/assume-role', status: 400,
+          resBody: { error: 'no_role_selected' },
+          note: 'You must name a role to assume. A principal has no powers of its own.'
+        }));
+        log.add('warn', principalLabel[principal] + ' asked for creds with no role.');
+        return;
+      }
+      var allowed = trust[role][principal];
+      if (!allowed) {
+        var why = principal === 'anon'
+          ? 'Anonymous callers can assume no role — there is no identity to trust.'
+          : 'The ' + roleLabel[role] + ' role’s trust does not list the ' + principalLabel[principal] + ' as an allowed principal.';
+        credOut.appendChild(h.httpCard({
+          method: 'POST', path: '/iam/assume-role', status: 403,
+          reqBody: { principal: principalLabel[principal], role: roleLabel[role] },
+          resBody: { error: 'not_authorized_to_assume' },
+          note: why
+        }));
+        log.add('bad', principalLabel[principal] + ' → assume ' + roleLabel[role] + ' → 403 denied.');
+        return;
+      }
+      creds = { role: role, expires_in: 3600 };
+      credOut.appendChild(h.httpCard({
+        method: 'POST', path: '/iam/assume-role', status: 200,
+        reqBody: { principal: principalLabel[principal], role: roleLabel[role] },
+        resBody: { access_key: 'TEMP-' + role.toUpperCase(), expires_in: 3600, type: 'temporary' },
+        note: 'Short-lived credentials issued — nothing durable stored. Expires in 1h.'
+      }));
+      credOut.appendChild(h.badge('✅ temporary creds · expires in 1h', 'ok'));
+      log.add('ok', principalLabel[principal] + ' assumed ' + roleLabel[role] + ' → temporary creds (1h).');
+      h.flash(credOut);
+    }
+
+    function act(name, verb, path) {
+      actionOut.innerHTML = '';
+      if (!creds) {
+        actionOut.appendChild(h.note('Request temporary credentials first — an unassumed principal cannot call anything.'));
+        log.add('warn', 'Tried "' + name + '" with no assumed role.');
+        return;
+      }
+      var ok = perms[creds.role][verb];
+      if (ok) {
+        actionOut.appendChild(h.httpCard({
+          method: 'CALL', path: path, status: 200,
+          note: 'The ' + roleLabel[creds.role] + ' policy permits ' + name + '.'
+        }));
+        log.add('ok', name + ' → 200 (allowed by ' + roleLabel[creds.role] + ').');
+      } else {
+        actionOut.appendChild(h.httpCard({
+          method: 'CALL', path: path, status: 403,
+          resBody: { error: 'access_denied', reason: 'no matching allow rule' },
+          note: 'Least privilege: the ' + roleLabel[creds.role] + ' role never granted ' + name + ', so a compromised caller still cannot do it.'
+        }));
+        log.add('bad', name + ' → 403 (denied by ' + roleLabel[creds.role] + ').');
+      }
+      h.flash(actionOut);
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Who is asking?', [
+          h.field('Principal', h.select([
+            { value: 'human', label: 'Human developer (console login)' },
+            { value: 'ci', label: 'CI job (pipeline)' },
+            { value: 'app', label: 'Running app — Kai', selected: true },
+            { value: 'anon', label: 'Anonymous (no identity)' }
+          ], function (v) { principal = v; creds = null; credOut.innerHTML = ''; actionOut.innerHTML = ''; log.add('info', 'Principal is now the ' + principalLabel[v] + '.'); })),
+          h.field('Role to assume', h.select([
+            { value: 'readonly', label: 'read-only', selected: true },
+            { value: 'deploy', label: 'deploy' },
+            { value: 'admin', label: 'admin' },
+            { value: 'none', label: '(assume nothing)' }
+          ], function (v) { role = v; creds = null; credOut.innerHTML = ''; actionOut.innerHTML = ''; renderPolicy(); log.add('info', 'Target role is now ' + roleLabel[v] + '.'); })),
+          h.button('Request temporary credentials', 'primary', assume),
+          credOut
+        ]),
+        h.panel('3 · Try an action (uses the assumed role)', [
+          h.row([
+            h.button('read bucket', '', function () { act('read bucket', 'read', 'GET /bucket/reports'); }),
+            h.button('delete bucket', 'danger', function () { act('delete bucket', 'del', 'DELETE /bucket/reports'); }),
+            h.button('create user', 'danger', function () { act('create user', 'mkuser', 'POST /iam/users'); })
+          ]),
+          actionOut
+        ])
+      ]),
+      h.col([
+        h.panel('The role’s policy', [
+          h.note('Default is deny. The role permits only what its allow list names.'),
+          policyBox
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderPolicy();
+    log.add('info', 'A principal owns no powers directly — it assumes a role and borrows the role’s policy for a short time. Pick a pair and request creds.');
+  }
+});
+
+/* lab-wif | lesson: w2-wif */
+AcadLabs.register('lab-wif', {
+  title: 'Federate the pipeline — no secret',
+  blurb: 'Build a cloud trust policy, then send it main, PR and attacker-fork tokens — and watch a too-loose condition hand your role to a stranger.',
+  render: function (root, h) {
+    var CI_ISS = 'https://oidc.ci.example';
+    var allowIssuer = CI_ISS;   // may be set to a wrong issuer
+    var anyRepo = false;        // the "loosen" hole
+    var branchAny = false;      // main only vs any branch
+
+    // Deterministic incoming tokens. All real CI jobs share the SAME issuer.
+    var callers = {
+      main: { iss: CI_ISS, repo: 'acme/website', branch: 'main', sub: 'repo:acme/website:ref:refs/heads/main' },
+      pr:   { iss: CI_ISS, repo: 'acme/website', branch: 'feature-login', sub: 'repo:acme/website:ref:refs/heads/feature-login' },
+      fork: { iss: CI_ISS, repo: 'evil-corp/website-fork', branch: 'main', sub: 'repo:evil-corp/website-fork:ref:refs/heads/main' }
+    };
+
+    var log = h.logPanel();
+    var claimsBox = h.el('div', {});
+    var resultBox = h.el('div', {});
+    var policyBox = h.el('div', {});
+    var loosenBadge = h.el('span', {});
+
+    function renderPolicy() {
+      policyBox.innerHTML = '';
+      policyBox.appendChild(h.jsonView({
+        allowed_issuer: allowIssuer,
+        allowed_repo: anyRepo ? '* (ANY REPO)' : 'acme/website',
+        allowed_branch: branchAny ? '* (any branch)' : 'main'
+      }));
+      loosenBadge.innerHTML = '';
+      if (anyRepo) loosenBadge.appendChild(h.badge('⛔ repo condition removed — forks now qualify', 'bad'));
+      else loosenBadge.appendChild(h.badge('✓ repo pinned', 'ok'));
+    }
+
+    function evaluate(which) {
+      var c = callers[which];
+      claimsBox.innerHTML = '';
+      claimsBox.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Incoming token claims'));
+      claimsBox.appendChild(h.jsonView(c));
+
+      var issOk = c.iss === allowIssuer;
+      var repoOk = anyRepo || c.repo === 'acme/website';
+      var branchOk = branchAny || c.branch === 'main';
+      resultBox.innerHTML = '';
+
+      if (issOk && repoOk && branchOk) {
+        var attacker = (which === 'fork');
+        resultBox.appendChild(h.httpCard({
+          method: 'POST', path: '/token/exchange', status: 200,
+          reqBody: { grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange', subject_token: c.sub },
+          resBody: { access_token: 'TEMP-CLOUD-1H', expires_in: 3600, type: 'temporary' },
+          note: attacker
+            ? 'Issued to an ATTACKER FORK — because you loosened the repo condition, the fork’s token satisfied the trust policy.'
+            : 'Claims match the trust policy → short-lived cloud creds issued. No stored secret was involved.'
+        }));
+        resultBox.appendChild(h.badge(attacker ? '⛔ creds issued to attacker' : '✅ creds issued · 1h', attacker ? 'bad' : 'ok'));
+        log.add(attacker ? 'bad' : 'ok', which + ' token → exchange → creds' + (attacker ? ' (HOLE: any-repo).' : '.'));
+      } else {
+        var reason = !issOk ? 'issuer mismatch (token not from your CI)'
+          : (!repoOk ? 'repo claim ' + c.repo + ' ≠ acme/website'
+          : 'branch claim ' + c.branch + ' ≠ main');
+        resultBox.appendChild(h.httpCard({
+          method: 'POST', path: '/token/exchange', status: 403,
+          reqBody: { subject_token: c.sub },
+          resBody: { error: 'trust_condition_failed', detail: reason },
+          note: 'The signature was fine, but a pinned claim did not match — no exchange, no creds.'
+        }));
+        resultBox.appendChild(h.badge('⛔ denied · ' + reason, 'warn'));
+        log.add('warn', which + ' token → 403 (' + reason + ').');
+      }
+      h.flash(resultBox);
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Build the trust policy', [
+          h.field('Allowed issuer', h.select([
+            { value: CI_ISS, label: CI_ISS + ' (your CI)', selected: true },
+            { value: 'https://oidc.other.example', label: 'https://oidc.other.example (wrong)' }
+          ], function (v) { allowIssuer = v; renderPolicy(); log.add('info', 'Allowed issuer set to ' + v + '.'); })),
+          h.field('Allowed branch', h.select([
+            { value: 'main', label: 'refs/heads/main (pinned)', selected: true },
+            { value: 'any', label: '(any branch)' }
+          ], function (v) { branchAny = (v === 'any'); renderPolicy(); log.add(branchAny ? 'warn' : 'info', branchAny ? 'Branch condition removed — any branch qualifies.' : 'Branch pinned to main.'); })),
+          h.row([
+            h.chip('Loosen: allow ANY repo', false, function (now) {
+              anyRepo = now; renderPolicy();
+              log.add(now ? 'bad' : 'ok', now ? 'You removed the repo condition — the door is now open to forks.' : 'Repo condition restored.');
+            }),
+            loosenBadge
+          ]),
+          policyBox
+        ]),
+        h.panel('2 · Send a token', [
+          h.note('All three callers use the SAME CI issuer — so issuer alone cannot tell friend from fork.'),
+          h.row([
+            h.button('Your main branch', 'primary', function () { evaluate('main'); }),
+            h.button('Your PR branch', '', function () { evaluate('pr'); }),
+            h.button('Attacker’s fork', 'danger', function () { evaluate('fork'); })
+          ]),
+          claimsBox,
+          resultBox
+        ])
+      ]),
+      h.col([
+        h.panel('The old way (for contrast)', [
+          h.jsonView({ CLOUD_KEY: 'AKIA...NEVER-EXPIRES', stored_in: 'CI settings', rotation: 'manual / never' }),
+          h.note('A stored long-lived key: leaks in logs, forks and screenshots, works forever, and its blast radius is the whole account until a human rotates it.'),
+          h.badge('⛔ one leak = full account, indefinitely', 'bad'),
+          h.note('Federation replaces this with nothing-on-disk: a signed token exchanged for creds that expire in 1h and are scoped to the run.')
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderPolicy();
+    log.add('info', 'Priya deleted the stored key. Now the pipeline proves who it is with a signed OIDC token — build the trust policy, then test who gets in.');
+  }
+});
+/* lab-svid | lesson: w3-spiffe */
+AcadLabs.register('lab-svid', {
+  title: 'Issue an SVID, open an mTLS channel',
+  blurb: 'Boot two workloads, watch attestation mint short-lived SVIDs, open a mutual-TLS channel — then let one expire and see the connection break.',
+  render: function (root, h) {
+    var TD = 'spiffe://example.org/';
+    var LIFE = 20; // seconds — deliberately short so rotation is visible
+    var autoRotate = true;
+    var conn = false;   // is the A<->B mTLS channel up?
+    var ticking = false;
+    var A = { name: 'a', id: 'billing', svid: null, ttl: 0, valid: false, gen: 0 };
+    var B = { name: 'b', id: 'inventory', svid: null, ttl: 0, valid: false, gen: 0 };
+
+    var log = h.logPanel();
+    var aMeter = h.meter(0, 'neutral');
+    var bMeter = h.meter(0, 'neutral');
+    var aBox = h.el('div', {});
+    var bBox = h.el('div', {});
+    var connBox = h.el('div', { class: 'acad-lab-row' });
+
+    function who(w) { return w.name === 'a' ? 'Service A' : 'Service B'; }
+
+    function issue(w) {
+      w.gen += 1;
+      w.svid = TD + w.id;
+      w.ttl = LIFE;
+      w.valid = true;
+      log.add('ok', who(w) + ' issued X.509-SVID ' + w.svid + ' (ttl ' + LIFE + 's · gen ' + w.gen + ')');
+    }
+
+    function renderW(w, box, m) {
+      box.innerHTML = '';
+      if (!w.svid) { box.appendChild(h.note('Not started — no identity yet.')); m.set(0, 'neutral'); return; }
+      box.appendChild(h.badge(w.valid ? '✓ valid SVID' : '⛔ expired', w.valid ? 'ok' : 'bad'));
+      box.appendChild(h.el('code', { class: 'acad-lab-token' }, w.svid));
+      box.appendChild(h.note('X.509-SVID · gen ' + w.gen + ' · ttl ' + (w.valid ? w.ttl + 's' : '0s')));
+      m.set(w.valid ? (w.ttl / LIFE) * 100 : 0, !w.valid ? 'bad' : (w.ttl <= 5 ? 'warn' : 'ok'));
+    }
+
+    function renderConn() {
+      connBox.innerHTML = '';
+      connBox.appendChild(h.badge(conn ? '🔐 mTLS channel up' : 'no channel', conn ? 'ok' : 'neutral'));
+      if (conn) connBox.appendChild(h.badge('mutually authenticated + encrypted', 'info'));
+    }
+
+    function renderAll() { renderW(A, aBox, aMeter); renderW(B, bBox, bMeter); renderConn(); }
+
+    function attest(w) {
+      log.add('info', 'Attesting ' + who(w) + ': reading node + workload evidence (no secret planted)…');
+      log.add('info', who(w) + ' evidence: signed image ✓, scheduler labels ✓ → authority approves ' + TD + w.id);
+      issue(w);
+    }
+
+    function startup() {
+      log.add('info', 'Workloads starting up. Identity will come from attestation, not a password.');
+      attest(A); attest(B);
+      renderAll();
+      if (!ticking) { ticking = true; h.interval(tick, 1000); }
+    }
+
+    function tick() {
+      [A, B].forEach(function (w) {
+        if (!w.valid) return;
+        w.ttl -= 1;
+        if (w.ttl <= 0) {
+          if (autoRotate) {
+            log.add('warn', who(w) + '’s SVID hit ttl 0 — the agent auto-rotates before anything breaks.');
+            issue(w);
+          } else {
+            w.valid = false;
+            log.add('bad', who(w) + '’s SVID expired and rotation is OFF — its identity is now invalid.');
+            if (conn) { conn = false; log.add('bad', 'mTLS channel dropped: a peer no longer has a valid SVID.'); }
+          }
+        }
+      });
+      renderAll();
+    }
+
+    function connect() {
+      if (!A.svid || !B.svid) { log.add('warn', 'Start the workloads first — both ends need an SVID.'); return; }
+      if (A.valid && B.valid) {
+        conn = true;
+        log.add('ok', 'A ↔ B: both presented SVIDs, both verified the other against the trust domain. mTLS up — two-way authenticated AND encrypted.');
+      } else {
+        conn = false;
+        log.add('bad', 'Handshake failed: a side has no valid SVID, so mutual verification fails. No channel opens.');
+      }
+      renderConn();
+    }
+
+    function imposter() {
+      log.add('bad', 'Imposter (no SVID) dials Service B…');
+      log.add('bad', 'B requires a peer certificate signed by the trust domain. Imposter has none → TLS handshake refused. ⛔');
+    }
+
+    root.appendChild(h.row([
+      h.col([h.panel('Service A', [aMeter.root, aBox])]),
+      h.col([h.panel('Service B', [bMeter.root, bBox])])
+    ]));
+    root.appendChild(h.panel('Channel', [connBox]));
+    root.appendChild(h.row([
+      h.col([
+        h.button('▶ Workloads start up (attest + issue SVIDs)', 'primary', startup),
+        h.button('Connect A → B (mutual TLS)', '', connect)
+      ]),
+      h.col([
+        h.button('Imposter tries to connect', 'danger', imposter),
+        h.chip('Let SVIDs expire without rotation', false, function (on) {
+          autoRotate = !on;
+          log.add(on ? 'warn' : 'info', on
+            ? 'Auto-rotation OFF — SVIDs will expire and identities go invalid.'
+            : 'Auto-rotation ON — the agent keeps SVIDs fresh forever.');
+        })
+      ])
+    ]));
+    root.appendChild(h.note('SVIDs are short-lived on purpose: a stolen cert is worthless in seconds, and there’s no revocation list to babysit. mTLS proves BOTH ends, not just the server.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderAll();
+    log.add('info', 'SPIFFE gives every workload a provable identity. Press “Workloads start up” to attest and issue SVIDs.');
+  }
+});
+
+/* lab-secrets | lesson: w4-secrets */
+AcadLabs.register('lab-secrets', {
+  title: 'Rotate before it hurts',
+  blurb: 'Watch a database credential age, leak it in static vs dynamic mode, then rotate it right (overlap window) or wrong (hard swap outage).',
+  render: function (root, h) {
+    var mode = 'static';      // 'static' | 'dynamic'
+    var hardSwap = false;     // rotate the wrong way?
+    var age = 0;              // seconds since this version was issued
+    var version = 1;
+    var DYN_LIFE = 15;        // dynamic secrets auto-expire
+
+    var log = h.logPanel();
+    var ageMeter = h.meter(0, 'ok');
+    var blastMeter = h.meter(0, 'ok');
+    var secretBox = h.el('div', {});
+    var blastBox = h.el('div', { class: 'acad-lab-row' });
+
+    function secretVal() { return 'db-user:pw-v' + version; }
+
+    function renderSecret() {
+      secretBox.innerHTML = '';
+      secretBox.appendChild(h.badge(mode === 'dynamic' ? 'dynamic · short-lived' : 'static · long-lived', mode === 'dynamic' ? 'ok' : 'warn'));
+      secretBox.appendChild(h.el('code', { class: 'acad-lab-token' }, secretVal()));
+      var life = mode === 'dynamic' ? (DYN_LIFE + 's ttl') : 'no expiry';
+      secretBox.appendChild(h.note('Database credential · v' + version + ' · age ' + age + 's · ' + life));
+      if (mode === 'dynamic') {
+        ageMeter.set((age / DYN_LIFE) * 100, age >= DYN_LIFE - 3 ? 'warn' : 'ok');
+      } else {
+        // static keeps aging; the older it gets, the worse
+        ageMeter.set(Math.min(100, age * 3), age > 20 ? 'bad' : (age > 8 ? 'warn' : 'ok'));
+      }
+    }
+
+    function tick() {
+      age += 1;
+      if (mode === 'dynamic' && age >= DYN_LIFE) {
+        version += 1; age = 0;
+        log.add('ok', 'Dynamic secret auto-expired → a fresh one was minted (v' + version + '). Nothing lingered to steal.');
+      }
+      renderSecret();
+    }
+
+    function leak() {
+      blastBox.innerHTML = '';
+      if (mode === 'static') {
+        blastMeter.set(95, 'bad');
+        blastBox.appendChild(h.badge('☠ blast radius: HUGE', 'bad'));
+        log.add('bad', 'Static secret leaked. It stays valid until a HUMAN notices and manually rotates — window: potentially weeks.');
+        log.add('warn', 'Mitigation now: rotate immediately (below) and scan repos/logs for where it leaked.');
+      } else {
+        blastMeter.set(12, 'ok');
+        blastBox.appendChild(h.badge('☠ blast radius: tiny', 'ok'));
+        log.add('ok', 'Dynamic secret leaked — but it auto-expires in seconds. The attacker inherits a credential that’s already dying.');
+      }
+    }
+
+    function rotate() {
+      var oldV = version;
+      var newV = version + 1;
+      if (hardSwap) {
+        log.add('info', 'Hard swap: kill v' + oldV + ', activate v' + newV + ' the same instant.');
+        version = newV; age = 0;
+        log.add('bad', 'OUTAGE: every workload still holding v' + oldV + ' now gets 401/403 until it refetches. Requests fail.');
+        blastBox.innerHTML = '';
+        blastBox.appendChild(h.badge('⚠️ outage during swap', 'bad'));
+      } else {
+        log.add('info', 'Overlap rotation, step 1: mint v' + newV + ' (v' + oldV + ' still accepted).');
+        log.add('info', 'Step 2: deploy v' + newV + ' — BOTH v' + oldV + ' and v' + newV + ' are valid for a short window.');
+        log.add('info', 'Step 3: all workloads have now refetched v' + newV + '.');
+        version = newV; age = 0;
+        log.add('ok', 'Step 4: retire v' + oldV + '. Zero downtime — no in-flight request ever met a vanished secret.');
+        blastBox.innerHTML = '';
+        blastBox.appendChild(h.badge('✅ rotated with overlap — no outage', 'ok'));
+      }
+      renderSecret();
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('Secret store', [
+          h.field('Secret type', h.select([
+            { value: 'static', label: 'Static — long-lived (set once, reused)', selected: true },
+            { value: 'dynamic', label: 'Dynamic — short-lived (auto-expires)' }
+          ], function (v) {
+            mode = v; age = 0;
+            log.add('info', 'Switched to ' + (v === 'dynamic' ? 'dynamic short-lived' : 'static long-lived') + ' secrets.');
+            renderSecret();
+          })),
+          ageMeter.root,
+          secretBox
+        ])
+      ]),
+      h.col([
+        h.panel('Incident', [
+          h.button('☠ The secret leaks', 'danger', leak),
+          blastMeter.root,
+          blastBox
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Rotation', [
+      h.chip('Use a hard swap (wrong way)', false, function (on) {
+        hardSwap = on;
+        log.add(on ? 'warn' : 'info', on
+          ? 'Hard-swap mode: no overlap window — expect an outage.'
+          : 'Overlap-window mode: new + old both valid briefly, then retire old.');
+      }),
+      h.button('Rotate now', 'primary', rotate),
+      h.note('Workloads fetch secrets through their own identity at runtime — so there is nothing for a human to copy, paste, or screenshot. Rotation is routine, not a fire drill.')
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderSecret();
+    h.interval(tick, 1000);
+    log.add('info', 'A DB password is a straggler secret. Choose a type, leak it, and rotate it — watch the blast radius change.');
+  }
+});
+/* lab-crossacct | lesson: w5-crossacct */
+AcadLabs.register('lab-crossacct', {
+  title: 'Bridge two accounts safely',
+  blurb: 'Build account B’s trust policy, then fire three assume-role attempts — a legit workload, an outside attacker, and a tricked deputy — and watch the confused deputy fall only when the condition is on.',
+  render: function (root, h) {
+    var who = 'named';       // named | anyA | anyone
+    var requireCond = false; // external-id condition on the trust policy
+
+    var out = h.el('div', {});
+    var log = h.logPanel();
+
+    function policyView() {
+      var principal = who === 'named' ? 'acct-A::workload/fulfilment'
+        : who === 'anyA' ? 'acct-A::*  (any principal in account A)'
+        : '*  (anyone, anywhere)';
+      return h.jsonView({
+        Role: 'data-reader (account B)',
+        Trust: { Principal: principal, Condition: requireCond ? { ExternalId: 'x-9f3a' } : '(none)' }
+      });
+    }
+
+    var policyBox = h.el('div', { class: 'acad-lab-col' });
+    function renderPolicy() {
+      policyBox.innerHTML = '';
+      policyBox.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Account B · trust policy'));
+      policyBox.appendChild(policyView());
+      if (who === 'anyone') policyBox.appendChild(h.badge('⚠️ trusts anyone — classic misconfig', 'bad'));
+      else if (who === 'anyA') policyBox.appendChild(h.badge('trusts a whole account, no principal named', 'warn'));
+      else policyBox.appendChild(h.badge('names one specific principal', 'ok'));
+      policyBox.appendChild(h.badge(requireCond ? 'external condition required ✓' : 'no condition', requireCond ? 'ok' : 'warn'));
+    }
+
+    // caller: 'legit' (named principal in A) | 'attacker' (third account) | 'deputy' (privileged multi-tenant workload in A, tricked)
+    function attempt(caller) {
+      out.innerHTML = '';
+      var principalOk, presentsCond, label, req;
+      if (caller === 'legit') {
+        label = 'Fulfilment workload (account A)';
+        principalOk = (who === 'named' || who === 'anyA' || who === 'anyone');
+        presentsCond = true;                 // it knows the configured external ID
+        req = { from: 'acct-A::workload/fulfilment', externalId: 'x-9f3a' };
+      } else if (caller === 'attacker') {
+        label = 'Attacker workload (account C)';
+        principalOk = (who === 'anyone');     // only wide-open policy lets an outsider in
+        presentsCond = false;
+        req = { from: 'acct-C::workload/evil', externalId: '(unknown)' };
+      } else {
+        label = 'Tricked deputy (multi-tenant workload, account A)';
+        principalOk = (who === 'named' || who === 'anyA' || who === 'anyone'); // it IS a legit A principal
+        presentsCond = false;                 // acting for the attacker → forwards no valid external ID
+        req = { from: 'acct-A::workload/shared', externalId: '(attacker-supplied)' };
+      }
+
+      var condOk = !requireCond || presentsCond;
+      var allowed = principalOk && condOk;
+
+      if (allowed) {
+        out.appendChild(h.httpCard({
+          method: 'POST', path: '/assume-role/data-reader', reqBody: req, status: 200,
+          resBody: { credentials: 'cred-sim-' + h.rand(8), expires_in: 900 },
+          note: 'Short-lived credentials issued (15 min). Every hop is attributable in account B’s logs.'
+        }));
+        var kind = caller === 'legit' ? 'ok' : 'bad';
+        log.add(kind, label + ' → AssumeRole 200' + (caller === 'legit' ? ' (intended).' : ' — this should NOT have happened.'));
+        out.appendChild(h.badge(caller === 'legit' ? '✅ legitimate access' : '⛔ policy too loose — you let this through', kind));
+        if (caller === 'attacker') out.appendChild(h.note('An outsider assumed the role because the trust policy trusts “anyone”. Name the principal.'));
+        if (caller === 'deputy') out.appendChild(h.note('The confused deputy won: it’s a legit account-A principal, and with no condition it forwarded whatever it was handed. Turn on the external condition.'));
+      } else {
+        var reason = !principalOk ? 'principal not trusted by this policy' : 'external condition failed';
+        out.appendChild(h.httpCard({
+          method: 'POST', path: '/assume-role/data-reader', reqBody: req, status: 403,
+          resBody: { error: 'AccessDenied', reason: reason },
+          note: 'Trust policy refused the assume-role. No credentials leave account B.'
+        }));
+        log.add('ok', label + ' → 403 AccessDenied (' + reason + ').');
+        out.appendChild(h.badge('✅ blocked — ' + reason, 'ok'));
+        if (caller === 'deputy') out.appendChild(h.note('Confused deputy defeated: it’s an allowed principal, but the external ID condition is something the attacker can’t supply.'));
+      }
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Account B — who may assume data-reader?', [
+          h.field('Trust the…', h.select([
+            { value: 'named', label: 'specific account-A principal (fulfilment)', selected: true },
+            { value: 'anyA', label: 'any principal in account A' },
+            { value: 'anyone', label: 'anyone (wide open)' }
+          ], function (v) { who = v; renderPolicy(); })),
+          h.row([h.chip('Require external condition (external ID)', false, function (on) { requireCond = on; renderPolicy(); })])
+        ]),
+        h.panel('2 · Fire an assume-role attempt', [
+          h.button('Legit workload in A', 'primary', function () { attempt('legit'); }),
+          h.button('Attacker in a third account', 'danger', function () { attempt('attacker'); }),
+          h.button('Confused deputy (tricked, in A)', 'danger', function () { attempt('deputy'); })
+        ])
+      ]),
+      h.col([policyBox, h.panel('Latest attempt', [out])])
+    ]));
+    root.appendChild(h.note('Rules of thumb: “anyone” lets the outside attacker in — the classic misconfig. Naming the principal stops the outsider but NOT the confused deputy, because the deputy is a legitimate account-A principal. Only the external-ID condition defeats the confused deputy.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderPolicy();
+    log.add('info', 'You own account B. Set the trust policy on the left, then attempt access. Legit should pass, attacker should fail, and the deputy falls only with the condition on.');
+  }
+});
+
+/* lab-trim | lesson: w6-leastpriv */
+AcadLabs.register('lab-trim', {
+  title: 'Trim the robot’s permissions',
+  blurb: 'Start Bot A with an over-broad policy, trim it to what was actually used, add a guardrail — then let an attacker take it over and see the blast radius shrink.',
+  render: function (root, h) {
+    // Ground truth: what the workload actually used in the last 30 days.
+    var USED = { 'storage:read': true, 'storage:write': true, 'db:read': true, 'queue:read': true };
+    // Starting granted policy (over-broad): some used, some unused, some wildcard, some dangerous.
+    var PERMS = [
+      { id: 'storage:read',       kind: 'used' },
+      { id: 'storage:write',      kind: 'used' },
+      { id: 'db:read',            kind: 'used' },
+      { id: 'queue:read',         kind: 'used' },
+      { id: 'storage:*',          kind: 'wildcard' },
+      { id: 'network:*',          kind: 'wildcard' },
+      { id: 'db:delete-all',      kind: 'danger' },
+      { id: 'admin:create-admin', kind: 'danger' }
+    ];
+    var granted = {}; PERMS.forEach(function (p) { granted[p.id] = true; });
+    var trimmed = false, guardrail = false;
+
+    var chipRow = h.el('div', { class: 'acad-lab-row' });
+    var lpMeter = h.meter(0, 'neutral');   // least-privilege tightness
+    var brMeter = h.meter(0, 'neutral');   // blast radius after takeover
+    var out = h.el('div', {});
+    var log = h.logPanel();
+
+    // Effective perms = granted, minus wildcards/unused if trimmed, minus dangerous if guardrail caps them.
+    function effective() {
+      return PERMS.filter(function (p) {
+        if (!granted[p.id]) return false;
+        if (trimmed && (p.kind === 'wildcard' || (p.kind === 'danger') || !USED[p.id])) return false;
+        if (guardrail && p.kind === 'danger') return false;
+        return true;
+      }).map(function (p) { return p.id; });
+    }
+
+    function renderChips() {
+      chipRow.innerHTML = '';
+      PERMS.forEach(function (p) {
+        var tag = p.kind === 'used' ? (USED[p.id] ? 'used ✓' : 'unused')
+          : p.kind === 'wildcard' ? 'wildcard ⚠' : 'dangerous ⛔';
+        var kept = effective().indexOf(p.id) >= 0;
+        var wrap = h.el('span', { class: 'acad-lab-row' }, [
+          h.badge(p.id, kept ? 'info' : 'neutral'),
+          h.badge(tag, p.kind === 'used' && USED[p.id] ? 'ok' : (p.kind === 'used' ? 'warn' : 'bad'))
+        ]);
+        if (!kept) wrap.style.opacity = '0.5';
+        chipRow.appendChild(wrap);
+      });
+    }
+
+    function tightness() {
+      // 100 when effective == exactly the used set; lower the more extra/wildcard/danger perms are live.
+      var eff = effective();
+      var extra = eff.filter(function (id) { return !USED[id]; }).length;
+      var pct = Math.max(0, 100 - extra * 20);
+      return pct;
+    }
+
+    function refresh() {
+      renderChips();
+      var t = tightness();
+      lpMeter.set(t, t >= 100 ? 'ok' : (t >= 60 ? 'warn' : 'bad'));
+    }
+
+    function trim() {
+      if (trimmed) { log.add('info', 'Already trimmed to used permissions.'); return; }
+      trimmed = true;
+      log.add('ok', 'Trimmed to observed usage: removed storage:*, network:*, db:delete-all, admin:create-admin — none were used in 30 days.');
+      refresh(); h.flash(chipRow);
+      out.innerHTML = '';
+      out.appendChild(h.note('Policy now matches the job: read/write one bucket, read the db, read the queue. Least-privilege meter jumped to ' + tightness() + '%.'));
+    }
+
+    function takeover() {
+      out.innerHTML = '';
+      var eff = effective();
+      var damage = [];
+      if (eff.indexOf('storage:*') >= 0 || eff.indexOf('network:*') >= 0) damage.push('wildcard access — reach every bucket and network path');
+      if (eff.indexOf('db:delete-all') >= 0) damage.push('DELETE the production database');
+      if (eff.indexOf('admin:create-admin') >= 0) damage.push('create a permanent admin backdoor');
+      var severe = damage.length > 0;
+
+      // Blast-radius score.
+      var score = eff.length ? 20 : 0;
+      if (eff.indexOf('storage:*') >= 0) score += 20;
+      if (eff.indexOf('network:*') >= 0) score += 20;
+      if (eff.indexOf('db:delete-all') >= 0) score += 30;
+      if (eff.indexOf('admin:create-admin') >= 0) score += 30;
+      score = Math.min(100, score);
+      brMeter.set(score, severe ? 'bad' : 'ok');
+
+      log.add(severe ? 'bad' : 'ok', 'A compromised dependency takes over Bot A. Effective perms: [' + eff.join(', ') + '].');
+      out.appendChild(h.httpCard({
+        method: 'POST', path: '/takeover/bot-a', status: severe ? 200 : 200,
+        resBody: { attacker_can: severe ? damage : ['read one bucket, write one bucket, read the queue — nothing destructive'] },
+        note: severe ? 'Broad policy → the breach IS the disaster.' : 'Contained: the attacker inherited only the job’s tiny footprint.'
+      }));
+      out.appendChild(h.badge(severe ? '⛔ severe — attacker inherited danger' : '✅ contained — blast radius tiny', severe ? 'bad' : 'ok'));
+      if (severe && !trimmed) out.appendChild(h.note('Trim to used, then add the guardrail, and run the takeover again.'));
+      if (severe && trimmed && !guardrail) out.appendChild(h.note('Odd — trimming should have removed the dangerous perms. Guardrail is a second net if a policy re-grants them.'));
+    }
+
+    root.appendChild(h.panel('Bot A · granted policy (observed usage in the last 30 days shown per permission)', [chipRow]));
+    root.appendChild(h.row([
+      h.col([h.panel('Right-size it', [
+        h.button('Trim to used', 'primary', trim),
+        h.row([h.chip('Guardrail: cap delete-all & create-admin org-wide', false, function (on) { guardrail = on; refresh(); log.add(on ? 'ok' : 'info', on ? 'Guardrail on: dangerous actions can never resolve, even if granted.' : 'Guardrail off.'); })]),
+        h.el('div', { class: 'acad-lab-panel-title' }, 'Least-privilege tightness'), lpMeter.root
+      ])]),
+      h.col([h.panel('Attack it', [
+        h.button('Attacker takes over the workload', 'danger', takeover),
+        h.el('div', { class: 'acad-lab-panel-title' }, 'Blast radius after takeover'), brMeter.root,
+        out
+      ])])
+    ]));
+    root.appendChild(h.note('The starting policy grants wildcards and dangerous actions that were never used. Trim removes them; the guardrail is a second net that caps delete-all and create-admin even if a policy re-grants them. A broad Bot A hands the attacker the keys; a trimmed, guardrailed Bot A hands over one bucket.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    refresh();
+    log.add('info', 'You are Zara, right-sizing Bot A. Trim to what it actually used, add a guardrail, then run the takeover — outcomes are deterministic.');
   }
 });
