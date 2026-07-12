@@ -19,6 +19,8 @@ Enterprise-grade IAM, API Security, and AI Security company website. Static sing
 
 **Deployment**: GitHub Pages (no build process, static files only)
 
+**URL style**: ALL internal links are extensionless (`/academy`, `/privacy`, `/#contact`, `/` for home) — GitHub Pages resolves `/academy` → `academy.html`. Never link `*.html` directly; canonicals and sitemap.xml are extensionless too.
+
 ---
 
 ## Project Structure
@@ -40,11 +42,11 @@ website/
 
 ### Page Sections (index.html)
 
-1. **Navbar** - Fixed top, smooth scroll, theme picker dropdown (Light / Dark / High Contrast / Midnight Cyber), responsive menu
+1. **Navbar** - Fixed top, smooth scroll, theme picker dropdown (Light / Dark / High Contrast / Midnight Cyber), responsive menu. Order: Home, Services, Tools, Academy (/academy), Products, Stack, Clients, Contact. Scroll-spy matches nav links by `href="#id"` (not index), so non-section links like Academy are safe anywhere in the nav
 2. **Hero** - Animated gradient background (15s), logo, tagline "Identity & Security for Humans, Machines & AI Agents", subtitle listing core services (no feature cards — they duplicated the Services marquee and were removed 2026-07)
-3. **Solutions** - Single auto-scrolling marquee row (`.services-marquee > .services-track > .service-slide`) with all 12 service cards; each card carries a `.service-tag` category pill ("AI & Agent Security" on the first 5: AI Integration Services, Agent Auth & Non-Human Identity, MCP Security & Secure Libraries, Fine-Grained Authorization, Securing AI Applications; "Identity, API & Engineering" on the last 7: Cloud-Native IAM, API Security Consulting, Enterprise SSO, Custom Software Development, Architecture & Design, Customer Identity & Advanced Authentication, Identity Threat Detection & Response). Marquee pauses on hover/focus/touch, supports mouse drag + native touch scroll, loops seamlessly via cloned slides, and respects `prefers-reduced-motion`
-4. **Free Security Tools** (`#tools`) - 27 micro-tool cards linking to `*.integrauth.com` subdomains, split into two Bootstrap-collapse groups ("AI & Agent Security · 5 tools" `#tools-ai`, "Identity, API & Engineering · 22 tools" `#tools-iam`), both collapsed by default; group pill (`.tools-group-header`) toggles with chevron flip
-5. **Academy promo banner** (`#academy-promo`, a `<div>` not a `<section>` so the scroll-spy section↔nav-link index mapping stays intact) - gradient `.acad-banner` CTA linking to academy.html
+3. **Academy promo banner** (`#academy-promo`, a `<div>` not a `<section>`, placed right after the Hero, pulled up with negative margin) - animated-gradient `.acad-banner` split layout: eyebrow pill + title + copy + `.acad-stat` chips on the left, white CTA button to /academy on the right
+4. **Solutions** - Single auto-scrolling marquee row (`.services-marquee > .services-track > .service-slide`) with all 12 service cards; each card carries a `.service-tag` category pill ("AI & Agent Security" on the first 5: AI Integration Services, Agent Auth & Non-Human Identity, MCP Security & Secure Libraries, Fine-Grained Authorization, Securing AI Applications; "Identity, API & Engineering" on the last 7: Cloud-Native IAM, API Security Consulting, Enterprise SSO, Custom Software Development, Architecture & Design, Customer Identity & Advanced Authentication, Identity Threat Detection & Response). Marquee pauses on hover/focus/touch, supports mouse drag + native touch scroll, loops seamlessly via cloned slides, and respects `prefers-reduced-motion`
+5. **Free Security Tools** (`#tools`) - 27 micro-tool cards linking to `*.integrauth.com` subdomains, split into two Bootstrap-collapse groups (`#tools-ai` 5 tools, `#tools-iam` 22 tools), both collapsed by default; each group header is a full-width `<button class="tools-group-header">` bar (icon + title + subtitle + "N tools" count pill + chevron flip), themed for all 4 themes
 6. **Products** - Smartable, Wrenchub (cards + detail modals), followed by a "We Also Build Websites" sub-block (inside `#products` so the scroll-spy section↔nav-link index mapping stays intact): 3 demo cards reusing `.tool-card` styling (with `.demo-icon` accent) linking to restaurant-demo / hospitals-demo / schools-demo `.integrauth.com` — each demo showcases switchable design variants (24 / 15 / 12) — plus a `.tools-cta` line linking to `#contact`
 7. **Tech Stack** - 17 collapsible categories, all collapsed by default (headers ship `aria-expanded="false"` + `collapsed-card` class, grids without `.show`), incl. Authorization & Policy (OpenFGA, OPA), Agent Identity & NHI (OAuth 2.1, Token Exchange, mTLS, service accounts, JWT), AI Tools, AI Agent Frameworks, AI Model Providers, AI Security & Guardrails (MCP Gateways, Enkrypt AI Guardrails, LiteLLM)
 8. **Clients** - Enkrypt AI, Cequence AI, I'Curity Solutions

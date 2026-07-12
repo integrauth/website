@@ -54,13 +54,16 @@ function handleScroll() {
       navbar.removeClass('navbar-scrolled');
     }
 
-    // Active navigation state (single-page index only)
+    // Active navigation state (single-page index only, matched by href)
     if (document.getElementById('home')) {
       const scrollDistance = scroll + 100;
-      $('section').each(function(i) {
+      $('section[id]').each(function() {
         if ($(this).position().top <= scrollDistance) {
-          $('.navbar-nav .nav-link.active').removeClass('active');
-          $('.navbar-nav .nav-link').eq(i).addClass('active');
+          const $link = $('.navbar-nav .nav-link[href="#' + this.id + '"]');
+          if ($link.length) {
+            $('.navbar-nav .nav-link.active').removeClass('active');
+            $link.addClass('active');
+          }
         }
       });
     }

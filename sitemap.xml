@@ -14,7 +14,7 @@
 
   <!-- IntegrAuth Academy -->
   <url>
-    <loc>https://integrauth.com/academy.html</loc>
+    <loc>https://integrauth.com/academy</loc>
     <lastmod>2026-07-11</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
@@ -22,7 +22,7 @@
 
   <!-- Privacy Policy -->
   <url>
-    <loc>https://integrauth.com/privacy.html</loc>
+    <loc>https://integrauth.com/privacy</loc>
     <lastmod>2025-11-05</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
@@ -30,7 +30,7 @@
 
   <!-- Terms of Service -->
   <url>
-    <loc>https://integrauth.com/terms.html</loc>
+    <loc>https://integrauth.com/terms</loc>
     <lastmod>2025-11-05</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
@@ -38,7 +38,7 @@
 
   <!-- Support -->
   <url>
-    <loc>https://integrauth.com/support.html</loc>
+    <loc>https://integrauth.com/support</loc>
     <lastmod>2025-11-05</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
@@ -46,7 +46,7 @@
 
   <!-- Cancellation Policy -->
   <url>
-    <loc>https://integrauth.com/cancellation.html</loc>
+    <loc>https://integrauth.com/cancellation</loc>
     <lastmod>2025-11-05</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
