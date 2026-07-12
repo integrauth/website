@@ -4460,6 +4460,48 @@ body.theme-contrast .acad-hero {
   margin-left: auto;
 }
 
+.acad-track-num {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary-color);
+  background: var(--acad-block);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 999px;
+  padding: 0.12rem 0.6rem;
+  margin-bottom: 0.45rem;
+}
+
+.acad-hub-foot {
+  text-align: center;
+  margin-top: 1.25rem;
+}
+
+.acad-hub-foot button {
+  border: 0;
+  background: none;
+  color: var(--acad-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 0.25rem 0.5rem;
+}
+
+.acad-hub-foot button:hover {
+  color: var(--primary-color);
+}
+
+.acad-reader-foot {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
 /* --- Reader chrome --- */
 .acad-toolbar {
   display: flex;

@@ -406,11 +406,11 @@ function initAcademy() {
   if (!reader || !hub) return;
 
   const TRACK_LABELS = {
-    foundations: 'Foundations',
-    authn: 'Modern Authentication',
-    tokens: 'Token Security',
-    ai: 'AI & Agents',
-    ops: 'Identity Operations'
+    foundations: 'Track 1 · Foundations',
+    authn: 'Track 2 · Modern Authentication',
+    tokens: 'Track 3 · Token Security',
+    ai: 'Track 4 · AI & Agents',
+    ops: 'Track 5 · Identity Operations'
   };
 
   const lessons = Array.prototype.slice.call(document.querySelectorAll('.acad-lesson'));
@@ -651,15 +651,38 @@ function initAcademy() {
   const backBtn = document.getElementById('acadBack');
   if (backBtn) backBtn.addEventListener('click', showHub);
 
-  const resetBtn = document.getElementById('acadReset');
-  if (resetBtn) resetBtn.addEventListener('click', function () {
+  // Reset ONE track: its read marks + quiz reveals; other tracks untouched.
+  function resetTrack(track) {
+    const items = trackLessons(track);
+    const read = readSet();
+    const store = quizStore();
+    items.forEach(function (s) {
+      read.delete(s.id);
+      delete store[s.id];
+      s.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
+    });
+    saveRead(read);
+    saveQuizStore(store);
+    showHub();
+  }
+
+  document.querySelectorAll('.acad-reset-track').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const active = document.querySelector('.acad-lesson.is-active');
+      if (active) resetTrack(trackOf(active));
+    });
+  });
+
+  const resetAllBtn = document.getElementById('acadResetAll');
+  if (resetAllBtn) resetAllBtn.addEventListener('click', function () {
+    if (!window.confirm('Reset ALL Academy progress? Every read mark and quiz answer will be cleared.')) return;
     try {
       localStorage.removeItem(KEY_POS);
       localStorage.removeItem(KEY_READ);
       localStorage.removeItem(KEY_QUIZ);
     } catch (e) {}
     document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
-    showHub();
+    updateProgress();
   });
 
   window.addEventListener('hashchange', function () {
