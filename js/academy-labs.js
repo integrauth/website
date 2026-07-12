@@ -6,8 +6,12 @@
   'use strict';
 
   var REG = {};
+  var FLOWS = {};
   window.AcadLabs = {
-    register: function (id, def) { REG[id] = def; }
+    register: function (id, def) { REG[id] = def; },
+    defineFlow: function (id, def) { FLOWS[id] = def; },
+    getFlow: function (id) { return FLOWS[id]; },
+    flowIds: function () { return Object.keys(FLOWS); }
   };
 
   /* ---------- DOM helpers ---------- */
@@ -232,6 +236,157 @@
     elem.classList.add('acad-lab-flash');
   }
 
+  /* ---------- sequence-diagram flow player (Flow Explorer engine) ---------- */
+
+  var seqUid = 0;
+
+  function svgEl(tag, attrs, children) {
+    var node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        if (attrs[k] != null) node.setAttribute(k, attrs[k]);
+      });
+    }
+    if (children != null) {
+      (Array.isArray(children) ? children : [children]).forEach(function (c) {
+        if (c == null) return;
+        node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+      });
+    }
+    return node;
+  }
+
+  function seqMarker(id, cls) {
+    var m = svgEl('marker', {
+      id: id, viewBox: '0 0 10 10', refX: 9, refY: 5,
+      markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse'
+    });
+    m.appendChild(svgEl('path', { d: 'M0 0L10 5L0 10z', 'class': cls }));
+    return m;
+  }
+
+  /*
+   * buildFlowPlayer(ref, opts, ctx) — animated sequence diagram.
+   * ref: flow id in FLOWS, or an inline flow def:
+   *   { title, tag, intro, outro,
+   *     actors: [{id, label, kind: 'actor'|'human'|'bad'}],
+   *     steps:  [{f, t, l, n, http, kind: 'msg'|'ret'|'bad'|'note'}] }
+   * 'note' (or f === t) renders a box on that lifeline. Colors via ax- and --acad- tokens only.
+   */
+  function buildFlowPlayer(ref, opts, ctx) {
+    var flow = typeof ref === 'string' ? FLOWS[ref] : ref;
+    opts = opts || {};
+    if (!flow) return note('Unknown flow: ' + ref);
+    var uid = 'acadseq' + (++seqUid);
+    var actors = flow.actors, steps = flow.steps;
+    var W = 640, padX = 82;
+    var xs = {};
+    actors.forEach(function (a, i) {
+      xs[a.id] = actors.length === 1 ? W / 2 : padX + i * ((W - 2 * padX) / (actors.length - 1));
+    });
+    var firstRow = 78, rowH = 40;
+    var H = firstRow + (steps.length - 1) * rowH + 26;
+
+    var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': flow.title + ' — sequence diagram' });
+    svg.appendChild(svgEl('defs', null, [
+      seqMarker(uid + '-m', 'seq-head'),
+      seqMarker(uid + '-b', 'seq-head bad')
+    ]));
+
+    actors.forEach(function (a) {
+      var x = xs[a.id];
+      var kindCls = a.kind === 'human' ? 'ax-human' : (a.kind === 'bad' ? 'ax-bad' : 'ax-actor');
+      svg.appendChild(svgEl('g', null, [
+        svgEl('line', { x1: x, y1: 42, x2: x, y2: H - 4, 'class': 'ax-life', 'stroke-dasharray': '4 4' }),
+        svgEl('rect', { x: x - 64, y: 5, width: 128, height: 32, rx: 8, 'class': kindCls }),
+        svgEl('text', { x: x, y: 26, 'text-anchor': 'middle', 'font-size': '12.5', 'font-weight': '600', 'class': 'ax-atext' }, a.label)
+      ]));
+    });
+
+    var groups = steps.map(function (s, i) {
+      var y = firstRow + i * rowH;
+      var g = svgEl('g', { 'class': 'acad-seq-step' });
+      var bad = s.kind === 'bad';
+      if (s.kind === 'note' || s.f === s.t) {
+        var cx = xs[s.f != null ? s.f : actors[0].id];
+        var bw = Math.min(236, W - 20);
+        var bx = Math.max(10, Math.min(cx - bw / 2, W - bw - 10));
+        g.appendChild(svgEl('rect', { x: bx, y: y - 16, width: bw, height: 26, rx: 6, 'class': 'ax-block' }));
+        g.appendChild(svgEl('text', { x: bx + bw / 2, y: y + 1, 'text-anchor': 'middle', 'font-size': '11.5', 'class': bad ? 'ax-bad' : 'ax-note' }, s.l));
+      } else {
+        var x1 = xs[s.f], x2 = xs[s.t];
+        var dir = x2 > x1 ? 1 : -1;
+        var lineAttrs = {
+          x1: x1, y1: y, x2: x2 - dir * 6, y2: y, 'stroke-width': 2,
+          'class': bad ? 'ax-bad' : (s.kind === 'ret' ? 'ax-ret' : 'ax-msg'),
+          'marker-end': 'url(#' + uid + (bad ? '-b' : '-m') + ')'
+        };
+        if (s.kind === 'ret') lineAttrs['stroke-dasharray'] = '5 4';
+        g.appendChild(svgEl('line', lineAttrs));
+        g.appendChild(svgEl('text', { x: (x1 + x2) / 2, y: y - 7, 'text-anchor': 'middle', 'font-size': '12', 'class': bad ? 'ax-bad' : 'ax-atext' }, s.l));
+      }
+      svg.appendChild(g);
+      return g;
+    });
+
+    var count = el('span', { 'class': 'acad-seq-count' });
+    var noteBox = el('div', { 'class': 'acad-seq-note', 'aria-live': 'polite' });
+    var cur = 0, playing = null;
+    var back, next, playBtn;
+
+    function stopPlay() {
+      if (playing) { clearInterval(playing); playing = null; playBtn.textContent = '▶ Auto-play'; }
+    }
+
+    function setStep(k) {
+      cur = Math.max(0, Math.min(steps.length, k));
+      groups.forEach(function (g, i) {
+        g.setAttribute('class', 'acad-seq-step' + (i < cur ? ' on' : '') + (i === cur - 1 ? ' cur' : ''));
+      });
+      count.textContent = cur === 0 ? steps.length + ' steps' : 'Step ' + cur + ' / ' + steps.length;
+      noteBox.innerHTML = '';
+      if (cur === 0) {
+        noteBox.appendChild(el('p', { 'class': 'acad-seq-narr' },
+          flow.intro || 'Press Next to walk through the flow, one message at a time.'));
+      } else {
+        var s = steps[cur - 1];
+        noteBox.appendChild(el('p', { 'class': 'acad-seq-narr' }, [
+          el('strong', null, 'Step ' + cur + '. '), s.n || s.l
+        ]));
+        if (s.http) noteBox.appendChild(jsonView(s.http));
+        if (cur === steps.length && flow.outro) noteBox.appendChild(note(flow.outro));
+      }
+      back.disabled = cur === 0;
+      next.disabled = cur >= steps.length;
+      if (cur >= steps.length) stopPlay();
+    }
+
+    back = button('◀ Back', '', function () { stopPlay(); setStep(cur - 1); });
+    next = button('Next ▶', '', function () { stopPlay(); setStep(cur + 1); });
+    playBtn = button('▶ Auto-play', '', function () {
+      if (playing) { stopPlay(); return; }
+      if (cur >= steps.length) setStep(0);
+      playBtn.textContent = '⏸ Pause';
+      playing = setInterval(function () {
+        if (cur >= steps.length) stopPlay(); else setStep(cur + 1);
+      }, 2600);
+    });
+    var restart = button('⟲ Restart', '', function () { stopPlay(); setStep(0); });
+    if (ctx) ctx.cleanup.push(stopPlay);
+
+    var headKids = [];
+    if (flow.title) headKids.push(el('strong', null, flow.title));
+    if (flow.tag) headKids.push(el('span', { 'class': 'acad-seq-tag' }, flow.tag));
+    var root = el('div', { 'class': 'acad-seq' }, [
+      headKids.length ? el('div', { 'class': 'acad-seq-head' }, headKids) : null,
+      svg,
+      noteBox,
+      el('div', { 'class': 'acad-seq-controls' }, [restart, back, next, playBtn, count])
+    ]);
+    setStep(opts.start || 0);
+    return root;
+  }
+
   /* ---------- mount / lifecycle ---------- */
 
   function makeH(ctx) {
@@ -241,6 +396,7 @@
       fakeJwt: fakeJwt, verifyJwt: verifyJwt, decodeJwt: decodeJwt,
       tokenView: tokenView, jsonView: jsonView, rand: rand,
       httpCard: httpCard, logPanel: logPanel, meter: meter, flash: flash,
+      flowPlayer: function (ref, opts) { return buildFlowPlayer(ref, opts, ctx); },
       interval: function (fn, ms) {
         var id = setInterval(fn, ms);
         ctx.cleanup.push(function () { clearInterval(id); });
@@ -3572,8 +3728,8 @@ AcadLabs.register('lab-copilot', {
     function run(id) {
       var atk = attacks[id];
       out.innerHTML = '';
-      var track = h.el('div', {});
-      out.appendChild(h.el('div', {}, [h.badge(atk.label, 'bad'), h.note(atk.desc), track]));
+      var track = h.el('div', { class: 'acad-lab-stack' });
+      out.appendChild(h.el('div', { class: 'acad-lab-stack' }, [h.badge(atk.label, 'bad'), h.note(atk.desc), track]));
       log.add('warn', 'ATTACK · ' + atk.label + ' launched.');
       var i = 0, caught = false;
       function stepLayer() {
@@ -4758,5 +4914,981 @@ AcadLabs.register('lab-owasp', {
 
     root.appendChild(stage);
     renderRound();
+  }
+});
+
+/* ================= Flow Explorer: canonical flow definitions ================= */
+
+AcadLabs.defineFlow('oidc-code', {
+  title: 'Login with OIDC — auth code + PKCE',
+  tag: 'The flow behind almost every "Log in" button',
+  intro: 'Maya clicks "Log in" on an app that uses an identity provider. Press Next ▶ to watch every message — and see why a stolen code is useless.',
+  actors: [
+    { id: 'maya', label: 'Maya · browser', kind: 'human' },
+    { id: 'app', label: 'App (client)' },
+    { id: 'idp', label: 'Identity provider' }
+  ],
+  steps: [
+    { f: 'maya', t: 'app', l: 'Open the app — no session yet', n: 'Maya clicks "Log in". The app has no idea who she is — no cookie, no session.', http: 'GET /dashboard' },
+    { f: 'app', t: 'app', kind: 'note', l: 'App makes a PKCE secret + hash', n: 'The app invents a big random secret (the code_verifier), hashes it into a code_challenge, and keeps the secret for later. That is PKCE: proof that the same app finishes what it starts.' },
+    { f: 'app', t: 'maya', kind: 'ret', l: '302: go log in at the IdP', n: 'The app redirects Maya’s browser to the identity provider’s /authorize URL with the client_id, redirect_uri, requested scopes, a random state, and the code_challenge.', http: 'GET /authorize?client_id=app&redirect_uri=https://app.example/callback\n  &scope=openid profile&state=xyz42\n  &code_challenge=E9Melhoa...&code_challenge_method=S256' },
+    { f: 'maya', t: 'idp', l: 'GET /authorize (+ challenge)', n: 'Her browser follows the redirect. Notice: any password or passkey will be used at the IdP — never typed into the app.' },
+    { f: 'idp', t: 'idp', kind: 'note', l: 'Maya proves it’s her (passkey/MFA)', n: 'The IdP runs the actual login — passkey, or password plus MFA, whatever policy demands. The app never sees any of it.' },
+    { f: 'idp', t: 'maya', kind: 'ret', l: '302 back with a one-time code', n: 'The IdP sends the browser back to the app’s registered redirect_uri with a short-lived, single-use authorization code — and echoes the state.', http: '302 Location: https://app.example/callback?code=SplxlOBeZQ&state=xyz42' },
+    { f: 'maya', t: 'app', l: 'GET /callback?code&state', n: 'The browser delivers the code. The app first checks the state matches what it sent — that blocks cross-site request forgery.' },
+    { f: 'app', t: 'idp', l: 'POST /token (code + verifier)', n: 'Now server-to-server, away from the browser: the app trades the code for tokens and presents the original code_verifier. The IdP hashes it and checks it matches the challenge from step 2.', http: 'POST /token\ngrant_type=authorization_code&code=SplxlOBeZQ\n&code_verifier=dBjftJeZ4CVP...&client_id=app' },
+    { f: 'idp', t: 'app', kind: 'ret', l: 'id_token + access_token', n: 'The IdP returns an id_token (who logged in — for the app) and an access_token (for calling APIs), usually a refresh_token too.', http: '200 {"id_token":"eyJ...","access_token":"eyJ...","expires_in":900}' },
+    { f: 'app', t: 'maya', kind: 'ret', l: 'Set-Cookie: session — welcome!', n: 'The app verifies the id_token’s signature and claims, creates its own session cookie, and finally shows Maya her dashboard.' }
+  ],
+  outro: 'A stolen code alone is useless: it expires in seconds, works once, and the /token call demands the PKCE verifier a thief never saw.'
+});
+
+AcadLabs.defineFlow('webauthn', {
+  title: 'Passkey sign-in — WebAuthn',
+  tag: 'No password exists at any point',
+  intro: 'Maya signs in with a passkey. Watch where the private key lives — and why a phishing site gets nothing.',
+  actors: [
+    { id: 'auth', label: 'Authenticator', kind: 'human' },
+    { id: 'br', label: 'Browser' },
+    { id: 'app', label: 'App server' }
+  ],
+  steps: [
+    { f: 'br', t: 'app', l: '"Sign in with passkey"', n: 'Maya clicks sign-in; the browser asks the server to start a passkey ceremony.' },
+    { f: 'app', t: 'br', kind: 'ret', l: 'Fresh random challenge', n: 'The server generates a one-time random challenge. Signing it proves the response is live, not a replay.', http: '{"challenge":"aG93ZHk...","rpId":"app.example"}' },
+    { f: 'br', t: 'auth', l: 'navigator.credentials.get()', n: 'The browser hands the challenge to the authenticator and bakes in the site’s origin. A look-alike phishing domain would get a different origin baked in — so its signature would never verify.' },
+    { f: 'auth', t: 'auth', kind: 'note', l: 'Face / fingerprint / PIN unlocks key', n: 'Maya verifies locally. Her biometric never leaves the device; it just unlocks the private key for one signature.' },
+    { f: 'auth', t: 'br', kind: 'ret', l: 'Signed assertion', n: 'The authenticator signs challenge + origin + a counter with Maya’s private key for this site.' },
+    { f: 'br', t: 'app', l: 'POST /login (assertion)', n: 'The browser forwards the signed assertion to the server.' },
+    { f: 'app', t: 'app', kind: 'note', l: 'Verify with stored PUBLIC key', n: 'The server verifies the signature with the public key saved at registration, and checks the challenge and origin match. Nothing secret was ever transmitted — nothing to phish, nothing to leak in a breach.' },
+    { f: 'app', t: 'br', kind: 'ret', l: 'Session cookie — you’re in', n: 'Login complete. No shared secret existed at any point in this diagram.' }
+  ],
+  outro: 'This is why passkeys beat phishing: the origin check happens inside the cryptography, not in Maya’s judgment.'
+});
+
+AcadLabs.defineFlow('refresh-rotation', {
+  title: 'Refresh-token rotation & the reuse alarm',
+  tag: 'One stolen token burns the whole set down',
+  intro: 'Maya’s app quietly refreshes her tokens — and a thief replays an old one. Watch the alarm trip.',
+  actors: [
+    { id: 'app', label: 'App (Maya)' },
+    { id: 'idp', label: 'Identity provider' },
+    { id: 'thief', label: 'Thief', kind: 'bad' }
+  ],
+  steps: [
+    { f: 'app', t: 'app', kind: 'note', l: 'Access token expires (15 min)', n: 'Access tokens are deliberately short-lived. Time to refresh.' },
+    { f: 'app', t: 'idp', l: 'POST /token (refresh RT1)', n: 'The app presents refresh token RT1.', http: 'POST /token grant_type=refresh_token&refresh_token=RT1' },
+    { f: 'idp', t: 'app', kind: 'ret', l: 'New AT2 + NEW RT2 — RT1 is dead', n: 'Rotation: every refresh returns a brand-new refresh token and retires the old one. Each RT works exactly once.' },
+    { f: 'thief', t: 'idp', kind: 'bad', l: 'Replays stolen RT1', n: 'A copy of RT1 stolen earlier gets replayed. But RT1 was already used once — and rotated refresh tokens are single-use.' },
+    { f: 'idp', t: 'thief', kind: 'bad', l: '400 invalid_grant — ALARM', n: 'Reuse detected. The IdP cannot tell which caller was the thief, so it assumes the worst.' },
+    { f: 'idp', t: 'idp', kind: 'note', l: 'Revoke the whole token family', n: 'Every access and refresh token descended from that login is revoked at once.' },
+    { f: 'app', t: 'idp', l: 'POST /token (RT2)', n: 'The legitimate app tries its next refresh...' },
+    { f: 'idp', t: 'app', kind: 'ret', l: '400 invalid_grant — please re-login', n: 'The family is gone, so Maya sees a login screen once more.' },
+    { f: 'app', t: 'app', kind: 'note', l: 'Maya re-logs in; thief has nothing', n: 'Cost of the attack: the thief got locked out, Maya spent one login.' }
+  ],
+  outro: 'Rotation turns a silent, long-lived theft into a loud, self-healing incident.'
+});
+
+AcadLabs.defineFlow('dpop', {
+  title: 'DPoP — a token bound to a key',
+  tag: 'The stolen copy is worthless',
+  intro: 'DPoP (RFC 9449) glues an access token to a key pair only the real app holds. Watch a thief try the token without the key.',
+  actors: [
+    { id: 'app', label: 'App (key pair)' },
+    { id: 'idp', label: 'Identity provider' },
+    { id: 'api', label: 'API' },
+    { id: 'thief', label: 'Thief', kind: 'bad' }
+  ],
+  steps: [
+    { f: 'app', t: 'app', kind: 'note', l: 'App creates a key pair', n: 'The private key never leaves the app; the public key travels inside signed proofs.' },
+    { f: 'app', t: 'idp', l: 'POST /token + DPoP proof', n: 'The token request carries a DPoP header: a tiny JWT signed with the app’s private key.', http: 'DPoP: eyJ0eXAiOiJkcG9wK2p3dCIs... (signed by app’s key)' },
+    { f: 'idp', t: 'app', kind: 'ret', l: 'Token bound to the key (cnf.jkt)', n: 'The access token now embeds a thumbprint of the app’s public key. The token and the key are married.' },
+    { f: 'app', t: 'api', l: 'GET /account + token + fresh proof', n: 'Every API call carries the token AND a fresh DPoP proof, signed for exactly this method and URL — so proofs cannot be replayed elsewhere.' },
+    { f: 'api', t: 'api', kind: 'note', l: 'Check proof sig + htm/htu + jkt', n: 'The API verifies the proof’s signature, that it targets this method and URL, and that the signing key matches the thumbprint inside the token.' },
+    { f: 'api', t: 'app', kind: 'ret', l: '200 OK', n: 'The real app, holding the real key: allowed.' },
+    { f: 'thief', t: 'api', kind: 'bad', l: 'Replays the token — no key!', n: 'The thief stole the access token but not the private key, so they cannot mint a valid proof.' },
+    { f: 'api', t: 'thief', kind: 'bad', l: '401 invalid_dpop_proof', n: 'Possession of the key is now part of every request. The stolen copy is dead weight.' }
+  ],
+  outro: 'Bearer tokens say "whoever holds me wins". DPoP adds: "...and can sign with the key I’m married to."'
+});
+
+AcadLabs.defineFlow('backchannel-logout', {
+  title: 'Back-channel logout',
+  tag: 'Sign out everywhere — even closed tabs',
+  intro: 'Maya signs out (or a fraud alert fires). Watch the IdP tell every app directly, server-to-server.',
+  actors: [
+    { id: 'maya', label: 'Maya · browser', kind: 'human' },
+    { id: 'idp', label: 'Identity provider' },
+    { id: 'appa', label: 'App A' },
+    { id: 'appb', label: 'App B' }
+  ],
+  steps: [
+    { f: 'maya', t: 'idp', l: 'Log out (or fraud alert fires)', n: 'One trigger — a click, an admin action, or a risk signal.' },
+    { f: 'idp', t: 'appa', l: 'POST logout_token (signed JWT)', n: 'Server-to-server, no browser involved — so it works even if Maya’s tabs are closed or her laptop is offline.', http: 'POST /backchannel_logout\nlogout_token=eyJ... {"sub":"maya","events":{"http://schemas.openid.net/event/backchannel-logout":{}}}' },
+    { f: 'idp', t: 'appb', l: 'POST logout_token', n: 'Every registered app with a session for Maya gets the same signed message.' },
+    { f: 'appa', t: 'appa', kind: 'note', l: 'Kill Maya’s server-side session', n: 'App A verifies the logout_token’s signature and destroys her session record.' },
+    { f: 'appb', t: 'appb', kind: 'note', l: 'Kill session + revoke refresh tokens', n: 'App B goes further: session gone, refresh tokens revoked.' },
+    { f: 'maya', t: 'appb', l: 'An old tab clicks around...', n: 'The cookie is still in the browser — but the session behind it no longer exists.' },
+    { f: 'appb', t: 'maya', kind: 'ret', l: '401 → redirected to login', n: 'Dead cookie, dead session. Logout actually meant logout.' }
+  ],
+  outro: 'Front-channel logout needs the browser to visit every app and can silently fail. Back-channel is app-to-app and auditable.'
+});
+
+AcadLabs.defineFlow('saml-sp', {
+  title: 'SAML login — SP-initiated',
+  tag: 'The enterprise SSO classic',
+  intro: 'Priya opens a work app that trusts her company’s IdP via SAML. Press Next to follow the signed XML.',
+  actors: [
+    { id: 'priya', label: 'Priya · browser', kind: 'human' },
+    { id: 'sp', label: 'App (SP)' },
+    { id: 'idp', label: 'Corporate IdP' }
+  ],
+  steps: [
+    { f: 'priya', t: 'sp', l: 'Open the app — no session', n: 'Priya hits a deep link: /reports. The service provider (SP) has no session for her.' },
+    { f: 'sp', t: 'priya', kind: 'ret', l: 'Redirect with AuthnRequest', n: 'The SP builds a signed AuthnRequest and sends the browser to the IdP’s SSO URL, with RelayState remembering where she was headed.', http: 'GET https://idp.corp/sso?SAMLRequest=fZJNb8Iw...&RelayState=/reports' },
+    { f: 'priya', t: 'idp', l: 'GET /sso (AuthnRequest)', n: 'The browser carries the request to the IdP.' },
+    { f: 'idp', t: 'idp', kind: 'note', l: 'Priya logs in (or SSO already valid)', n: 'If Priya signed in to another work app 10 minutes ago, the IdP session is still warm — no prompt at all. That is the "single" in single sign-on.' },
+    { f: 'idp', t: 'priya', kind: 'ret', l: 'Auto-posting form with Assertion', n: 'The IdP returns an HTML form containing a digitally signed XML assertion — "this is Priya, verified at 09:14, member of Finance" — which auto-submits.' },
+    { f: 'priya', t: 'sp', l: 'POST /acs (SAMLResponse)', n: 'The browser posts the assertion to the SP’s Assertion Consumer Service URL.' },
+    { f: 'sp', t: 'sp', kind: 'note', l: 'Verify signature, audience, expiry', n: 'The SP checks the signature against the IdP’s certificate (exchanged once, via metadata), plus audience, timestamps, and the request ID it issued.' },
+    { f: 'priya', t: 'sp', l: 'RelayState → /reports', kind: 'note', n: 'Session created — and RelayState drops Priya exactly where she wanted to go.' }
+  ],
+  outro: 'The trust was set up once by exchanging metadata (certificates + URLs). After that, signatures do all the work.'
+});
+
+AcadLabs.defineFlow('saml-idp', {
+  title: 'SAML login — IdP-initiated',
+  tag: 'Starting from the company portal tile',
+  intro: 'Same actors, different starting point: Priya begins at her company portal, not at the app.',
+  actors: [
+    { id: 'priya', label: 'Priya · browser', kind: 'human' },
+    { id: 'idp', label: 'Corporate IdP' },
+    { id: 'sp', label: 'App (SP)' }
+  ],
+  steps: [
+    { f: 'priya', t: 'idp', l: 'Opens portal, clicks the app tile', n: 'Priya is already signed in to her company portal and clicks the app’s icon.' },
+    { f: 'idp', t: 'idp', kind: 'note', l: 'IdP builds an UNSOLICITED assertion', n: 'No app ever asked for this login — the IdP just mints a signed assertion on its own.' },
+    { f: 'idp', t: 'priya', kind: 'ret', l: 'Auto-posting form with Assertion', n: 'Same auto-submitting form trick as SP-initiated.' },
+    { f: 'priya', t: 'sp', l: 'POST /acs (SAMLResponse)', n: 'The assertion arrives at the app out of the blue.' },
+    { f: 'sp', t: 'sp', kind: 'note', l: 'Verify signature — but no request to match', n: 'The SP can verify the signature, but there is no AuthnRequest ID to correlate — one less integrity check available.' },
+    { f: 'sp', t: 'priya', kind: 'ret', l: 'Session created', n: 'Priya is in. Convenient — with caveats.' }
+  ],
+  outro: 'IdP-initiated is convenient but weaker: unsolicited responses are easier to replay or inject, and deep links are awkward. Prefer SP-initiated when you can.'
+});
+
+AcadLabs.defineFlow('client-creds', {
+  title: 'Machine login — client credentials',
+  tag: 'No human anywhere in this diagram',
+  intro: 'Bot A needs invoices every night at 2am. There is no user to redirect, so it authenticates as itself.',
+  actors: [
+    { id: 'bot', label: 'Bot A (service)' },
+    { id: 'idp', label: 'Identity provider' },
+    { id: 'api', label: 'Invoice API' }
+  ],
+  steps: [
+    { f: 'bot', t: 'idp', l: 'POST /token (client_credentials)', n: 'The bot presents its own credentials. Best practice: a signed private_key_jwt or mTLS certificate rather than a plain shared secret.', http: 'POST /token grant_type=client_credentials\n&client_id=bot-a&client_assertion=eyJ... (private_key_jwt)' },
+    { f: 'idp', t: 'idp', kind: 'note', l: 'No user, no consent — client IS the subject', n: 'There is nobody to show a consent screen to. The token’s subject is the bot itself.' },
+    { f: 'idp', t: 'bot', kind: 'ret', l: 'Access token (invoices:read)', n: 'Short-lived, scoped to exactly what the nightly job needs — and typically no refresh token: the bot can simply ask again.', http: '200 {"access_token":"eyJ...","expires_in":600,"scope":"invoices:read"}' },
+    { f: 'bot', t: 'api', l: 'GET /invoices + Bearer token', n: 'The bot calls the API like any other client.' },
+    { f: 'api', t: 'api', kind: 'note', l: 'Validate sig, issuer, audience, scope', n: 'The API checks the token cryptographically and enforces the scope. It never sees the bot’s credentials.' },
+    { f: 'api', t: 'bot', kind: 'ret', l: '200 — invoice list', n: 'Job done, and the token dies on its own in minutes.' }
+  ],
+  outro: 'This is the workhorse of non-human identity. The secret belongs in a vault — and better yet, replace secrets with keys or certificates.'
+});
+
+AcadLabs.defineFlow('device', {
+  title: 'Device flow — signing in a smart TV',
+  tag: 'RFC 8628: for gadgets with no keyboard',
+  intro: 'Maya’s TV has no keyboard worth typing a password on. The TV shows a short code; her phone does the real login.',
+  actors: [
+    { id: 'tv', label: 'Smart TV', },
+    { id: 'idp', label: 'Identity provider' },
+    { id: 'phone', label: 'Maya · phone', kind: 'human' }
+  ],
+  steps: [
+    { f: 'tv', t: 'idp', l: 'POST /device_authorization', n: 'The TV asks to start a login it cannot finish itself.' },
+    { f: 'idp', t: 'tv', kind: 'ret', l: 'device_code + user_code BQXT-KDZM', n: 'Two codes: a secret one the TV keeps polling with, and a short human-friendly one for Maya.', http: '{"user_code":"BQXT-KDZM","verification_uri":"https://idp.example/device","interval":5}' },
+    { f: 'tv', t: 'tv', kind: 'note', l: 'Screen: "idp.example/device · BQXT-KDZM"', n: 'The TV displays the URL and code and waits.' },
+    { f: 'tv', t: 'idp', l: 'POST /token → authorization_pending', n: 'The TV polls every 5 seconds. For now the answer is: not yet.', http: '400 {"error":"authorization_pending"}' },
+    { f: 'phone', t: 'idp', l: 'Maya enters the code & logs in', n: 'On a device with a real keyboard and her passkey. The password/passkey never touches the TV.' },
+    { f: 'idp', t: 'idp', kind: 'note', l: 'Consent: "TV wants your playlists"', n: 'Maya sees what the TV is asking for and approves.' },
+    { f: 'tv', t: 'idp', l: 'POST /token (next poll)', n: 'The very next poll after approval...' },
+    { f: 'idp', t: 'tv', kind: 'ret', l: 'Access + refresh token — TV is in', n: 'The TV is signed in without ever seeing a credential.' }
+  ],
+  outro: 'One caution for real life: attackers love sending victims codes to approve. Never enter or approve a device code you didn’t just create yourself.'
+});
+
+AcadLabs.defineFlow('token-exchange', {
+  title: 'Token exchange — delegation done right',
+  tag: 'RFC 8693: act for someone without impersonating them',
+  intro: 'Maya asks an app to fetch her report. The app needs a token for a downstream API — narrower than Maya’s, and honest about who is calling.',
+  actors: [
+    { id: 'maya', label: 'Maya', kind: 'human' },
+    { id: 'app', label: 'App' },
+    { id: 'idp', label: 'Identity provider' },
+    { id: 'api', label: 'Reports API' }
+  ],
+  steps: [
+    { f: 'maya', t: 'app', l: 'Asks the app to email a report', n: 'The app holds Maya’s access token from her login — but that token was meant for the app’s own API, not for the reports service.' },
+    { f: 'app', t: 'idp', l: 'POST /token (token-exchange)', n: 'Instead of forwarding Maya’s token around, the app trades it: subject_token = Maya’s token, audience = reports-api, scope = just reports:read.', http: 'POST /token grant_type=urn:ietf:params:oauth:grant-type:token-exchange\n&subject_token=eyJ(Maya)&audience=reports-api&scope=reports:read' },
+    { f: 'idp', t: 'idp', kind: 'note', l: 'Policy check: may App act for Maya?', n: 'The IdP decides whether this app is allowed to act for this user at this API. Delegation is granted, not assumed.' },
+    { f: 'idp', t: 'app', kind: 'ret', l: 'New token: sub=maya, act=app', n: 'The exchanged token names BOTH parties: subject is still Maya, but an act (actor) claim records that App is doing the calling.', http: '{"sub":"maya","act":{"sub":"app"},"aud":"reports-api","scope":"reports:read"}' },
+    { f: 'app', t: 'api', l: 'GET /reports + exchanged token', n: 'The downstream call carries the purpose-built token.' },
+    { f: 'api', t: 'api', kind: 'note', l: 'Audit sees both: FOR Maya, VIA App', n: 'Authorization decisions can use Maya’s rights; audit logs show the whole chain. Nobody was impersonated.' },
+    { f: 'api', t: 'app', kind: 'ret', l: '200 — report data', n: 'Done — with least privilege and an honest audit trail.' }
+  ],
+  outro: 'Forwarding a user’s original token everywhere is the lazy anti-pattern. Exchange it for a narrower, honest one instead.'
+});
+
+AcadLabs.defineFlow('ciba', {
+  title: 'CIBA — approval on YOUR phone',
+  tag: 'The agent asks; the human decides',
+  intro: 'Kai the AI agent wants to pay a $120 invoice. The approval happens on a channel Kai does not control: Maya’s phone.',
+  actors: [
+    { id: 'kai', label: 'Kai (AI agent)' },
+    { id: 'idp', label: 'Identity provider' },
+    { id: 'phone', label: 'Maya · phone', kind: 'human' }
+  ],
+  steps: [
+    { f: 'kai', t: 'idp', l: 'POST /bc-authorize (hint: maya)', n: 'Kai starts a backchannel authentication request, naming the user and a binding_message with the exact action.', http: 'login_hint=maya&binding_message=Pay $120 to ACME&scope=payments:once' },
+    { f: 'idp', t: 'kai', kind: 'ret', l: 'auth_req_id — now wait', n: 'No token yet. Kai gets a request ID and has to wait for a human.' },
+    { f: 'idp', t: 'phone', l: 'Push: "Kai wants to pay $120 — OK?"', n: 'The IdP notifies Maya’s registered authenticator. Crucially, the binding message shows the real amount — Kai cannot edit it.' },
+    { f: 'phone', t: 'phone', kind: 'note', l: 'Maya reads the amount and approves', n: 'She sees the actual dollars before she taps. If Kai had asked for $12,000, she would see that instead.' },
+    { f: 'kai', t: 'idp', l: 'POST /token (auth_req_id)', n: 'Kai has been politely polling all along.' },
+    { f: 'idp', t: 'kai', kind: 'ret', l: 'Token scoped to this ONE payment', n: 'The token authorizes exactly the approved action — not payments in general.' }
+  ],
+  outro: 'The machine proposes; the human disposes — on a channel the machine cannot touch. That is human-in-the-loop, made concrete.'
+});
+
+AcadLabs.defineFlow('scim-provision', {
+  title: 'SCIM provisioning — joiner, mover, leaver',
+  tag: 'Accounts that appear and vanish on time',
+  intro: 'Priya joins, moves teams, and eventually leaves. Watch her account follow reality automatically.',
+  actors: [
+    { id: 'hr', label: 'HR system' },
+    { id: 'idp', label: 'IdP / provisioner' },
+    { id: 'app', label: 'Work app' }
+  ],
+  steps: [
+    { f: 'hr', t: 'hr', kind: 'note', l: 'Priya is hired 🎉', n: 'The HR record is the source of truth — everything downstream reacts to it.' },
+    { f: 'hr', t: 'idp', l: 'New-joiner event', n: 'HR tells the identity platform about the new employee.' },
+    { f: 'idp', t: 'app', l: 'POST /scim/v2/Users (Priya)', n: 'SCIM is the shared language for "create this user": a standard JSON shape every compliant app understands.', http: 'POST /scim/v2/Users {"userName":"priya@corp.example","active":true,"emails":[...]}' },
+    { f: 'app', t: 'idp', kind: 'ret', l: '201 Created (id: 2819c)', n: 'Priya’s account exists before her first login — day one, everything works.' },
+    { f: 'hr', t: 'idp', l: 'Mover: Sales → Finance', n: 'Months later Priya changes teams. Access must change with her — old entitlements out, new ones in.' },
+    { f: 'idp', t: 'app', l: 'PATCH /Users/2819c (groups)', n: 'The app updates her group memberships. No ticket, no waiting, no forgotten leftovers.' },
+    { f: 'hr', t: 'idp', l: 'Leaver: Priya resigns', n: 'The most security-critical event of the three.' },
+    { f: 'idp', t: 'app', l: 'PATCH active:false → DELETE', n: 'Deactivate immediately, delete per retention policy. Sessions and tokens get revoked alongside.', http: 'PATCH /scim/v2/Users/2819c {"active":false}' },
+    { f: 'app', t: 'idp', kind: 'ret', l: '200 — access gone same hour', n: 'Access disappears before the goodbye cake is finished.' }
+  ],
+  outro: 'The leaver step is the control auditors care about most: dormant accounts of ex-employees are a classic breach entry point.'
+});
+
+/* ================= Hub widget: Flow Explorer ================= */
+
+AcadLabs.register('lab-flows', {
+  title: 'Flow Explorer — every identity flow, step by step',
+  blurb: 'Pick a flow and walk through it one message at a time. Everything is simulated in your browser — nothing is sent anywhere.',
+  render: function (root, h) {
+    var ids = AcadLabs.flowIds();
+    var holder = h.el('div');
+    var sel = h.select(ids.map(function (id) {
+      return { value: id, label: AcadLabs.getFlow(id).title };
+    }), function (v) { show(v); });
+    function show(id) {
+      holder.innerHTML = '';
+      holder.appendChild(h.flowPlayer(id));
+    }
+    root.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [h.field('Choose a flow', sel)]));
+    root.appendChild(holder);
+    show(ids[0]);
+  }
+});
+/* lab-oidcflow | lesson: p1-oidc */
+AcadLabs.register('lab-oidcflow', {
+  title: 'Attack the login — and lose',
+  blurb: 'Watch the authorization-code flow run, then throw the three classic attacks at it and watch each one bounce.',
+  render: function (root, h) {
+    var out = h.el('div', {});
+    var log = h.logPanel();
+
+    function stealCode() {
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'POST', path: '/token',
+        reqBody: { grant_type: 'authorization_code', code: 'SplxlOBe...(stolen from the URL)', redirect_uri: 'https://app.example/callback' },
+        status: 400, resBody: { error: 'invalid_grant' },
+        note: 'Two independent reasons this fails. The thief has the code but not the code_verifier — the private PKCE secret (RFC 7636) that never left the app’s server. And the real app already redeemed this code seconds ago, so it is single-use and spent.'
+      }));
+      log.add('bad', 'Stolen code replayed at /token → 400 invalid_grant (no PKCE verifier + code already redeemed).');
+    }
+
+    function tamperState() {
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'GET', path: '/callback?code=abc123&state=FORGED',
+        status: 400, statusText: 'Bad Request — app aborts the callback',
+        resBody: { error: 'state_mismatch' },
+        note: 'The app invented a random state at the start of the login and stored it in Maya’s session. This callback’s state does not match, so the app stops before doing anything with the code. This is exactly how login CSRF is blocked.'
+      }));
+      out.appendChild(h.row([h.badge('CSRF blocked', 'ok')]));
+      log.add('warn', 'Callback arrived with a forged state → mismatch, app aborts (CSRF blocked).');
+    }
+
+    function swapRedirect() {
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'GET', path: '/authorize?client_id=app&redirect_uri=https://evil.example/grab&...',
+        status: 400, resBody: { error: 'invalid_request', error_description: 'redirect_uri does not match a registered value' },
+        note: 'The IdP compares redirect_uri byte-for-byte against the URIs the app registered ahead of time. Anything unregistered is refused outright, so the authorization code can never be delivered to an attacker-controlled address.'
+      }));
+      log.add('bad', 'Swapped redirect_uri to an attacker URL → 400 invalid_request (must exactly match a registered URI).');
+    }
+
+    root.appendChild(h.flowPlayer('oidc-code'));
+    root.appendChild(h.panel('Now try to break it', [
+      h.note('The flow above is airtight. Play the attacker: pick an attack and watch the guardrail defeat it.'),
+      h.row([
+        h.button('Steal the code', 'danger', stealCode),
+        h.button('Tamper the state', 'danger', tamperState),
+        h.button('Swap the redirect_uri', 'danger', swapRedirect)
+      ]),
+      out
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'Three classic attacks on the authorization-code flow, each defeated by a different guardrail: PKCE, state, and exact redirect_uri matching.');
+  }
+});
+
+/* lab-saml | lesson: p2-saml */
+AcadLabs.register('lab-saml', {
+  title: 'Read a SAML assertion like a pro',
+  blurb: 'Swap between SP- and IdP-initiated login, inspect a real assertion field by field, then tamper an attribute and watch the signature catch it.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var flowHolder = h.el('div', {});
+    var assertBox = h.el('div', {});
+    var checkBox = h.el('div', {});
+    var badgeBox = h.el('div', { 'class': 'acad-lab-row' });
+    var tampered = false;
+
+    function assertionLines() {
+      var group = tampered ? 'Payroll-Admins' : 'Finance';
+      return [
+        '<Assertion ID="_a1b2c3" IssueInstant="2026-07-12T09:14:00Z">',
+        '  <Issuer>https://idp.corp.example/saml</Issuer>',
+        '  <Signature>...RSA-SHA256 over this Assertion element...</Signature>',
+        '  <Subject>',
+        '    <NameID Format="emailAddress">priya@corp.example</NameID>',
+        '  </Subject>',
+        '  <Conditions NotBefore="2026-07-12T09:13:30Z"',
+        '              NotOnOrAfter="2026-07-12T09:19:00Z">',
+        '    <AudienceRestriction>',
+        '      <Audience>https://app.example.com/sp</Audience>',
+        '    </AudienceRestriction>',
+        '  </Conditions>',
+        '  <AttributeStatement>',
+        '    <Attribute Name="groups"><Value>' + group + '</Value></Attribute>',
+        '  </AttributeStatement>',
+        '</Assertion>'
+      ].join('\n');
+    }
+
+    function renderAssertion() {
+      assertBox.innerHTML = '';
+      assertBox.appendChild(h.el('div', { 'class': 'acad-lab-panel-title' }, 'The assertion' + (tampered ? ' (tampered)' : '')));
+      assertBox.appendChild(h.jsonView(assertionLines()));
+      h.flash(assertBox);
+    }
+
+    var CHECKS = {
+      Signature: 'The SP recomputes the digest and verifies the Signature against the IdP certificate from metadata. Skip it and anyone can forge an assertion — the number-one SAML failure.',
+      Audience: 'The SP checks that <Audience> is its own entity ID. Skip it and an assertion minted for a different app can be replayed here (audience confusion).',
+      Expiry: 'The SP checks that now sits between NotBefore and NotOnOrAfter. Skip it and an old captured assertion replays forever.',
+      Attributes: 'The <AttributeStatement> carries Priya’s groups, which the SP maps to app roles — trustworthy only because the signature covers them.'
+    };
+    var checked = { Signature: false, Audience: false, Expiry: false, Attributes: false };
+
+    function renderChecks() {
+      checkBox.innerHTML = '';
+      var any = false;
+      Object.keys(CHECKS).forEach(function (k) {
+        if (checked[k]) { any = true; checkBox.appendChild(h.note('✓ ' + k + ': ' + CHECKS[k])); }
+      });
+      if (!any) checkBox.appendChild(h.note('Toggle a check to see what the SP verifies — and what breaks if it is skipped.'));
+    }
+
+    function showFlow(id) {
+      flowHolder.innerHTML = '';
+      flowHolder.appendChild(h.flowPlayer(id));
+    }
+
+    function tamper() {
+      tampered = !tampered;
+      renderAssertion();
+      badgeBox.innerHTML = '';
+      if (tampered) {
+        badgeBox.appendChild(h.badge('signature mismatch — assertion rejected', 'bad'));
+        badgeBox.appendChild(h.note('You changed groups from Finance to Payroll-Admins. The signature was computed over the original bytes, so any changed byte makes verification fail and the SP rejects the whole assertion. This is why attribute tampering gets an attacker nowhere — as long as the signature is actually checked.'));
+        log.add('bad', 'Tampered groups Finance → Payroll-Admins → signature mismatch, assertion rejected.');
+      } else {
+        badgeBox.appendChild(h.badge('assertion intact — signature valid', 'ok'));
+        log.add('ok', 'Restored the original assertion — signature verifies.');
+      }
+    }
+
+    root.appendChild(h.panel('1 · How the login starts', [
+      h.row([
+        h.button('SP-initiated', 'primary', function () { showFlow('saml-sp'); log.add('info', 'SP-initiated: the app sends a request first, so it can correlate the response (InResponseTo). Preferred.'); }),
+        h.button('IdP-initiated', '', function () { showFlow('saml-idp'); log.add('warn', 'IdP-initiated: an unsolicited assertion with no prior request to match against.'); })
+      ]),
+      flowHolder
+    ]));
+    root.appendChild(h.panel('2 · Inspect the assertion', [assertBox]));
+    root.appendChild(h.panel('3 · What the SP validates', [
+      h.row([
+        h.chip('Signature', false, function (on) { checked.Signature = on; renderChecks(); }),
+        h.chip('Audience', false, function (on) { checked.Audience = on; renderChecks(); }),
+        h.chip('Expiry', false, function (on) { checked.Expiry = on; renderChecks(); }),
+        h.chip('Attributes', false, function (on) { checked.Attributes = on; renderChecks(); })
+      ]),
+      checkBox
+    ]));
+    root.appendChild(h.panel('4 · Tamper with it', [
+      h.button('Tamper: Finance → Payroll-Admins', 'danger', tamper),
+      badgeBox
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+
+    showFlow('saml-sp');
+    renderAssertion();
+    renderChecks();
+    log.add('info', 'A SAML assertion is a signed XML statement: this is Priya, verified at 09:14, member of Finance. Its trust rests entirely on the signature.');
+  }
+});
+/* lab-m2m | lesson: p3-cc */
+AcadLabs.register('lab-m2m', {
+  title: 'Choose your robot\'s credential',
+  blurb: 'Pick how Bot A proves it is itself, watch the leak-risk meter move, then paste the credential into a repo and see who survives.',
+  render: function (root, h) {
+    var method = 'secret';
+    var log = h.logPanel();
+    var noteBox = h.el('div', {});
+    var out = h.el('div', {});
+    var risk = h.meter(85, 'bad');
+
+    var INFO = {
+      secret: { pct: 85, kind: 'bad', text: 'Shared secret: a long password Bot A sends to the identity provider on every /token call. Simple to set up — but the secret itself travels, and a copy is enough to become Bot A.' },
+      pkjwt: { pct: 35, kind: 'warn', text: 'private_key_jwt (RFC 7523): Bot A signs a short assertion with a private key that never leaves it; the identity provider verifies with the matching public key. Nothing reusable is ever sent.' },
+      mtls: { pct: 15, kind: 'ok', text: 'mTLS certificate (RFC 8705): Bot A proves itself at the TLS connection layer with a client certificate whose private key stays on the box. You cannot even open the connection without it.' }
+    };
+
+    function refresh() {
+      var i = INFO[method];
+      risk.set(i.pct, i.kind);
+      noteBox.innerHTML = '';
+      noteBox.appendChild(h.note(i.text));
+      out.innerHTML = '';
+    }
+
+    function leak() {
+      out.innerHTML = '';
+      if (method === 'secret') {
+        log.add('bad', 'client_secret pasted into a public repo — attacker copies it.');
+        out.appendChild(h.httpCard({
+          method: 'POST', path: '/token',
+          reqBody: { grant_type: 'client_credentials', client_id: 'bot-a', client_secret: 's3cr3t-from-the-repo' },
+          status: 200,
+          resBody: { access_token: 'eyJ... (attacker-controlled)', expires_in: 600, scope: 'invoices:read' },
+          note: 'The secret WAS the identity, so the IdP cannot tell the attacker from Bot A. Game over until you rotate the secret everywhere it lives.'
+        }));
+        log.add('bad', 'Attacker mints a valid token → 200. Rotate now.');
+      } else if (method === 'pkjwt') {
+        log.add('warn', 'Repo leak: config found — but it only points at a key in the vault/HSM.');
+        out.appendChild(h.note('The repo held config that references a private key living in a vault/HSM. The key that actually signs never left it, so the leak exposed nothing that can sign a client_assertion.'));
+        out.appendChild(h.httpCard({
+          method: 'POST', path: '/token',
+          reqBody: { grant_type: 'client_credentials', client_id: 'bot-a', client_assertion: 'eyJ... (attacker guess — not signed by the real key)' },
+          status: 401,
+          resBody: { error: 'invalid_client' },
+          note: 'No private key, no valid signature → 401 invalid_client. There is nothing to rotate.'
+        }));
+        log.add('ok', 'Attacker cannot sign → 401 invalid_client.');
+      } else {
+        log.add('warn', 'Repo leak: client-cert config found — but not the private key.');
+        out.appendChild(h.httpCard({
+          method: 'POST', path: '/token',
+          status: 401,
+          resBody: { error: 'invalid_client' },
+          note: 'The TLS handshake needs the certificate\'s private key, which stays on the machine. Without it the connection is rejected before a token is ever requested.'
+        }));
+        out.appendChild(h.note('mTLS moves the proof to the connection layer: an attacker holding only the repo cannot complete the handshake, so there is no session in which to even ask for a token.'));
+        log.add('ok', 'Handshake fails without the private key → connection rejected (401).');
+      }
+    }
+
+    root.appendChild(h.flowPlayer('client-creds'));
+    root.appendChild(h.panel('Bot A\'s credential', [
+      h.field('How the bot proves who it is', h.select([
+        { value: 'secret', label: 'Shared secret — a password for robots', selected: true },
+        { value: 'pkjwt', label: 'private_key_jwt — signed proof (RFC 7523)' },
+        { value: 'mtls', label: 'mTLS certificate — proof at the connection layer' }
+      ], function (v) { method = v; log.add('info', 'Credential set to ' + v + '.'); refresh(); })),
+      h.el('div', { class: 'acad-lab-field-label' }, 'Leak risk if this ends up in a repo / CI log / wiki'),
+      risk.root,
+      noteBox,
+      h.button('☠ The credential leaks in a repo', 'danger', leak),
+      out
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    refresh();
+    log.add('info', 'Same grant (client_credentials), three ways to prove identity. The stronger the proof, the less a leak is worth.');
+  }
+});
+
+/* lab-device | lesson: p4-device */
+AcadLabs.register('lab-device', {
+  title: 'Sign in the TV — you\'re both devices',
+  blurb: 'Play the TV and Maya\'s phone at once: request a user_code, poll while it is pending, approve on the phone, and watch the token land — or let the code expire.',
+  render: function (root, h) {
+    var LIFE = 45;                          // seconds the user_code lives
+    var userCode = null, approved = false, done = false, remaining = 0;
+    var pollId = null, tickId = null;
+    var log = h.logPanel();
+
+    var codeBox = h.el('div', {});
+    var tvOut = h.el('div', {});
+    var expiry = h.meter(0, 'ok');
+    var phoneMsg = h.el('div', {});
+    var codeInput = h.input({ placeholder: 'BQXT-KDZM', maxlength: '9' });
+
+    function makeCode() {
+      var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ', hex = h.rand(16), s = '', i;
+      for (i = 0; i < 8; i++) s += abc.charAt(parseInt(hex.substr(i * 2, 2), 16) % abc.length);
+      return s.slice(0, 4) + '-' + s.slice(4, 8);
+    }
+
+    function stopTimers() {
+      if (pollId) { clearInterval(pollId); pollId = null; }
+      if (tickId) { clearInterval(tickId); tickId = null; }
+    }
+
+    function expire() {
+      stopTimers();
+      done = true;
+      expiry.set(0, 'bad');
+      codeBox.innerHTML = '';
+      codeBox.appendChild(h.badge('expired_token — request a new code', 'bad'));
+      log.add('bad', 'user_code expired. POST /token → 400 expired_token. The TV must start over.');
+    }
+
+    function poll() {
+      if (done) return;
+      if (approved) {
+        stopTimers(); done = true;
+        var tok = {
+          access_token: h.fakeJwt({ sub: 'maya', aud: 'streaming-api', scope: 'playlists:read' }),
+          refresh_token: h.rand(24), token_type: 'Bearer', expires_in: 3600
+        };
+        tvOut.innerHTML = '';
+        tvOut.appendChild(h.httpCard({
+          method: 'POST', path: '/token',
+          reqBody: { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code: 'dc_' + h.rand(10) },
+          status: 200, resBody: tok,
+          note: 'Approved on Maya\'s phone. The TV is signed in — and never saw her password.'
+        }));
+        codeBox.innerHTML = '';
+        codeBox.appendChild(h.badge('✅ TV signed in', 'ok'));
+        log.add('ok', 'POST /token → 200 access + refresh token. Polling stops.');
+        return;
+      }
+      log.add('info', 'POST /token → 400 authorization_pending (still waiting for Maya).');
+    }
+
+    function requestCode() {
+      stopTimers();
+      userCode = makeCode(); approved = false; done = false; remaining = LIFE;
+      tvOut.innerHTML = '';
+      codeBox.innerHTML = '';
+      codeBox.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Go to idp.example/device and enter:'));
+      codeBox.appendChild(h.el('code', { class: 'acad-lab-token' }, userCode));
+      expiry.set(100, 'ok');
+      log.add('info', 'TV: POST /device_authorization → user_code ' + userCode + ' + device_code (secret), interval=2.5s.');
+      pollId = h.interval(poll, 2500);
+      tickId = h.interval(function () {
+        remaining -= 1;
+        var pct = Math.round(remaining / LIFE * 100);
+        expiry.set(pct, pct > 40 ? 'ok' : (pct > 15 ? 'warn' : 'bad'));
+        if (remaining <= 0) expire();
+      }, 1000);
+    }
+
+    function approve() {
+      phoneMsg.innerHTML = '';
+      if (!userCode || done) { phoneMsg.appendChild(h.note('Ask the TV to show a code first.')); return; }
+      var typed = (codeInput.value || '').toUpperCase().replace(/\s/g, '');
+      if (typed !== userCode) {
+        phoneMsg.appendChild(h.badge('unknown code', 'danger'));
+        log.add('warn', 'Phone: entered "' + typed + '" — no such pending request.');
+        return;
+      }
+      approved = true;
+      phoneMsg.appendChild(h.badge('✓ code recognised', 'ok'));
+      phoneMsg.appendChild(h.panel('Consent', [
+        h.note('A Smart TV wants: your playlists (playlists:read). Approve?'),
+        h.badge('Maya approves', 'info')
+      ]));
+      log.add('ok', 'Phone: Maya entered the code and approved on a trusted keyboard. The next TV poll will succeed.');
+    }
+
+    function phish() {
+      phoneMsg.innerHTML = '';
+      phoneMsg.appendChild(h.note('⚠️ Stop. If someone texted or emailed you a device code to "verify" or "approve", that code belongs to THEIR device, not yours. Approving it signs THEM into YOUR account. Only ever enter a user_code that your own device just put on screen in front of you.'));
+      log.add('bad', 'Device-code phishing attempt: a code arrived out of nowhere. Never approve a code you did not create.');
+    }
+
+    root.appendChild(h.row([
+      h.col([h.panel('📺 TV (no keyboard)', [
+        h.button('Request a code', 'primary', requestCode),
+        codeBox,
+        h.el('div', { class: 'acad-lab-field-label' }, 'Code expiry'),
+        expiry.root,
+        tvOut
+      ])]),
+      h.col([h.panel('📱 Maya\'s phone (real keyboard)', [
+        h.field('Enter the code shown on the TV', codeInput),
+        h.button('Approve', '', approve),
+        h.chip('Paste a code someone texted you?', false, function () { phish(); }),
+        phoneMsg
+      ])])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'RFC 8628 device flow: the low-trust TV only ever holds a short code. Maya\'s credential stays on her phone.');
+  }
+});
+/* lab-exchange | lesson: p5-exchange */
+AcadLabs.register('lab-exchange', {
+  title: 'Mint an honest delegation token',
+  blurb: 'Exchange Maya’s token for a right-sized one with an act claim, then watch the reports API accept it — and reject the sloppy shortcut.',
+  render: function (root, h) {
+    var aud = 'reports-api';
+    var scopes = { 'reports:read': true, 'reports:share': false };
+    var minted = null;
+    // Maya's ORIGINAL login token was minted for the app, not the reports service.
+    var original = h.fakeJwt({ sub: 'maya', aud: 'app', scope: 'reports:read reports:share profile' });
+
+    var tokenBox = h.el('div', { class: 'acad-lab-col' });
+    var apiOut = h.el('div', {});
+    var log = h.logPanel();
+
+    function scopeList() {
+      return Object.keys(scopes).filter(function (k) { return scopes[k]; });
+    }
+
+    function renderToken() {
+      tokenBox.innerHTML = '';
+      tokenBox.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Exchanged token'));
+      if (!minted) { tokenBox.appendChild(h.note('Pick an audience + scopes, then Exchange.')); return; }
+      tokenBox.appendChild(h.tokenView(minted));
+      tokenBox.appendChild(h.jsonView(h.decodeJwt(minted).payload));
+    }
+
+    function exchange() {
+      var payload = { sub: 'maya', act: { sub: 'app' }, aud: aud, scope: scopeList().join(' ') };
+      minted = h.fakeJwt(payload);
+      apiOut.innerHTML = '';
+      log.add('info', 'RFC 8693 exchange → new token aud=' + aud + ' scope="' + payload.scope + '" act.sub=app (sub still maya).');
+      renderToken(); h.flash(tokenBox);
+    }
+
+    function callReports() {
+      if (!minted) { log.add('warn', 'Exchange a token first.'); return; }
+      var p = h.decodeJwt(minted).payload;
+      apiOut.innerHTML = '';
+      if (p.aud !== 'reports-api') {
+        apiOut.appendChild(h.httpCard({
+          method: 'GET', path: 'https://reports-api/reports/4411', status: 403,
+          resBody: { error: 'invalid_token', error_description: 'audience mismatch' },
+          note: 'You minted the token for "' + p.aud + '" but called reports-api. A service must reject tokens not addressed to it — re-exchange with audience = reports-api.'
+        }));
+        log.add('bad', 'GET reports-api → 403 invalid_token (aud=' + p.aud + ', expected reports-api).');
+        return;
+      }
+      apiOut.appendChild(h.httpCard({
+        method: 'GET', path: 'https://reports-api/reports/4411', status: 200,
+        resBody: { report: 'Q3 revenue', sub: p.sub, actor: p.act.sub, scope: p.scope },
+        note: 'Audience matches, scope is narrow, and the log records act.sub=app acting for sub=maya. Honest and least-privilege.'
+      }));
+      log.add('ok', 'GET reports-api → 200. Audit: app, on behalf of maya, read report 4411.');
+    }
+
+    function forwardOriginal() {
+      var p = h.decodeJwt(original).payload;
+      apiOut.innerHTML = '';
+      apiOut.appendChild(h.httpCard({
+        method: 'GET', path: 'https://reports-api/reports/4411', status: 403,
+        resBody: { error: 'invalid_token', error_description: 'audience mismatch' },
+        note: 'Maya’s original token has aud=app — it was never meant for reports-api. Even when a sloppy service skips the aud check and lets this "work", the token has no act claim: the log would say Maya called, when the app did. The audit trail lies.'
+      }));
+      log.add('bad', 'Forwarded Maya’s ORIGINAL token → 403 (aud=app). No act claim = accountability lost even if it had passed.');
+    }
+
+    root.appendChild(h.flowPlayer('token-exchange'));
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Build the exchange request', [
+          h.field('Requested audience (resource)', h.select([
+            { value: 'reports-api', label: 'reports-api (the right one)', selected: true },
+            { value: 'payments-api', label: 'payments-api (wrong resource)' }
+          ], function (v) { aud = v; minted = null; renderToken(); apiOut.innerHTML = ''; })),
+          h.el('div', { class: 'acad-lab-panel-title' }, 'Scopes to request'),
+          h.row([
+            h.chip('reports:read', true, function (on) { scopes['reports:read'] = on; }),
+            h.chip('reports:share', false, function (on) { scopes['reports:share'] = on; })
+          ]),
+          h.button('Exchange (RFC 8693)', 'primary', exchange)
+        ]),
+        h.panel('2 · Use it', [
+          h.button('Call reports-api with it', '', callReports),
+          h.button('Forward Maya’s ORIGINAL token instead', 'danger', forwardOriginal),
+          apiOut
+        ])
+      ]),
+      h.col([h.panel(null, [tokenBox])])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderToken();
+    log.add('info', 'Maya asked the app to email a report. The app must call reports-api — with which token? Exchange for a scoped one, or forward hers and hope.');
+  }
+});
+
+/* lab-jit | lesson: p6-jit */
+AcadLabs.register('lab-jit', {
+  title: 'Set the door policy — then meet three strangers',
+  blurb: 'Choose a first-login + account-linking policy, then ring the doorbell for a new partner, a returning employee, and an attacker — and see who gets in.',
+  render: function (root, h) {
+    var policy = 'relogin';
+    var cardBox = h.el('div', {});
+    var log = h.logPanel();
+
+    // Three arrivals with hidden ground truth.
+    var arrivals = [
+      { who: 'New partner (Sam’s colleague)', email: 'lena@partner.example', existing: false, verified: true, trusted: true },
+      { who: 'Priya (returning)', email: 'priya@corp.example', existing: true, verified: true, trusted: true },
+      { who: 'Attacker via look-alike IdP', email: 'priya@corp.example', existing: true, verified: false, trusted: false }
+    ];
+
+    // Decide outcome per policy. Returns {text, kind, why}.
+    function decide(a) {
+      if (policy === 'invite') {
+        if (a.trusted && a.verified && a.existing) return { text: 'BLOCKED', kind: 'warn', why: 'No invite on file — even a known user must be invited to link SSO. Safe, but friction.' };
+        if (a.trusted && !a.existing) return { text: 'BLOCKED', kind: 'warn', why: 'Genuine new partner turned away: no invite yet. Safe, but an admin must invite first.' };
+        return { text: 'BLOCKED', kind: 'ok', why: 'Untrusted, uninvited assertion refused by default. Attack stopped.' };
+      }
+      if (policy === 'email') {
+        if (!a.existing) return { text: 'ok', kind: 'ok', why: 'No match — JIT created a fresh account from the assertion.' };
+        // links by email claim, no proof of the existing account, no issuer/verified check
+        if (a.trusted && a.verified) return { text: 'linked', kind: 'warn', why: 'Email matched — auto-linked to the existing account. Correct here, but the mechanism trusts a claim.' };
+        return { text: '🔓 ACCOUNT TAKEOVER', kind: 'bad', why: 'Untrusted issuer asserted priya@corp; linking by the email claim handed over Priya’s account.' };
+      }
+      // relogin: JIT + link only after re-login to the existing account, verified + trusted
+      if (!a.existing) return { text: 'ok', kind: 'ok', why: 'No existing account — JIT created a fresh one.' };
+      if (a.trusted && a.verified) return { text: 'linked-safely', kind: 'ok', why: 'Matched an existing account; required Priya to re-login to it before linking. Proof, not a claim.' };
+      return { text: 'BLOCKED', kind: 'ok', why: 'Existing account found, but the attacker can’t complete a re-login to it — and the issuer is untrusted. Link refused.' };
+    }
+
+    function ring() {
+      cardBox.innerHTML = '';
+      log.add('info', '🔔 Doorbell ×3 — replaying three arrivals under policy: ' + policyLabel() + '.');
+      arrivals.forEach(function (a) {
+        var r = decide(a);
+        var badge = h.badge(r.text, r.kind);
+        var card = h.panel(a.who, [
+          h.row([h.badge(a.trusted ? 'issuer: trusted' : 'issuer: UNTRUSTED', a.trusted ? 'neutral' : 'bad'),
+                 h.badge('email: ' + a.email + (a.verified ? ' (verified)' : ' (unverified)'), a.verified ? 'neutral' : 'warn')]),
+          h.row([badge]),
+          h.note(r.why)
+        ]);
+        cardBox.appendChild(card);
+        var kind = r.kind === 'bad' ? 'bad' : (r.kind === 'warn' ? 'warn' : 'ok');
+        log.add(kind, a.who + ' → ' + r.text + '.');
+      });
+      score();
+    }
+
+    function score() {
+      // "Right" = A created, B linked to correct account, C blocked.
+      var right = { relogin: 3, email: 2, invite: 1 };
+      var msg;
+      if (policy === 'relogin') msg = '✅ 3/3 right: new partner created, Priya linked with proof, attacker blocked. Only this policy gets all three.';
+      else if (policy === 'email') msg = '⚠️ 2/3: it links Priya correctly — but the very same email-claim mechanism handed Priya’s account to the attacker.';
+      else msg = '🛡️ Safe but friction: invite-only stops the attacker, yet also turns away the genuine new partner and Priya. Safety traded for onboarding cost.';
+      cardBox.appendChild(h.note(msg));
+    }
+
+    function policyLabel() {
+      return policy === 'email' ? 'JIT + link by email claim'
+        : policy === 'relogin' ? 'JIT + link only after re-login'
+        : 'Invite-only';
+    }
+
+    root.appendChild(h.field('First-login + linking policy', h.select([
+      { value: 'email', label: 'Auto-create (JIT) + link by email claim' },
+      { value: 'relogin', label: 'JIT + link only after re-login to existing account', selected: true },
+      { value: 'invite', label: 'Invite-only' }
+    ], function (v) { policy = v; cardBox.innerHTML = ''; log.add('info', 'Policy set: ' + policyLabel() + '. Ring the doorbell to test it.'); })));
+    root.appendChild(h.button('Ring the doorbell ×3', 'primary', ring));
+    root.appendChild(cardBox);
+    root.appendChild(h.panel('Arrival log', [log.root]));
+    log.add('info', 'Three strangers are at the door: a new partner employee, a returning Priya, and an attacker asserting Priya’s email. Pick a policy and ring.');
+  }
+});
+/* lab-wellknown | lesson: p7-trust */
+AcadLabs.register('lab-wellknown', {
+  title: "Read an IdP's business card",
+  blurb: 'Fetch three discovery documents, catch a look-alike issuer, ask the doc where things live, then rotate a signing key without breaking a thing.',
+  render: function (root, h) {
+    var log = h.logPanel();
+
+    // Ground-truth discovery documents (simulated — no network).
+    var DOCS = {
+      good1: {
+        fetched: 'https://idp.example',
+        doc: {
+          issuer: 'https://idp.example',
+          authorization_endpoint: 'https://idp.example/authorize',
+          token_endpoint: 'https://idp.example/token',
+          userinfo_endpoint: 'https://idp.example/userinfo',
+          jwks_uri: 'https://idp.example/.well-known/jwks.json',
+          response_types_supported: ['code'],
+          id_token_signing_alg_values_supported: ['RS256'],
+          scopes_supported: ['openid', 'profile', 'email']
+        }
+      },
+      good2: {
+        fetched: 'https://login.partner.example',
+        doc: {
+          issuer: 'https://login.partner.example',
+          authorization_endpoint: 'https://login.partner.example/oauth/authorize',
+          token_endpoint: 'https://login.partner.example/oauth/token',
+          userinfo_endpoint: 'https://login.partner.example/oauth/userinfo',
+          jwks_uri: 'https://login.partner.example/oauth/jwks',
+          response_types_supported: ['code'],
+          id_token_signing_alg_values_supported: ['RS256'],
+          scopes_supported: ['openid', 'profile', 'email']
+        }
+      },
+      evil: {
+        fetched: 'https://idp.example.evil-cdn.com',
+        doc: {
+          issuer: 'https://idp.example',
+          authorization_endpoint: 'https://idp.example.evil-cdn.com/authorize',
+          token_endpoint: 'https://idp.example.evil-cdn.com/token',
+          userinfo_endpoint: 'https://idp.example.evil-cdn.com/userinfo',
+          jwks_uri: 'https://idp.example.evil-cdn.com/jwks',
+          response_types_supported: ['code'],
+          id_token_signing_alg_values_supported: ['RS256'],
+          scopes_supported: ['openid', 'profile', 'email']
+        }
+      }
+    };
+
+    var current = 'good1';
+    var docBox = h.el('div', {});
+    var qBox = h.el('div', {});
+
+    function showDoc() {
+      var entry = DOCS[current];
+      docBox.innerHTML = '';
+      qBox.innerHTML = '';
+      docBox.appendChild(h.note('GET ' + entry.fetched + '/.well-known/openid-configuration'));
+      docBox.appendChild(h.jsonView(entry.doc));
+      var mismatch = entry.doc.issuer !== entry.fetched;
+      if (mismatch) {
+        docBox.appendChild(h.row([
+          h.badge('⚠ issuer mismatch — reject', 'bad'),
+          "the doc's issuer (" + entry.doc.issuer + ') is not the URL you fetched (' + entry.fetched + ')'
+        ]));
+        docBox.appendChild(h.note('Discovery rule: the issuer value MUST equal the URL you built the request from. This look-alike serves a real-looking issuer from a stranger host — a phishing IdP. Do not trust it.'));
+        log.add('bad', 'Look-alike ' + entry.fetched + ' → issuer says ' + entry.doc.issuer + ' → mismatch, rejected.');
+      } else {
+        docBox.appendChild(h.row([h.badge('✓ issuer matches the fetch URL', 'ok'), 'safe to configure from this document']));
+        log.add('ok', 'Fetched ' + entry.fetched + ' → issuer matches → trusted.');
+      }
+    }
+
+    // Three "where is X?" chips answer by naming the field.
+    function ask(question, field, kind) {
+      var entry = DOCS[current];
+      var val = entry.doc[field];
+      qBox.innerHTML = '';
+      if (entry.doc.issuer !== entry.fetched && kind !== 'issuer') {
+        qBox.appendChild(h.note('Answer this only for a trusted document — the current one is a look-alike.'));
+      }
+      qBox.appendChild(h.row([h.badge(field, 'info'), question + ' → ' + val]));
+      log.add('info', question + ' → field "' + field + '" = ' + val);
+    }
+
+    // Zero-downtime signing-key rotation: 1 key → publish 2nd → retire old.
+    var OLD = { kty: 'RSA', use: 'sig', alg: 'RS256', kid: '2026-01', n: 'sim-9f3c1a…', e: 'AQAB' };
+    var NEW = { kty: 'RSA', use: 'sig', alg: 'RS256', kid: '2026-07', n: 'sim-b7e044…', e: 'AQAB' };
+    var rotState = 0; // 0 = only old, 1 = both published, 2 = old retired
+    var jwksBox = h.el('div', {});
+    var rotBtn = h.button('Publish the new signing key', 'primary', rotate);
+
+    function keys() {
+      if (rotState === 0) return [OLD];
+      if (rotState === 1) return [OLD, NEW];
+      return [NEW];
+    }
+
+    function showJwks() {
+      jwksBox.innerHTML = '';
+      jwksBox.appendChild(h.note('GET /.well-known/jwks.json — public keys only'));
+      jwksBox.appendChild(h.jsonView({ keys: keys() }));
+      if (rotState === 0) { rotBtn.textContent = 'Publish the new signing key'; jwksBox.appendChild(h.note('Signing with kid "2026-01". Tokens carry that kid so apps pick this key to verify.')); }
+      else if (rotState === 1) { rotBtn.textContent = 'Retire the old key'; jwksBox.appendChild(h.row([h.badge('2 keys live', 'ok'), 'new key published first — old tokens still verify by kid, nothing breaks'])); }
+      else { rotBtn.textContent = 'Start the next rotation'; jwksBox.appendChild(h.row([h.badge('old key retired', 'ok'), 'safe now that every token it signed has expired'])); }
+    }
+
+    function rotate() {
+      rotState = (rotState + 1) % 3;
+      showJwks(); h.flash(jwksBox);
+      if (rotState === 1) log.add('ok', 'Published kid "2026-07" alongside "2026-01" — publish-first. Verification picks by kid, so no app breaks.');
+      else if (rotState === 2) log.add('ok', 'Retired kid "2026-01" — retire-last, after its tokens expired. Only "2026-07" remains.');
+      else log.add('info', 'Back to a single key — a fresh rotation can begin.');
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Fetch a discovery document', [
+          h.field('Which issuer are you configuring?', h.select([
+            { value: 'good1', label: 'https://idp.example (good)', selected: true },
+            { value: 'good2', label: 'https://login.partner.example (good)' },
+            { value: 'evil', label: 'https://idp.example.evil-cdn.com (look-alike)' }
+          ], function (v) { current = v; showDoc(); })),
+          docBox
+        ]),
+        h.panel('2 · Ask the document', [
+          h.note('The whole login config comes from three fields:'),
+          h.row([
+            h.chip('Where do users log in?', false, function (on) { if (on) ask('Where do users log in?', 'authorization_endpoint', 'ep'); }),
+            h.chip('Where are the keys?', false, function (on) { if (on) ask('Where are the keys?', 'jwks_uri', 'ep'); }),
+            h.chip('Who signs tokens?', false, function (on) { if (on) ask('Who signs tokens?', 'issuer', 'issuer'); })
+          ]),
+          qBox
+        ])
+      ]),
+      h.col([
+        h.panel('3 · Rotate the signing key', [
+          h.note('Keys retire on a schedule. Rotate without breaking any live token: publish first, sign next, retire last.'),
+          rotBtn,
+          jwksBox
+        ]),
+        h.panel('Event log', [log.root])
+      ])
+    ]));
+
+    showDoc();
+    showJwks();
+    log.add('info', "An IdP's discovery document + JWKS let an app it has never met configure itself and verify signatures — as long as the issuer string matches exactly.");
   }
 });

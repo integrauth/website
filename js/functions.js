@@ -430,7 +430,8 @@ function initAcademy() {
     tokens: 'Track 3 · Token Security',
     ai: 'Track 4 · AI & Agents',
     ops: 'Track 5 · Identity Operations',
-    authz: 'Track 6 · Authorization & API Security'
+    authz: 'Track 6 · Authorization & API Security',
+    proto: 'Track 7 · Protocols & Federation'
   };
 
   const lessons = Array.prototype.slice.call(document.querySelectorAll('.acad-lesson'));

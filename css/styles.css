@@ -5258,6 +5258,7 @@ body.theme-cyber .acad-lab { --acad-warn: #fbbf24; }
 
 .acad-lab-body { display: flex; flex-direction: column; gap: 0.9rem; }
 .acad-lab-row { display: flex; flex-wrap: wrap; gap: 0.9rem; align-items: flex-start; }
+.acad-lab-stack { display: flex; flex-direction: column; gap: 0.55rem; }
 .acad-lab-col { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 0.7rem; }
 
 .acad-lab-panel {
@@ -5576,5 +5577,101 @@ body.theme-cyber .back-to-top {
   .product-slide {
     flex-basis: 310px;
     width: 310px;
+  }
+}
+
+/* --- Academy Flow Explorer: sequence-diagram player (.acad-seq) --- */
+.acad-seq {
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 12px;
+  background: var(--acad-fig-bg);
+  padding: 0.75rem 0.75rem 0.9rem;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.acad-seq svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.acad-seq-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  color: var(--acad-ink);
+}
+
+.acad-seq-tag {
+  color: var(--acad-muted);
+  font-size: 0.85rem;
+}
+
+.acad-seq-step {
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.acad-seq-step.on {
+  opacity: 0.55;
+}
+
+.acad-seq-step.on.cur {
+  opacity: 1;
+}
+
+.acad-seq .seq-head {
+  fill: var(--acad-ink);
+  stroke: none;
+}
+
+.acad-seq .seq-head.bad {
+  fill: var(--acad-bad);
+}
+
+.acad-seq-note {
+  min-height: 3.6rem;
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  margin-top: 0.6rem;
+  color: var(--acad-ink);
+}
+
+.acad-seq-narr {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.acad-seq-note .acad-lab-json {
+  margin: 0.5rem 0 0;
+}
+
+.acad-seq-note .acad-lab-note {
+  margin: 0.5rem 0 0;
+}
+
+.acad-seq-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.acad-seq-count {
+  margin-left: auto;
+  color: var(--acad-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acad-seq-step {
+    transition: none;
   }
 }
