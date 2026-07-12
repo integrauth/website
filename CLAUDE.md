@@ -56,7 +56,7 @@ website/
 
 ### IntegrAuth Academy (academy.html, added 2026-07-11)
 
-Standalone free-learning page: 5 tracks / 37 byte-sized lessons (Foundations "Identity 101" ×13, Modern Authentication ×8, Token Security ×5, AI & Agent Security ×7, Identity Operations ×4), ported (genericized, standards-based) from a client sample app's learning modules. Structure:
+Standalone free-learning page: 5 tracks / 41 byte-sized lessons (Foundations "Identity 101" ×13, Modern Authentication ×9, Token Security ×6, AI & Agent Security ×8, Identity Operations ×5), ported (genericized, standards-based) from a client sample app's learning modules. Every track ends with a "Cheat sheet & pop quiz" recap lesson (f12/a9/t6/ai8/o5-quiz): distilled-ideas table + track-specific quick-reference table + 5 scenario questions using the static `.acad-quiz` reveal pattern (no JS needed to add one; also bump the hub TOC, `.acad-track-done` count, and the "N lessons" stat chips on academy + index promo). Structure:
 
 - **Hub** (`#acadHub`): 5 `.acad-track-card`s with static lesson TOCs (SEO/noscript-friendly)
 - **Reader** (`#acadReader`): one-lesson-at-a-time via `initAcademy()` in functions.js — hash routing (`#lesson-id`), chip nav per track, prev/next pager, localStorage progress (`acad_pos`/`acad_read`), quiz reveal buttons, glossary live filter (input injected by JS)
