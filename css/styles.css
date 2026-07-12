@@ -5746,3 +5746,196 @@ body.theme-cyber .back-to-top {
   border: 1px solid var(--acad-panel-border);
   margin: 0.5rem 0;
 }
+
+/* --- Academy hub tools: search, persona paths, glossary tooltips --- */
+.acad-hubtools {
+  max-width: 900px;
+  margin: 0 auto 2rem;
+}
+
+.acad-hub-search {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--acad-panel-border);
+  background: var(--acad-panel);
+  color: var(--acad-ink);
+}
+
+.acad-hub-search:focus {
+  outline: 2px solid var(--acad-actor);
+  outline-offset: 1px;
+}
+
+.acad-search-results {
+  margin-top: 1rem;
+}
+
+.acad-search-count,
+.acad-search-none {
+  color: var(--acad-muted);
+  margin-bottom: 0.6rem;
+}
+
+.acad-search-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.5rem;
+}
+
+.acad-search-hit,
+.acad-path-link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 10px;
+  background: var(--acad-panel);
+  text-decoration: none;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.acad-search-hit:hover,
+.acad-path-link:hover {
+  border-color: var(--acad-actor);
+  transform: translateY(-1px);
+}
+
+.acad-search-track,
+.acad-path-track {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--acad-em);
+  font-weight: 700;
+}
+
+.acad-search-title,
+.acad-path-title {
+  color: var(--acad-ink);
+  font-weight: 600;
+}
+
+.acad-paths {
+  margin-top: 1.75rem;
+}
+
+.acad-paths-head {
+  text-align: center;
+  color: var(--acad-muted);
+  margin-bottom: 0.85rem;
+}
+
+.acad-path-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.acad-path-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 1rem;
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 12px;
+  background: var(--acad-panel);
+  color: var(--acad-ink);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.acad-path-card:hover,
+.acad-path-card.is-open {
+  border-color: var(--acad-actor);
+  transform: translateY(-2px);
+}
+
+.acad-path-card > i {
+  font-size: 1.35rem;
+  color: var(--acad-em);
+}
+
+.acad-path-name {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.acad-path-blurb {
+  font-size: 0.85rem;
+  color: var(--acad-muted);
+}
+
+.acad-path-count {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--acad-actor);
+  margin-top: 0.2rem;
+}
+
+.acad-path-view {
+  margin-top: 1rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 12px;
+  background: var(--acad-block);
+}
+
+.acad-path-view-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.6rem;
+  color: var(--acad-ink);
+}
+
+.acad-path-progress {
+  color: var(--acad-muted);
+  font-size: 0.85rem;
+}
+
+.acad-path-list {
+  margin: 0;
+  padding-left: 1.4rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.acad-path-list li {
+  color: var(--acad-muted);
+}
+
+.acad-search-hit.acad-read .acad-search-title::after,
+.acad-path-link.acad-read .acad-path-title::after {
+  content: ' ✓';
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.acad-term-has-def {
+  cursor: help;
+  border-bottom: 1px dotted var(--acad-actor);
+}
+
+.acad-tip {
+  position: absolute;
+  z-index: 2000;
+  max-width: 320px;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: var(--acad-fig-bg);
+  color: var(--acad-ink);
+  border: 1px solid var(--acad-panel-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acad-search-hit, .acad-path-link, .acad-path-card { transition: none; }
+}

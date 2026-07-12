@@ -434,7 +434,8 @@ function initAcademy() {
     proto: 'Track 7 · Protocols & Federation',
     atk: 'Track 8 · Identity Attacks & Defenses',
     ciam: 'Track 9 · Customer Identity (CIAM)',
-    cloud: 'Track 10 · Cloud & Workload Identity'
+    cloud: 'Track 10 · Cloud & Workload Identity',
+    arch: 'Track 11 · Identity Architecture'
   };
 
   const lessons = Array.prototype.slice.call(document.querySelectorAll('.acad-lesson'));
@@ -745,6 +746,181 @@ function initAcademy() {
       });
     });
   }
+
+  // ----- Hub enhancements (injected so no-JS pages keep the static track grid) -----
+  const grid = hub.querySelector('.acad-track-grid');
+
+  // Persona learning paths — ordered cross-track playlists. Unknown ids are skipped.
+  const PERSONA_PATHS = [
+    { key: 'dev', icon: 'fa-code', name: 'Developer', blurb: 'Ship a login the right way, end to end.',
+      lessons: ['f1-identity', 'f3-tokens', 'p1-oidc', 't7-birth', 'a1-passkeys', 'a10-sessions', 'r1-bff', 't1-rotation', 'az4-scopes', 'c1-signup'] },
+    { key: 'arch', icon: 'fa-sitemap', name: 'Architect', blurb: 'Design the whole identity system with confidence.',
+      lessons: ['f5-personas', 'f6-zerotrust', 'p5-exchange', 'r1-bff', 'r2-micro', 'r3-tenancy', 'r4-lifetimes', 'w2-wif', 'r5-buildbuy', 'r6-dr'] },
+    { key: 'sec', icon: 'fa-shield-halved', name: 'Security analyst', blurb: 'Detect, defend and respond to identity attacks.',
+      lessons: ['f7-itdr', 'a3-adaptive', 'a6-breached', 'atk1-aitm', 'atk2-fatigue', 'atk5-cookies', 'atk7-detect', 'atk8-tabletop', 'o2-siem', 'c5-ato'] },
+    { key: 'pm', icon: 'fa-lightbulb', name: 'Product manager', blurb: 'Balance trust, friction and compliance for users.',
+      lessons: ['f1-identity', 'f10-rules', 'c1-signup', 'c2-recovery', 'c4-profiling', 'a1-passkeys', 'o3-rtbf', 'c7-b2b', 'r5-buildbuy'] }
+  ];
+
+  function titleOf(id) {
+    const l = byId[id];
+    return l ? (l.getAttribute('data-title') || id) : id;
+  }
+
+  if (grid) {
+    const tools = document.createElement('div');
+    tools.className = 'acad-hubtools';
+
+    // Search
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'acad-hub-search';
+    search.placeholder = 'Search all ' + lessons.length + ' lessons…';
+    search.setAttribute('aria-label', 'Search lessons');
+    const results = document.createElement('div');
+    results.className = 'acad-search-results';
+    results.hidden = true;
+
+    // Persona paths
+    const paths = document.createElement('div');
+    paths.className = 'acad-paths';
+    const pathsHead = document.createElement('p');
+    pathsHead.className = 'acad-paths-head';
+    pathsHead.textContent = 'Or follow a learning path built for your role:';
+    const pathCards = document.createElement('div');
+    pathCards.className = 'acad-path-cards';
+    const pathView = document.createElement('div');
+    pathView.className = 'acad-path-view';
+    pathView.hidden = true;
+
+    PERSONA_PATHS.forEach(function (p) {
+      const valid = p.lessons.filter(function (id) { return byId[id]; });
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'acad-path-card';
+      btn.setAttribute('data-path', p.key);
+      btn.innerHTML = '<i class="fas ' + p.icon + '" aria-hidden="true"></i>' +
+        '<span class="acad-path-name">' + p.name + '</span>' +
+        '<span class="acad-path-blurb">' + p.blurb + '</span>' +
+        '<span class="acad-path-count">' + valid.length + ' lessons</span>';
+      btn.addEventListener('click', function () {
+        const active = btn.classList.contains('is-open');
+        pathCards.querySelectorAll('.acad-path-card').forEach(function (c) { c.classList.remove('is-open'); });
+        if (active) { pathView.hidden = true; return; }
+        btn.classList.add('is-open');
+        renderPath(p, valid);
+      });
+      pathCards.appendChild(btn);
+    });
+
+    function renderPath(p, valid) {
+      const read = readSet();
+      const done = valid.filter(function (id) { return read.has(id); }).length;
+      const ol = document.createElement('ol');
+      ol.className = 'acad-path-list';
+      valid.forEach(function (id) {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = '#' + id;
+        a.setAttribute('data-goto', id);
+        a.className = 'acad-path-link' + (read.has(id) ? ' acad-read' : '');
+        a.innerHTML = '<span class="acad-path-track">' + (TRACK_LABELS[trackOf(byId[id])] || '').replace(/^Track \d+ · /, '') + '</span>' +
+          '<span class="acad-path-title">' + titleOf(id) + '</span>';
+        li.appendChild(a);
+        ol.appendChild(li);
+      });
+      pathView.innerHTML = '<div class="acad-path-view-head"><strong>' + p.name + ' path</strong>' +
+        '<span class="acad-path-progress">' + done + '/' + valid.length + ' done</span></div>';
+      pathView.appendChild(ol);
+      pathView.hidden = false;
+    }
+
+    paths.appendChild(pathsHead);
+    paths.appendChild(pathCards);
+    paths.appendChild(pathView);
+
+    function runSearch() {
+      const q = search.value.trim().toLowerCase();
+      if (!q) { results.hidden = true; results.innerHTML = ''; grid.hidden = false; paths.hidden = false; return; }
+      const hits = lessons.filter(function (l) {
+        const lead = l.querySelector('.acad-lead');
+        const hay = ((l.getAttribute('data-title') || '') + ' ' + (lead ? lead.textContent : '')).toLowerCase();
+        return hay.indexOf(q) !== -1;
+      });
+      grid.hidden = true; paths.hidden = true; results.hidden = false;
+      if (!hits.length) { results.innerHTML = '<p class="acad-search-none">No lessons match “' + q + '”.</p>'; return; }
+      results.innerHTML = '<p class="acad-search-count">' + hits.length + ' lesson' + (hits.length > 1 ? 's' : '') + ' match “' + q + '”</p>';
+      const ul = document.createElement('div');
+      ul.className = 'acad-search-list';
+      hits.forEach(function (l) {
+        const a = document.createElement('a');
+        a.href = '#' + l.id;
+        a.setAttribute('data-goto', l.id);
+        a.className = 'acad-search-hit';
+        a.innerHTML = '<span class="acad-search-track">' + (TRACK_LABELS[trackOf(l)] || '').replace(/^Track \d+ · /, '') + '</span>' +
+          '<span class="acad-search-title">' + (l.getAttribute('data-title') || l.id) + '</span>';
+        ul.appendChild(a);
+      });
+      results.appendChild(ul);
+    }
+    search.addEventListener('input', runSearch);
+
+    tools.appendChild(search);
+    tools.appendChild(results);
+    tools.appendChild(paths);
+    grid.parentNode.insertBefore(tools, grid);
+  }
+
+  // Glossary tooltips: hover/focus any .acad-term to see its definition (from f11-glossary).
+  (function () {
+    const glossaryEl = document.querySelector('.acad-glossary');
+    if (!glossaryEl) return;
+    const termMap = {};
+    glossaryEl.querySelectorAll('.acad-dl').forEach(function (dl) {
+      Array.prototype.forEach.call(dl.children, function (el) {
+        if (el.tagName === 'DT' && el.nextElementSibling && el.nextElementSibling.tagName === 'DD') {
+          termMap[el.textContent.trim().toLowerCase()] = el.nextElementSibling.textContent.trim();
+        }
+      });
+    });
+    const pop = document.createElement('div');
+    pop.className = 'acad-tip';
+    pop.hidden = true;
+    document.body.appendChild(pop);
+    let hideTimer = null;
+    function show(el) {
+      const def = el.getAttribute('data-def');
+      if (!def) return;
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      pop.textContent = def;
+      pop.hidden = false;
+      const r = el.getBoundingClientRect();
+      const top = r.bottom + window.scrollY + 6;
+      pop.style.top = top + 'px';
+      let left = r.left + window.scrollX;
+      const maxLeft = window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+      if (left > maxLeft) left = Math.max(window.scrollX + 8, maxLeft);
+      pop.style.left = left + 'px';
+    }
+    function hide() { hideTimer = setTimeout(function () { pop.hidden = true; }, 120); }
+    let enhanced = false;
+    function enhance() {
+      if (enhanced) return; enhanced = true;
+      document.querySelectorAll('.acad-lesson .acad-term').forEach(function (t) {
+        const key = t.textContent.trim().toLowerCase();
+        const def = termMap[key];
+        if (!def) return;
+        t.setAttribute('data-def', def);
+        t.setAttribute('tabindex', '0');
+        t.classList.add('acad-term-has-def');
+        t.addEventListener('mouseenter', function () { show(t); });
+        t.addEventListener('mouseleave', hide);
+        t.addEventListener('focus', function () { show(t); });
+        t.addEventListener('blur', hide);
+      });
+    }
+    enhance();
+  })();
 
   // Boot: URL hash wins > saved position > hub
   const initial = location.hash.slice(1);

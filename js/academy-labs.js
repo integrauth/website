@@ -6691,6 +6691,11 @@ var ACAD_EXAM_POOL = [
   { t: 'Cloud & workload', q: 'A SPIFFE SVID is best described as:', o: ['A password for servers', 'A short-lived, verifiable identity document for a workload', 'A firewall rule', 'An API key'], a: 1 },
   { t: 'Cloud & workload', q: 'The blast radius of a leaked long-lived secret is reduced most by:', o: ['Making it longer', 'Replacing it with short-lived, automatically-rotated credentials', 'Emailing it encrypted', 'Writing it in the wiki'], a: 1 },
   { t: 'Cloud & workload', q: 'Least-privilege for a cloud role means:', o: ['Grant admin to be safe', 'Grant only the specific permissions the workload actually needs', 'Grant nothing', 'Grant by IP'], a: 1 },
+  // arch (exam)
+  { t: 'Architecture', q: 'The BFF (backend-for-frontend) pattern improves SPA security by:', o: ['Storing tokens in localStorage', 'Keeping tokens server-side and handing the browser only a session cookie', 'Removing all auth', 'Using longer tokens'], a: 1 },
+  { t: 'Architecture', q: 'In a microservices call chain, propagating the user\'s identity safely is best done with:', o: ['Forwarding the original token everywhere', 'Token exchange to a narrower, audience-scoped token per hop', 'A shared admin password', 'No identity at all'], a: 1 },
+  { t: 'Architecture', q: 'Strong multi-tenant isolation means:', o: ['All tenants share one row', 'One tenant can never read or affect another tenant\'s data', 'Tenants pick their own passwords', 'Every tenant is an admin'], a: 1 },
+  { t: 'Architecture', q: 'The main risk of very long access-token lifetimes is:', o: ['Slower logins', 'A stolen token stays valid far longer, widening the damage window', 'More network calls', 'Shorter passwords'], a: 1 },
 ];
 
 AcadLabs.register('lab-exam', {
@@ -8311,5 +8316,724 @@ AcadLabs.register('lab-trim', {
     root.appendChild(h.panel('Event log', [log.root]));
     refresh();
     log.add('info', 'You are Zara, right-sizing Bot A. Trim to what it actually used, add a guardrail, then run the takeover — outcomes are deterministic.');
+  }
+});
+/* lab-bff | lesson: r1-bff */
+AcadLabs.register('lab-bff', {
+  title: 'Pick a token-storage design',
+  blurb: 'Choose where Maya’s SPA keeps its tokens, then fire XSS, cookie replay and CSRF at it and watch how much an attacker walks away with.',
+  render: function (root, h) {
+    var log = h.logPanel();
+
+    // Ground truth per design. exposure = % an attacker gets if they land a script.
+    var DESIGNS = {
+      ls: {
+        name: 'Access + refresh in localStorage',
+        where: 'both tokens sit in the browser, readable by any script',
+        exposure: 100,
+        xss: { kind: 'bad', text: 'XSS reads localStorage and POSTs both tokens out. Full takeover.' },
+        replay: { kind: 'bad', text: 'The stolen bearer tokens replay directly against the API — no cookie needed.' },
+        csrf: { kind: 'ok', text: 'Blocked: the SPA attaches the token via an Authorization header, so the browser never auto-sends it cross-site.' }
+      },
+      jscookie: {
+        name: 'Tokens in a JS-readable cookie',
+        where: 'tokens in a cookie WITHOUT HttpOnly — script and browser both reach it',
+        exposure: 100,
+        xss: { kind: 'bad', text: 'XSS reads document.cookie and lifts the tokens. HttpOnly was the whole point — and it’s off.' },
+        replay: { kind: 'bad', text: 'The cookie is a bearer credential; a stolen copy replays fine.' },
+        csrf: { kind: 'bad', text: 'No SameSite: the browser auto-attaches the cookie to a forged cross-site request. CSRF fires.' }
+      },
+      bff: {
+        name: 'BFF: tokens server-side, HttpOnly session cookie',
+        where: 'access + refresh tokens stay on the BFF; browser holds only a hardened session cookie',
+        exposure: 10,
+        xss: { kind: 'ok', text: 'HttpOnly blocks document.cookie, and the tokens were never in the browser. The script finds nothing to steal.' },
+        replay: { kind: 'ok', text: 'Secure + HttpOnly keep the cookie off plaintext and out of scripts — nothing exfiltrable to replay.' },
+        csrf: { kind: 'ok', text: 'SameSite tells the browser not to attach the session cookie to cross-site requests. CSRF is refused.' }
+      }
+    };
+
+    var current = 'ls';
+    var meter = h.meter(100, 'bad');
+    var whereBox = h.el('div', {});
+    var out = h.stage(h.note('Pick a design, then launch an attack. The event log keeps every result.'));
+
+    function show(node) { out.innerHTML = ''; out.appendChild(node); h.flash(out); }
+
+    function renderDesign() {
+      var d = DESIGNS[current];
+      whereBox.innerHTML = '';
+      whereBox.appendChild(h.note('Storage: ' + d.where + '.'));
+      meter.set(d.exposure, d.exposure >= 90 ? 'bad' : (d.exposure >= 40 ? 'warn' : 'ok'));
+      whereBox.appendChild(h.row([
+        h.badge('browser exposure ' + d.exposure + '%', d.exposure >= 90 ? 'bad' : (d.exposure >= 40 ? 'warn' : 'ok')),
+        h.badge(d.exposure >= 90 ? 'one script = game over' : 'XSS finds nothing worth stealing', d.exposure >= 90 ? 'bad' : 'ok')
+      ]));
+    }
+
+    function fire(attack, label) {
+      var d = DESIGNS[current];
+      var r = d[attack];
+      var icon = r.kind === 'ok' ? '✅' : '⛔';
+      show(h.panel(label + ' vs ' + d.name, [
+        h.row([h.badge(icon + ' ' + (r.kind === 'ok' ? 'ATTACK BLOCKED' : 'ATTACKER WINS'), r.kind)]),
+        h.note(r.text)
+      ]));
+      log.add(r.kind, label + ' → ' + (r.kind === 'ok' ? 'blocked' : 'attacker wins') + ' (' + d.name + ')');
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Where do Maya’s tokens live?', [
+          h.field('Token-storage design', h.select([
+            { value: 'ls', label: 'Access + refresh in localStorage', selected: true },
+            { value: 'jscookie', label: 'Tokens in a JS-readable cookie' },
+            { value: 'bff', label: 'BFF: tokens server-side, HttpOnly session cookie' }
+          ], function (v) { current = v; renderDesign(); log.add('info', 'Design set: ' + DESIGNS[v].name); })),
+          whereBox
+        ]),
+        h.panel('2 · Land three attacks', [
+          h.note('Assume the attacker manages to run a script on the page (XSS) or lure Maya to a malicious site.'),
+          h.button('💻 XSS reads storage', 'danger', function () { fire('xss', 'XSS script'); }),
+          h.button('🎫 Stolen-cookie replay', 'ghost', function () { fire('replay', 'Cookie/token replay'); }),
+          h.button('🎟️ CSRF auto-submit', 'ghost', function () { fire('csrf', 'CSRF auto-submit'); })
+        ])
+      ]),
+      h.col([
+        h.panel('Browser exposure — what a planted script gets', [meter.root, out])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderDesign();
+    log.add('info', 'Bearer tokens are keys, not names: whoever holds one is Maya. The design decides who can hold one.');
+  }
+});
+
+/* lab-meshauth | lesson: r2-micro */
+AcadLabs.register('lab-meshauth', {
+  title: 'Route identity through the mesh',
+  blurb: 'Maya’s request fans out Gateway → Orders → Payments; choose how identity travels inward and watch each service’s token, the audit trail, and the blast radius when one service is owned.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var strategy = 'forward';
+    var compromised = false;
+
+    // Per-strategy ground truth: the token each service sees + honesty of the audit line.
+    var STRAT = {
+      forward: {
+        name: 'Forward the user’s original token everywhere',
+        hop: function (caller, next) {
+          return { sub: 'maya', aud: 'api (broad)', scope: 'orders payments ledger', act: null };
+        },
+        audit: function (svc) { return svc + ' log: request from "maya" (which service called? unknown)'; },
+        auditKind: 'warn',
+        blast: 'Owned Payments holds Maya’s full-scope token — it can replay as Maya against Orders, Ledger, anything. Whole-account blast radius.',
+        blastKind: 'bad'
+      },
+      exchange: {
+        name: 'Token exchange per hop (RFC 8693)',
+        hop: function (caller, next) {
+          return { sub: 'maya', act: { sub: caller }, aud: next, scope: next + ':write' };
+        },
+        audit: function (svc, caller) { return svc + ' log: acted for Maya, called by ' + caller + ' (sub + act, honest)'; },
+        auditKind: 'ok',
+        blast: 'Owned Payments holds only a token audience-bound to Payments, scoped payments:write. It is useless against Orders or Ledger. Contained.',
+        blastKind: 'ok'
+      },
+      none: {
+        name: 'No identity — trust the network',
+        hop: function () { return null; },
+        audit: function (svc) { return svc + ' log: <anonymous> (no identity to record)'; },
+        auditKind: 'bad',
+        blast: 'No hop checks identity, so an owned Payments can call every service freely and the logs name no one. Free reign.',
+        blastKind: 'bad'
+      }
+    };
+
+    var HOPS = [
+      { caller: 'gateway', svc: 'Orders', next: 'orders' },
+      { caller: 'orders', svc: 'Payments', next: 'payments' }
+    ];
+
+    var out = h.stage(h.note('Pick a strategy and press "Send the request" to walk the hops.'));
+    var blastBox = h.el('div', {});
+
+    function renderBlast() {
+      blastBox.innerHTML = '';
+      if (!compromised) { blastBox.appendChild(h.note('Flip the toggle to see what an attacker who owns the Payments service can reach.')); return; }
+      var s = STRAT[strategy];
+      blastBox.appendChild(h.row([h.badge((s.blastKind === 'ok' ? '✅ contained' : '⛔ wide open'), s.blastKind)]));
+      blastBox.appendChild(h.note(s.blast));
+    }
+
+    function send() {
+      var s = STRAT[strategy];
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'POST', path: '/checkout', status: 200,
+        reqBody: { user_token: { sub: 'maya', aud: 'gateway', scope: 'app' } },
+        note: 'Gateway validates Maya’s user token ONCE at the edge, then fans out.'
+      }));
+      log.add('info', 'Gateway validated Maya’s user token at the edge.');
+      HOPS.forEach(function (hp) {
+        var tok = s.hop(hp.caller, hp.next);
+        var kids = [];
+        if (tok) {
+          kids.push(h.note(hp.caller + ' → ' + hp.svc + ' presents:'));
+          kids.push(h.jsonView(tok));
+        } else {
+          kids.push(h.note(hp.caller + ' → ' + hp.svc + ': no token attached — the call is trusted purely because it came from inside.'));
+        }
+        var auditLine = s.audit(hp.svc, hp.caller);
+        kids.push(h.badge(auditLine, s.auditKind));
+        out.appendChild(h.panel('Hop · ' + hp.caller + ' → ' + hp.svc, kids));
+        log.add(s.auditKind, auditLine);
+      });
+      // Flag the headline problem of the chosen strategy.
+      if (strategy === 'forward') log.add('warn', 'Over-broad: every service holds a full-scope token replayable as Maya.');
+      if (strategy === 'none') log.add('bad', 'No identity inside the mesh — any service can impersonate any other.');
+      if (strategy === 'exchange') log.add('ok', 'Each hop scoped + audience-bound; sub keeps the user, act names the caller.');
+      h.flash(out);
+      renderBlast();
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('The mesh', [
+          h.note('Maya → Gateway → Orders → Payments. The user token is validated once at the gateway; then identity must travel inward.'),
+          h.field('Internal propagation strategy', h.select([
+            { value: 'forward', label: 'Forward the user’s original token everywhere', selected: true },
+            { value: 'exchange', label: 'Token exchange per hop' },
+            { value: 'none', label: 'No identity — trust the network' }
+          ], function (v) { strategy = v; log.add('info', 'Strategy: ' + STRAT[v].name); renderBlast(); })),
+          h.button('Send the request →', 'primary', send)
+        ]),
+        h.panel('💥 A service is compromised', [
+          h.chip('Payments is owned by an attacker', false, function (on) {
+            compromised = on;
+            log.add(on ? 'bad' : 'info', on ? 'Payments service compromised — measuring blast radius.' : 'Payments restored.');
+            renderBlast();
+          }),
+          blastBox
+        ])
+      ]),
+      h.col([
+        h.panel('Per-hop identity + audit trail', [out])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log — who acted, for whom, called by whom', [log.root]));
+    renderBlast();
+    log.add('info', 'Inside the mesh the network is not a trust boundary. Every hop still has to prove who it is and who it’s for.');
+  }
+});
+/* lab-tenancy | lesson: r3-tenancy */
+AcadLabs.register('lab-tenancy', {
+  title: 'Don’t leak across the tenant line',
+  blurb: 'Pick an isolation model, then run Maya’s requests with tenant scoping on or off and watch a pooled query leak Tenant B’s invoice.',
+  render: function (root, h) {
+    var model = 'pool';   // 'silo' | 'pool' | 'bridge'
+    var scoping = false;  // enforce tenant_id on every query?
+
+    var isoMeter = h.meter(0, 'info');
+    var costMeter = h.meter(0, 'info');
+    var out = h.el('div', {});
+    var status = h.el('div', { class: 'acad-lab-row' });
+    var log = h.logPanel();
+
+    // Each model: base isolation (before scoping) and cost.
+    function params() {
+      if (model === 'silo') return { iso: 100, cost: 92, isoK: 'ok', costK: 'bad' };
+      if (model === 'bridge') return { iso: scoping ? 78 : 40, cost: 55,
+        isoK: scoping ? 'ok' : 'warn', costK: 'warn' };
+      // pool
+      return { iso: scoping ? 70 : 12, cost: 22,
+        isoK: scoping ? 'ok' : 'bad', costK: 'ok' };
+    }
+
+    function renderMeters() {
+      var p = params();
+      isoMeter.set(p.iso, p.isoK);
+      costMeter.set(p.cost, p.costK);
+      status.innerHTML = '';
+      status.appendChild(h.badge('Model: ' + model, 'info'));
+      status.appendChild(h.badge(scoping ? 'tenant scoping: ON' : 'tenant scoping: OFF',
+        scoping ? 'ok' : 'warn'));
+      if (model === 'silo') {
+        status.appendChild(h.badge('Tenant B is physically unreachable', 'ok'));
+      } else if (!scoping) {
+        status.appendChild(h.badge('⚠️ one forgotten filter = leak', 'bad'));
+      }
+    }
+
+    // GET /invoices  — Maya (Tenant A) lists her invoices.
+    function listInvoices() {
+      out.innerHTML = '';
+      if (model === 'silo') {
+        out.appendChild(h.httpCard({ method: 'GET', path: '/invoices', status: 200,
+          resBody: { tenant: 'A', invoices: ['A-101', 'A-102'] },
+          note: 'Silo: this DB only holds Tenant A. Nothing else is even present.' }));
+        log.add('ok', 'GET /invoices → 200 (2 rows, all Tenant A).');
+        return;
+      }
+      if (scoping) {
+        out.appendChild(h.httpCard({ method: 'GET', path: '/invoices', status: 200,
+          resBody: { tenant: 'A', invoices: ['A-101', 'A-102'] },
+          note: 'Query ran with WHERE tenant_id=\'A\' → only Maya’s rows.' }));
+        log.add('ok', 'GET /invoices → 200 (scoped to Tenant A).');
+        return;
+      }
+      // pool/bridge, scoping OFF: the list forgets the filter and returns everyone.
+      out.appendChild(h.httpCard({ method: 'GET', path: '/invoices', status: 200,
+        resBody: { invoices: ['A-101', 'A-102', 'B-777', 'B-778'] },
+        note: 'No WHERE tenant_id → the list returned Tenant B’s rows too.' }));
+      log.add('bad', 'GET /invoices → 200 but leaked Tenant B rows (B-777, B-778).');
+    }
+
+    // GET /invoice/999 — object #999 belongs to Tenant B.
+    function fetchOther() {
+      out.innerHTML = '';
+      if (model === 'silo') {
+        out.appendChild(h.httpCard({ method: 'GET', path: '/invoice/999', status: 404,
+          resBody: { error: 'not_found' },
+          note: 'Silo: invoice 999 lives in Tenant B’s separate database. It does not exist here to be leaked.' }));
+        log.add('ok', 'GET /invoice/999 → 404 (physically impossible to reach B).');
+        return;
+      }
+      if (scoping) {
+        out.appendChild(h.httpCard({ method: 'GET', path: '/invoice/999', status: 404,
+          resBody: { error: 'not_found' },
+          note: 'SELECT … WHERE id=999 AND tenant_id=\'A\' → 0 rows. Maya can’t see B’s object. Return 404, not 403 (don’t confirm it exists).' }));
+        log.add('ok', 'GET /invoice/999 → 404 (scoped away — no cross-tenant read).');
+        return;
+      }
+      // THE BUG: fetch by id alone across a shared pool.
+      out.appendChild(h.httpCard({ method: 'GET', path: '/invoice/999', status: 200,
+        resBody: { id: 999, tenant: 'B', amount: '$48,300.00', customer: 'a stranger' },
+        note: 'SELECT * FROM invoices WHERE id=999 — the tenant filter was forgotten. Maya just read Tenant B’s invoice.' }));
+      var s = h.el('div', { class: 'acad-lab-row' }, [
+        h.badge('⛔ cross-tenant BOLA', 'bad'),
+        'Broken Object Level Authorization across the tenant line.'
+      ]);
+      out.appendChild(s);
+      h.flash(s);
+      log.add('bad', 'GET /invoice/999 → 200 LEAK: served Tenant B’s $48,300 invoice to Maya.');
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Isolation model', [
+          h.field('How are tenants separated?', h.select([
+            { value: 'silo', label: 'Silo — one database per tenant (strong, costly)' },
+            { value: 'pool', label: 'Pool — shared tables + tenant_id (cheap, leaky)', selected: true },
+            { value: 'bridge', label: 'Bridge — hybrid (shared app, split data)' }
+          ], function (v) { model = v; renderMeters(); out.innerHTML = '';
+            log.add('info', 'Switched to ' + v + ' model.'); })),
+          h.field('Isolation', isoMeter.root),
+          h.field('Infra cost', costMeter.root),
+          status
+        ])
+      ]),
+      h.col([
+        h.panel('2 · Query simulator', [
+          h.note('Logged in: Maya @ Tenant A. Invoice #999 belongs to Tenant B.'),
+          h.row([h.chip('Enforce tenant scoping', false, function (on) {
+            scoping = on; renderMeters(); out.innerHTML = '';
+            log.add('info', 'Tenant scoping ' + (on ? 'ENABLED (WHERE tenant_id=\'A\')' : 'DISABLED') + '.');
+          })]),
+          h.row([
+            h.button('GET /invoices', '', listInvoices),
+            h.button('GET /invoice/999 (Tenant B’s)', 'danger', fetchOther)
+          ]),
+          out
+        ])
+      ])
+    ]));
+    root.appendChild(h.note('The tenant claim must gate every server-side check — each object, each list, each write — not just what the UI shows. Silo makes leaks impossible; pool makes them one missing WHERE away, so row-level scoping + isolation tests are non-negotiable.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderMeters();
+    log.add('info', 'Pool model, scoping OFF: try GET /invoice/999 and watch Tenant B’s data cross the line.');
+  }
+});
+
+/* lab-lifetimes | lesson: r4-lifetimes */
+AcadLabs.register('lab-lifetimes', {
+  title: 'Tune the lifetime dials',
+  blurb: 'Set access, refresh and session lifetimes, then watch the attacker window and user friction move oppositely — until fast revocation breaks the trade-off.',
+  render: function (root, h) {
+    var accessMin = 15;   // 5 | 15 | 60 | 1440
+    var refreshDay = 30;  // 1 | 30 | 90
+    var rotation = true;  // refresh rotation + reuse detection
+    var idleMin = 480;    // 15 | 480 | 43200 (session idle)
+    var revoke = false;   // revocation / CAEP fast-kill
+
+    var atkMeter = h.meter(0, 'info');
+    var friMeter = h.meter(0, 'info');
+    var replayAt = 30;    // minutes since theft: 1 | 30 | 360 | 4320
+    var replayOut = h.el('div', {});
+    var log = h.logPanel();
+
+    // Effective attacker window (minutes) if a full session (access+refresh) is stolen.
+    function effWindow() {
+      if (revoke) return 2;                 // CAEP kills the session in seconds
+      if (rotation) return accessMin;       // can't refresh without tripping reuse detection
+      return refreshDay * 1440;             // free refreshing for the whole refresh life
+    }
+
+    function atkPct(w) {
+      if (w <= 2) return 6;
+      if (w <= 5) return 12;
+      if (w <= 15) return 22;
+      if (w <= 60) return 42;
+      if (w <= 1440) return 66;
+      if (w <= 43200) return 86;
+      return 100;
+    }
+    function atkKind(w) { return w <= 15 ? 'ok' : (w <= 60 ? 'warn' : 'bad'); }
+
+    // User friction (re-auths / week) from session idle + refresh life. Access life does NOT add friction.
+    function friction() {
+      var idleBase = idleMin <= 15 ? 60 : (idleMin <= 480 ? 25 : 5);
+      var refBase = refreshDay <= 1 ? 30 : (refreshDay <= 30 ? 10 : 4);
+      return Math.min(100, idleBase + refBase);
+    }
+    function friKind(f) { return f <= 25 ? 'ok' : (f <= 55 ? 'warn' : 'bad'); }
+
+    function humanWin(w) {
+      if (w < 60) return w + ' min';
+      if (w < 1440) return Math.round(w / 60) + ' h';
+      return Math.round(w / 1440) + ' days';
+    }
+
+    function renderMeters() {
+      var w = effWindow();
+      atkMeter.set(atkPct(w), atkKind(w));
+      var f = friction();
+      friMeter.set(f, friKind(f));
+    }
+
+    function minutesLabel(m) {
+      if (m < 60) return m + ' min';
+      if (m < 1440) return (m / 60) + ' h';
+      return (m / 1440) + ' days';
+    }
+
+    function replay() {
+      replayOut.innerHTML = '';
+      var w = effWindow();
+      var works = replayAt < w;
+      if (works) {
+        replayOut.appendChild(h.httpCard({ method: 'GET', path: '/account', status: 200,
+          resBody: { balance: '$4,120.00' },
+          note: 'Replayed at T+' + minutesLabel(replayAt) + '. Attacker window is ' + humanWin(w) + ' — still inside it. Token works.' }));
+        replayOut.appendChild(h.el('div', { class: 'acad-lab-row' }, [h.badge('⛔ token still valid', 'bad'), 'stolen credential accepted']));
+        log.add('bad', 'Stolen token replayed at T+' + minutesLabel(replayAt) + ' → 200 (window ' + humanWin(w) + ').');
+      } else {
+        replayOut.appendChild(h.httpCard({ method: 'GET', path: '/account', status: 401,
+          resBody: { error: revoke ? 'token_revoked' : 'invalid_token' },
+          note: 'Replayed at T+' + minutesLabel(replayAt) + '. ' + (revoke
+            ? 'CAEP revocation already killed the session.'
+            : 'The token expired / rotation cut it off.') + ' Window was ' + humanWin(w) + '.' }));
+        replayOut.appendChild(h.el('div', { class: 'acad-lab-row' }, [h.badge('✅ blocked', 'ok'), 'attacker locked out']));
+        log.add('ok', 'Stolen token replayed at T+' + minutesLabel(replayAt) + ' → 401 (window only ' + humanWin(w) + ').');
+      }
+      h.flash(replayOut);
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('The dials', [
+          h.field('Access token lifetime', h.select([
+            { value: '5', label: '5 min' },
+            { value: '15', label: '15 min', selected: true },
+            { value: '60', label: '1 hour' },
+            { value: '1440', label: '24 hours' }
+          ], function (v) { accessMin = +v; renderMeters();
+            log.add('info', 'Access token = ' + minutesLabel(accessMin) + '.'); })),
+          h.field('Refresh token lifetime', h.select([
+            { value: '1', label: '1 day' },
+            { value: '30', label: '30 days', selected: true },
+            { value: '90', label: '90 days' }
+          ], function (v) { refreshDay = +v; renderMeters();
+            log.add('info', 'Refresh token = ' + refreshDay + ' days.'); })),
+          h.field('Session idle timeout', h.select([
+            { value: '15', label: '15 min' },
+            { value: '480', label: '8 hours', selected: true },
+            { value: '43200', label: '30 days' }
+          ], function (v) { idleMin = +v; renderMeters();
+            log.add('info', 'Session idle timeout = ' + minutesLabel(idleMin) + '.'); })),
+          h.row([
+            h.chip('Refresh rotation + reuse detection', true, function (on) {
+              rotation = on; renderMeters();
+              log.add('info', 'Refresh rotation ' + (on ? 'ON' : 'OFF — a stolen refresh mints tokens for its whole life') + '.');
+            })
+          ]),
+          h.row([
+            h.chip('Revocation / CAEP fast-kill', false, function (on) {
+              revoke = on; renderMeters();
+              log.add(on ? 'ok' : 'info', 'CAEP revocation ' + (on ? 'ON — window crushed to seconds, friction unchanged' : 'OFF') + '.');
+            })
+          ])
+        ])
+      ]),
+      h.col([
+        h.panel('The trade-off', [
+          h.field('Attacker window if a token is stolen', atkMeter.root),
+          h.field('User friction (re-auths per week)', friMeter.root),
+          h.note('Shorten the dials → attacker window drops but friction rises. Turn on CAEP and the attacker window collapses while friction stays put — that’s the trick.')
+        ]),
+        h.panel('Replay a stolen token', [
+          h.field('Attacker replays at', h.select([
+            { value: '1', label: 'T + 1 min' },
+            { value: '30', label: 'T + 30 min', selected: true },
+            { value: '360', label: 'T + 6 hours' },
+            { value: '4320', label: 'T + 3 days' }
+          ], function (v) { replayAt = +v; })),
+          h.button('Replay stolen token', 'danger', replay),
+          replayOut
+        ])
+      ])
+    ]));
+    root.appendChild(h.note('Access-token lifetime moves the attacker window but NOT friction — refreshes happen silently. Friction comes from the session idle timeout and refresh life. Short life covers silent thefts; fast CAEP revoke covers the detected ones. Together they beat either alone.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderMeters();
+    log.add('info', 'Defaults: 15-min access, 30-day rotating refresh, 8-hour idle. Try shortening, then flip on CAEP.');
+  }
+});
+/* lab-buildbuy | lesson: r5-buildbuy */
+AcadLabs.register('lab-buildbuy', {
+  title: 'Make the build-vs-buy call',
+  blurb: 'Answer five questions about your team and product, and watch a decision engine weigh build against buy — deterministically, with the responsibilities you\'d be signing up for.',
+  render: function (root, h) {
+    var ans = { secEng: 'no', regulated: 'no', product: 'no', ssoscim: 'no', deadline: 'no' };
+
+    var verdictBox = h.el('div', { class: 'acad-lab-row' });
+    var meter = h.meter(50, 'info');
+    var reasonBox = h.el('div', {});
+    var respBox = h.el('div', {});
+    var recBox = h.el('div', {});
+    var log = h.logPanel();
+
+    // Deterministic model: buildAffinity, positive leans build, negative leans buy.
+    function score() {
+      var reasons = [];
+      var a = 0;
+      if (ans.product === 'yes') { a += 2; reasons.push('+2 · identity IS your product — a real reason to build'); }
+      else { reasons.push('0 · identity is not your differentiator — customers pay for something else'); }
+      if (ans.secEng === 'yes') { a += 1; reasons.push('+1 · you have dedicated security engineers to own it forever'); }
+      else { a -= 1; reasons.push('-1 · no dedicated security team to run auth 24/7'); }
+      if (ans.regulated === 'yes') { a -= 1; reasons.push('-1 · heavy regulatory load — audited, hardened stacks win'); }
+      if (ans.ssoscim === 'yes') { a -= 1; reasons.push('-1 · enterprise needs SSO/SCIM soon — table stakes to rebuild'); }
+      if (ans.deadline === 'yes') { a -= 1; reasons.push('-1 · tight deadline — building auth burns the runway'); }
+      return { a: a, reasons: reasons };
+    }
+
+    function verdict(s) {
+      // "Building may be justified" only when identity is the product AND you can staff it.
+      if (ans.product === 'yes' && ans.secEng === 'yes') return 'build';
+      if (s.a >= 2) return 'build';
+      if (s.a <= -1) return 'buy';
+      return 'hybrid';
+    }
+
+    // Responsibilities you take on if you build. Shown (and counted) when the call leans build.
+    var RESP = [
+      'Password hashing (slow, salted) + breached-password checks',
+      'MFA enrollment, step-up & recovery paths',
+      'Passkeys / WebAuthn (RFC-grade, phishing-resistant)',
+      'Session issue / rotate / revoke — sign-out that sticks',
+      'SSO via OIDC & SAML + home-realm discovery',
+      'SCIM provisioning (RFC 7643/7644)',
+      'Tamper-evident audit logs & access reviews',
+      'Compliance evidence for your regime',
+      '24/7 security response — credential stuffing, CVEs, incidents'
+    ];
+
+    function renderResp(v) {
+      respBox.innerHTML = '';
+      respBox.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Responsibilities you\'re signing up for'));
+      if (v === 'buy') {
+        respBox.appendChild(h.badge('the platform carries these for you', 'ok'));
+        respBox.appendChild(h.note('Adopt/buy: you integrate & configure; the heavy list below stays the provider\'s problem.'));
+        return;
+      }
+      var show = v === 'build' ? RESP.length : Math.ceil(RESP.length / 2);
+      respBox.appendChild(h.badge(show + ' of ' + RESP.length + ' land on your team' + (v === 'build' ? ' — forever' : ''), v === 'build' ? 'bad' : 'warn'));
+      RESP.slice(0, show).forEach(function (r) {
+        respBox.appendChild(h.row([h.badge('you own', v === 'build' ? 'bad' : 'warn'), r]));
+      });
+      if (show < RESP.length) respBox.appendChild(h.note('…and the rest arrive the moment your first enterprise buyer does.'));
+    }
+
+    function render() {
+      var s = score();
+      var v = verdict(s);
+      // meter: map affinity (-3..+3) to 0..100, where high = build-heavy responsibility.
+      var pct = Math.max(0, Math.min(100, 50 + s.a * 16));
+      var kind = v === 'build' ? 'bad' : (v === 'hybrid' ? 'warn' : 'ok');
+      meter.set(pct, kind);
+
+      verdictBox.innerHTML = '';
+      var label = { build: '🔨 BUILD (only if you must)', hybrid: '⚖️ HYBRID — adopt the hard parts', buy: '🛒 BUY / ADOPT' }[v];
+      verdictBox.appendChild(h.badge(label, kind));
+
+      recBox.innerHTML = '';
+      var rec;
+      if (v === 'build') {
+        rec = ans.product === 'yes'
+          ? 'Building may be justified — identity IS your product and you have the security muscle. But still speak OIDC/SAML/SCIM so you can integrate and stay portable.'
+          : 'The signals lean build, but tread carefully: you\'d be rebuilding table stakes. Do it only where identity is a genuine differentiator.';
+      } else if (v === 'buy') {
+        rec = 'Adopt a platform (or run an open-source identity server). Building here means rebuilding hashing, MFA, SSO, SCIM and 24/7 response — none of which your customers pay you for.';
+      } else {
+        rec = 'Hybrid: buy/adopt the undifferentiated core, own only what\'s truly yours, and wire every seam with open standards so switching later is a migration, not a rewrite.';
+      }
+      recBox.appendChild(h.note(rec));
+
+      reasonBox.innerHTML = '';
+      s.reasons.forEach(function (t) { reasonBox.appendChild(h.note('• ' + t)); });
+
+      renderResp(v);
+      h.flash(verdictBox);
+    }
+
+    function decide() {
+      var v = verdict(score());
+      log.add(v === 'buy' ? 'ok' : (v === 'hybrid' ? 'warn' : 'bad'),
+        'Decision: ' + v.toUpperCase() + ' · product=' + ans.product + ' secEng=' + ans.secEng + ' regulated=' + ans.regulated + ' sso/scim=' + ans.ssoscim + ' deadline=' + ans.deadline);
+    }
+
+    function q(key, labelText) {
+      return h.field(labelText, h.select([
+        { value: 'no', label: 'No', selected: ans[key] === 'no' },
+        { value: 'yes', label: 'Yes', selected: ans[key] === 'yes' }
+      ], function (val) { ans[key] = val; render(); }));
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('Five questions (change any, any time)', [
+          q('secEng', 'Do you have dedicated security engineers to own auth forever?'),
+          q('regulated', 'Are you in a heavily regulated industry?'),
+          q('product', 'Is identity itself your product\'s differentiator?'),
+          q('ssoscim', 'Will enterprise buyers need SSO / SCIM soon?'),
+          q('deadline', 'Are you on a tight time-to-market?'),
+          h.button('Log this decision', 'primary', decide),
+          h.note('The recommendation is derived from your answers — no dice. Identity is rarely the thing customers pay for, so the bar to build is high.')
+        ])
+      ]),
+      h.col([
+        h.panel('The call', [meter.root, verdictBox, recBox]),
+        h.panel('How the signals weighed', [reasonBox]),
+        h.panel(null, [respBox])
+      ])
+    ]));
+    root.appendChild(h.note('Portability insurance: whether you build or buy, OIDC/SAML for auth and SCIM (RFC 7643/7644) for provisioning keep switching providers a migration, not a rewrite — and keep your user data yours.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    render();
+    log.add('info', 'Zara\'s rule: buy the undifferentiated, build only your edge, bridge everything with standards.');
+  }
+});
+
+
+/* lab-outage | lesson: r6-dr */
+AcadLabs.register('lab-outage', {
+  title: 'Survive the IdP outage',
+  blurb: 'Toggle resilience patterns onto your architecture, then knock the IdP out for 20 minutes and watch how much impact each pattern absorbs.',
+  render: function (root, h) {
+    var on = { cached: false, failover: false, health: false, breakglass: false, comms: false };
+
+    var meter = h.meter(100, 'bad');
+    var impactBox = h.el('div', { class: 'acad-lab-row' });
+    var outcomeBox = h.el('div', {});
+    var firstBox = h.el('div', {});
+    var log = h.logPanel();
+
+    // Deterministic impact model. Start at 100 = total lockout; each pattern absorbs some.
+    var W = {
+      cached:    [30, 'Already-signed-in users ride valid cached tokens — verified against cached keys, no IdP call'],
+      failover:  [25, 'A standby region serves NEW logins'],
+      health:    [10, 'Health checks auto-cut-over in ~90s — no human in the loop'],
+      breakglass:[15, 'Admins get in via break-glass to run the incident'],
+      comms:     [20, 'Status page + comms contain the business & support blast radius']
+    };
+
+    function assess() {
+      var impact = 100, notes = [];
+      if (on.cached) { impact -= W.cached[0]; notes.push(['ok', W.cached[1]]); }
+      if (on.failover) { impact -= W.failover[0]; notes.push(['ok', W.failover[1]]); }
+      if (on.health) {
+        if (on.failover) { impact -= W.health[0]; notes.push(['ok', W.health[1]]); }
+        else notes.push(['warn', 'Health-check auto-failover has nowhere to cut over — enable a failover region first']);
+      }
+      if (on.breakglass) { impact -= W.breakglass[0]; notes.push(['ok', W.breakglass[1]]); }
+      if (on.comms) { impact -= W.comms[0]; notes.push(['ok', W.comms[1]]); }
+      impact = Math.max(0, impact);
+      return { impact: impact, notes: notes };
+    }
+
+    function outage() {
+      var r = assess();
+      var kind = r.impact >= 70 ? 'bad' : (r.impact >= 30 ? 'warn' : 'ok');
+      meter.set(r.impact, kind);
+      impactBox.innerHTML = '';
+      impactBox.appendChild(h.badge('Outage impact ' + r.impact + '/100', kind));
+      impactBox.appendChild(h.badge(r.impact >= 70 ? '⛔ near-total lockout' : (r.impact >= 30 ? '⚠️ degraded but standing' : '✅ barely a blip'), kind));
+
+      outcomeBox.innerHTML = '';
+      if (!r.notes.length) {
+        outcomeBox.appendChild(h.note('Nothing enabled. The IdP is the only front door — every app, API and console fails at once. Total lockout, including the admin who needs to fix it.'));
+        log.add('bad', 'IdP down 20 min · no patterns → 100/100 impact — everyone locked out, admin included.');
+      } else {
+        r.notes.forEach(function (n) { outcomeBox.appendChild(h.row([h.badge(n[0] === 'ok' ? 'absorbed' : 'gap', n[0]), n[1]])); });
+        log.add(kind, 'IdP down 20 min · ' + r.notes.filter(function (n) { return n[0] === 'ok'; }).length + ' pattern(s) active → ' + r.impact + '/100 impact.');
+      }
+      h.flash(impactBox);
+    }
+
+    function toggle(key, label) {
+      return h.chip(label, on[key], function (p) { on[key] = p; });
+    }
+
+    // Ordering micro-step: what to do FIRST during the outage.
+    function firstMove(kind, text) {
+      firstBox.innerHTML = '';
+      firstBox.appendChild(h.el('div', { class: 'acad-lab-row' }, [h.badge(kind === 'ok' ? '✓ right first move' : '✕ not first', kind), ' ' + text]));
+    }
+    var FIRST = [
+      ['Open the incident bridge & post to the status page', 'ok',
+        'Correct. Declare the incident and set expectations first — coordination and comms come before any risky change, exactly like the 2am tabletop.'],
+      ['Cut over to the standby region', 'warn',
+        'Good, and soon — but declare the incident first. Failover is a decisive action; do it under a running incident, not before one exists.'],
+      ['Force everyone to clear cookies & re-login', 'bad',
+        'Harmful. That destroys the cached sessions still keeping signed-in users working — you\'d turn a partial outage into a total one.'],
+      ['Start rotating all signing keys now', 'bad',
+        'Wrong moment. Rotating keys mid-outage risks breaking the parts still working. Plan key/secret continuity ahead of time, not during the fire.']
+    ];
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('Resilience patterns — build your architecture', [
+          toggle('cached', 'Short-lived-token grace / cached sessions'),
+          toggle('failover', 'Failover region'),
+          toggle('health', 'Health-check auto-failover'),
+          toggle('breakglass', 'Break-glass admin access'),
+          toggle('comms', 'Status page + comms plan'),
+          h.button('💥 The IdP goes down for 20 minutes', 'danger', outage),
+          h.note('Each pattern absorbs part of the impact. Auto-failover only helps if there\'s a failover region to cut over to.')
+        ]),
+        h.panel('During the outage — what do you do FIRST?', [
+          h.row(FIRST.map(function (f) {
+            return h.button(f[0], '', function () { firstMove(f[1], f[2]); log.add(f[1] === 'ok' ? 'ok' : (f[1] === 'warn' ? 'warn' : 'bad'), 'First move: ' + f[0]); });
+          })),
+          firstBox
+        ])
+      ]),
+      h.col([
+        h.panel('Outage outcome', [meter.root, impactBox, outcomeBox])
+      ])
+    ]));
+    root.appendChild(h.note('Trade-off: longer-lived cached tokens survive a longer outage — but a stolen one stays dangerous longer too. Pair a modest grace window with fast revocation; don\'t buy resilience by making tokens immortal.'));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'Identity is the ultimate single point of failure: when auth is down, everything is down. Design for it before 9am.');
   }
 });
