@@ -1011,6 +1011,9 @@ AcadLabs.register('lab-rotation', {
     var familyBox = h.el('div', { class: 'acad-lab-col' });
     var appOut = h.el('div', {});
     var atkOut = h.el('div', {});
+    // Latest-call slots: replaced per action (the event log keeps the history)
+    var appCard = h.el('div', {});
+    var atkCard = h.el('div', {});
 
     function mint() {
       seq += 1;
@@ -1049,22 +1052,25 @@ AcadLabs.register('lab-rotation', {
     function refresh() {
       if (revoked) {
         log.add('bad', 'App refresh rejected — family already burned.');
-        appOut.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: appHolds },
+        appCard.innerHTML = '';
+        appCard.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: appHolds },
           status: 400, resBody: { error: 'invalid_grant' }, note: 'Family revoked. Maya must sign in again.' }));
+        h.flash(appCard);
         return;
       }
       var presented = statusOf(appHolds);
+      appCard.innerHTML = '';
       if (presented === 'stale') {
         burnFamily();
         log.add('bad', 'REUSE DETECTED (app presented stale ' + appHolds + ') — whole family revoked.');
-        appOut.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: appHolds },
+        appCard.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: appHolds },
           status: 400, resBody: { error: 'invalid_grant' }, note: 'That token was already rotated — the attacker used the fresh one. Every token in the family is now dead.' }));
         renderFamily(); h.flash(familyBox); return;
       }
       var newRt = mint();
       appHolds = newRt;
       log.add('ok', 'App rotated ' + presented + ' → ' + newRt + ' + fresh access token.');
-      appOut.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token' },
+      appCard.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token' },
         status: 200, resBody: { access_token: 'at_' + h.rand(6), refresh_token: newRt, token_type: 'Bearer', expires_in: 300 },
         note: 'Old token invalidated; ' + newRt + ' is now the only live refresh token.' }));
       renderFamily(); h.flash(familyBox);
@@ -1081,22 +1087,25 @@ AcadLabs.register('lab-rotation', {
       if (!attackerHolds) { log.add('warn', 'Attacker has no token — steal one first.'); return; }
       if (revoked) {
         log.add('bad', 'Replay rejected — family already burned.');
-        atkOut.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: attackerHolds },
+        atkCard.innerHTML = '';
+        atkCard.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: attackerHolds },
           status: 400, resBody: { error: 'invalid_grant' }, note: 'Attacker locked out for good.' }));
+        h.flash(atkCard);
         return;
       }
       var st = statusOf(attackerHolds);
+      atkCard.innerHTML = '';
       if (st === 'active') {
         var newRt = mint();
         attackerHolds = newRt; // attacker got the fresh token; app still holds the now-stale one
         log.add('warn', '😈 Attacker replayed live ' + statusOf(attackerHolds) + ' token and won — 200 OK, silently. Now watch Maya refresh.');
-        atkOut.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: family[family.length - 2].id },
+        atkCard.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: family[family.length - 2].id },
           status: 200, resBody: { access_token: 'at_' + h.rand(6), refresh_token: newRt, token_type: 'Bearer' },
           note: 'Scary case: the theft succeeded quietly. But the app still holds a token the IdP just rotated away — its next Refresh will trip the alarm.' }));
       } else {
         burnFamily();
         log.add('bad', 'REUSE DETECTED (attacker replayed stale ' + attackerHolds + ') — whole family revoked.');
-        atkOut.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: attackerHolds },
+        atkCard.appendChild(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'refresh_token', refresh_token: attackerHolds },
           status: 400, resBody: { error: 'invalid_grant' }, note: 'The stolen token was already spent by Maya’s app. Reuse → family burned. Both sides logged out.' }));
       }
       renderFamily(); h.flash(familyBox);
@@ -1108,10 +1117,10 @@ AcadLabs.register('lab-rotation', {
 
     root.appendChild(h.stage([familyBox]));
     root.appendChild(h.row([
-      h.col([h.panel('Maya’s app', [h.button('Refresh (rotate token)', 'primary', refresh), appOut])]),
+      h.col([h.panel('Maya’s app', [h.button('Refresh (rotate token)', 'primary', refresh), appOut, appCard])]),
       h.col([h.panel('Attacker', [
         h.row([h.button('Steal current token', 'danger', steal), h.button('Replay stolen token', 'danger', replay)]),
-        atkOut
+        atkOut, atkCard
       ])])
     ]));
     root.appendChild(h.note('Try both orders: replay the stolen token BEFORE Maya refreshes (attacker wins, then Maya’s next refresh trips it), or AFTER she refreshes (the stolen copy is already stale — instant burn). Reuse in either direction kills the whole family.'));
@@ -1170,6 +1179,7 @@ AcadLabs.register('lab-revoke', {
 
     function callAccount() {
       if (!token) { log.add('warn', 'Mint a token first.'); return; }
+      callOut.innerHTML = ''; // event log keeps the history; show only the latest call
       var sigOk = h.verifyJwt(token).ok; // always true — revocation never touches the sig
       var wwwAuth = 'Bearer error="invalid_token"';
       if (active()) {
@@ -1177,6 +1187,7 @@ AcadLabs.register('lab-revoke', {
         callOut.appendChild(h.httpCard({ method: 'GET', path: '/account', status: 200,
           resBody: { sub: 'maya', tier: 'gold', balance: '$4,210.00' },
           note: 'Signature ok AND introspection says active:true → served.' }));
+        h.flash(callOut);
         return;
       }
       var expired = now() >= exp;
@@ -1186,12 +1197,14 @@ AcadLabs.register('lab-revoke', {
         note: 'WWW-Authenticate: ' + wwwAuth + ' — ' + (expired
           ? 'now ≥ exp, so the self-contained token lapsed on its own.'
           : 'signature still verifies (sig=' + (sigOk ? 'ok' : 'bad') + ') — revocation is a server-side lookup, NOT a signature change. High-value APIs introspect (or use short TTLs) exactly for this.') }));
+      h.flash(callOut);
     }
 
     function revoke() {
       if (!token) { log.add('warn', 'Nothing to revoke — mint a token first.'); return; }
       revoked = true;
       log.add('warn', 'Zara flipped the session: introspection now returns active:false.');
+      callOut.innerHTML = '';
       callOut.appendChild(h.httpCard({ method: 'POST', path: '/revoke', reqBody: { token: 'at_maya', token_type_hint: 'access_token' },
         status: 200, resBody: { revoked: true, active: false },
         note: 'The JWT bytes are unchanged and still verify — but the server-side session/introspection record now says active:false. Next API call fails the lookup.' }));
