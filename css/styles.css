@@ -5082,6 +5082,122 @@ body.theme-contrast .acad-banner .btn {
   .acad-banner { padding: 1.5rem 1.4rem; }
 }
 
+/* Homepage banner: all-tracks summary grid */
+.acad-banner-tracks {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+}
+
+.acad-banner-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius-lg);
+  padding: 0.65rem 0.8rem;
+  color: #fff;
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.acad-banner-track:hover,
+.acad-banner-track:focus-visible {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.acad-bt-num {
+  flex: 0 0 auto;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--primary-color);
+  font-size: 0.75rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.1rem;
+}
+
+.acad-bt-name {
+  display: block;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.acad-banner-track small {
+  display: block;
+  opacity: 0.85;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+body.theme-contrast .acad-banner-track { background: #000; border-color: #fff; }
+body.theme-contrast .acad-bt-num { background: #ffd60a; color: #000; }
+
+@media (max-width: 991px) {
+  .acad-banner-tracks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 576px) {
+  .acad-banner-tracks { grid-template-columns: 1fr; }
+}
+
+/* Track-intro roadmap list ("Start here" lessons) */
+.acad-arc {
+  list-style: none;
+  margin: 1.1rem 0 1.5rem;
+  padding: 0;
+  position: relative;
+  counter-reset: arc;
+}
+
+.acad-arc::before {
+  content: '';
+  position: absolute;
+  left: 0.85rem;
+  top: 0.9rem;
+  bottom: 0.9rem;
+  width: 2px;
+  background: var(--acad-line);
+}
+
+.acad-arc li {
+  counter-increment: arc;
+  position: relative;
+  padding: 0.32rem 0 0.32rem 2.7rem;
+  color: var(--acad-muted);
+}
+
+.acad-arc li::before {
+  content: counter(arc);
+  position: absolute;
+  left: 0;
+  top: 0.32rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--acad-panel);
+  border: 2px solid var(--acad-line);
+  color: var(--acad-ink);
+  font-weight: 800;
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.acad-arc li a {
+  font-weight: 700;
+}
+
 @media (max-width: 576px) {
   .acad-hero { padding: 7rem 0 3rem; }
   .acad-page-btn { max-width: 100%; }
