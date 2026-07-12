@@ -5675,3 +5675,74 @@ body.theme-cyber .back-to-top {
     transition: none;
   }
 }
+
+/* --- Academy final exam + certificate --- */
+.acad-exam-q {
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 10px;
+  background: var(--acad-panel);
+  padding: 0.75rem 0.9rem;
+  margin: 0.6rem 0;
+}
+
+.acad-exam-qhead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.acad-exam-qnum {
+  font-weight: 700;
+  color: var(--acad-em);
+}
+
+.acad-exam-qtext {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  color: var(--acad-ink);
+}
+
+.acad-exam-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.acad-exam-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--acad-line);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--acad-ink);
+}
+
+.acad-exam-opt:hover {
+  border-color: var(--acad-actor);
+}
+
+.acad-exam-opt input {
+  margin-top: 0.2rem;
+}
+
+.acad-exam-msg {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+}
+
+.acad-exam-review {
+  margin-top: 0.75rem;
+}
+
+.acad-cert-canvas {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--acad-panel-border);
+  margin: 0.5rem 0;
+}

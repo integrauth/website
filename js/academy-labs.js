@@ -5892,3 +5892,971 @@ AcadLabs.register('lab-wellknown', {
     log.add('info', "An IdP's discovery document + JWKS let an app it has never met configure itself and verify signatures — as long as the issuer string matches exactly.");
   }
 });
+/* lab-aitm | lesson: atk1-aitm */
+AcadLabs.register('lab-aitm', {
+  title: 'Watch the proxy — then watch it fail',
+  blurb: 'Walk an adversary-in-the-middle relay step by step, then pick Maya\'s login method and see which one leaves nothing to steal.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var out = h.el('div', {});
+    var method = 'pw';
+
+    var flow = {
+      title: 'Adversary-in-the-middle relay',
+      tag: 'concept · defensive',
+      intro: 'A look-alike page proxies every field to the real site in real time. Press Next to see what a shared secret can\'t survive.',
+      outro: 'Nothing here was cracked — it was relayed. The fix is a factor that can\'t be relayed: a passkey. Try it below.',
+      actors: [
+        { id: 'maya', label: 'Maya', kind: 'human' },
+        { id: 'proxy', label: 'Look-alike proxy', kind: 'bad' },
+        { id: 'site', label: 'Real site' }
+      ],
+      steps: [
+        { f: 'maya', t: 'proxy', l: 'enters password', n: 'Maya types her password into a pixel-perfect look-alike page. It never really reaches her — the proxy is a two-way mirror.' },
+        { f: 'proxy', t: 'site', kind: 'bad', l: 'relays password', n: 'The proxy forwards the password live to the real site, posing as Maya\'s browser.' },
+        { f: 'site', t: 'proxy', kind: 'ret', l: 'asks for a one-time code', n: 'The real site accepts the password and challenges for a second factor.' },
+        { f: 'proxy', t: 'maya', kind: 'ret', l: 'passes the prompt back', n: 'The proxy relays the challenge to Maya so the page looks exactly right.' },
+        { f: 'maya', t: 'proxy', l: 'types the app OTP', n: 'Maya reads the 6-digit code from her authenticator and types it. It\'s valid for ~30 seconds — plenty of time for a live relay.' },
+        { f: 'proxy', t: 'site', kind: 'bad', l: 'relays the code in time', n: 'The proxy replays the still-valid code to the real site inside its short window.' },
+        { f: 'site', t: 'proxy', kind: 'ret', l: 'issues session cookie', n: 'The real site logs "Maya" in and returns a session cookie — the credential that keeps her signed in.' },
+        { f: 'proxy', t: 'proxy', kind: 'note', l: 'cookie captured', n: 'Loaded into the attacker\'s own browser, the cookie is Maya\'s session — no password or code needed again. Defense: a passkey would have made step 1 unrelayable.' }
+      ]
+    };
+
+    function runPhish() {
+      out.innerHTML = '';
+      if (method === 'pw') {
+        out.appendChild(h.row([h.badge('session stolen', 'bad')]));
+        out.appendChild(h.note('Password only: the proxy relayed it straight to the real site. One shared secret, one relay, full access.'));
+        log.add('bad', 'Password relayed through the proxy → session stolen.');
+      } else if (method === 'otp') {
+        out.appendChild(h.row([h.badge('session stolen', 'bad')]));
+        out.appendChild(h.note('Password + app OTP: the code was just relayed too, inside its 30-second window. A second secret to type is still a secret to relay — AiTM defeats shared-secret MFA.'));
+        log.add('bad', 'Password AND one-time code relayed in time → session still stolen.');
+      } else {
+        out.appendChild(h.row([h.badge('origin mismatch — nothing to steal', 'ok')]));
+        out.appendChild(h.note('Passkey (WebAuthn): the signature was bound to the origin Maya actually visited — "look-alike-login.example", not the real site. The real site rejects a signature for the wrong origin, and there is no reusable secret for the proxy to forward.'));
+        log.add('ok', 'Passkey signed the look-alike origin → real site rejects it. Nothing relayable.');
+      }
+    }
+
+    root.appendChild(h.flowPlayer(flow));
+    root.appendChild(h.panel('Now pick Maya\'s login method', [
+      h.field('Maya authenticates with', h.select([
+        { value: 'pw', label: 'Password', selected: true },
+        { value: 'otp', label: 'Password + app OTP' },
+        { value: 'passkey', label: 'Passkey (WebAuthn)' }
+      ], function (v) { method = v; })),
+      h.button('Run the phish', 'danger', runPhish),
+      out
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'AiTM relays every field live: whatever you can read and re-type, the proxy can read and re-type. Only an origin-bound passkey breaks the relay.');
+  }
+});
+
+/* lab-fatigue | lesson: atk2-fatigue */
+AcadLabs.register('lab-fatigue', {
+  title: 'Tune the push policy — stop the 3am tap',
+  blurb: 'Toggle push-approval controls, run a 10-prompt fatigue attack, and watch the risk meter and outcome change with your policy.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var out = h.el('div', {});
+    var numberMatch = false, context = false, lockout = false, adaptive = false;
+    var riskMeter = h.meter(90, 'bad');
+
+    function simulate() {
+      out.innerHTML = '';
+      var denials = 0, prompts = 0, compromised = false;
+      log.add('info', '— Attacker has Priya\'s password; firing 10 logins at 3am —');
+
+      if (adaptive) {
+        log.add('ok', 'Adaptive risk: logins come from an unrecognized device → step-up required, no push sent (x10).');
+      } else {
+        for (var i = 1; i <= 10; i++) {
+          if (lockout && denials >= 3) {
+            log.add('warn', 'Prompt ' + i + ' blocked — account locked after 3 denials.');
+            continue;
+          }
+          prompts++;
+          if (numberMatch) {
+            log.add('ok', 'Prompt ' + i + ': "type the 2 digits on the sign-in screen" — Priya has no screen, nothing to type.');
+            denials++;
+          } else if (context) {
+            log.add('ok', 'Prompt ' + i + ': shows sign-in from Country X → Priya sees it isn\'t her, denies.');
+            denials++;
+          } else if (i < 5) {
+            log.add('warn', 'Prompt ' + i + ': "Approve sign-in?" — Priya ignores the buzz.');
+            denials++;
+          } else {
+            log.add('bad', 'Prompt ' + i + ': half-asleep, Priya taps Approve to stop the buzzing → session handed over.');
+            compromised = true;
+            break;
+          }
+        }
+      }
+
+      var risk = 90;
+      if (numberMatch) risk -= 50;
+      if (context) risk -= 20;
+      if (lockout) risk -= 25;
+      if (adaptive) risk -= 80;
+      if (risk < 5) risk = 5;
+      if (risk > 95) risk = 95;
+      var kind = risk >= 60 ? 'bad' : (risk >= 34 ? 'warn' : 'ok');
+      riskMeter.set(risk, kind);
+
+      var allOn = numberMatch && context && lockout && adaptive;
+      if (compromised) {
+        out.appendChild(h.row([h.badge('compromised', 'bad')]));
+        out.appendChild(h.note('Plain push approval let a groggy tap hand over the account. Turn on controls below and run it again.'));
+      } else if (allOn) {
+        out.appendChild(h.row([h.badge('attack fails', 'ok')]));
+        out.appendChild(h.note('Every rung of the ladder is in place — there was no approvable prompt for a tired thumb to reach.'));
+      } else {
+        out.appendChild(h.row([h.badge('attack stalled', 'warn')]));
+        var why = [];
+        if (adaptive) why.push('the unknown device never triggered a prompt');
+        if (numberMatch) why.push('no digits to guess or blind-approve');
+        if (context) why.push('the foreign location gave it away');
+        if (lockout) why.push('it locked out after 3 denials');
+        out.appendChild(h.note('No blind approval this time — ' + why.join('; ') + '. Add the remaining controls to close the gap entirely.'));
+      }
+      out.appendChild(h.note(prompts + ' prompts actually reached Priya\'s phone.'));
+      h.flash(out);
+    }
+
+    root.appendChild(h.panel('Push-approval policy board', [
+      h.note('Toggle the controls, then run the attack. Each control is a rung on the defense ladder.'),
+      h.row([
+        h.chip('Number matching', false, function (on) { numberMatch = on; }),
+        h.chip('Show location/app context', false, function (on) { context = on; }),
+        h.chip('Lockout after 3 denials', false, function (on) { lockout = on; }),
+        h.chip('Adaptive suppression on trusted device', false, function (on) { adaptive = on; })
+      ]),
+      h.button('Simulate a fatigue attack (10 prompts)', 'danger', simulate)
+    ]));
+    root.appendChild(h.panel('Blind-approval risk', [riskMeter.root, out]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'With plain push, an attacker who has the password just spams prompts until a tired human taps Approve. Each control makes that tap harder — or impossible.');
+  }
+});
+/* lab-dcphish | lesson: atk3-devicecode */
+AcadLabs.register('lab-dcphish', {
+  title: 'Whose login is this, really?',
+  blurb: 'Four codes land in Maya’s day. Approve the ones she personally started, refuse the rest — and score every call.',
+  render: function (root, h) {
+    var items = [
+      { id: 'a', from: 'Text from "IT Support"', text: '"IT here — enter code BQXT-KDZM at the login page to finish your setup."', selfStarted: false,
+        why: 'Maya never started any setup. A code someone sends you is a code THEY started — approving it signs their waiting session into your account.' },
+      { id: 'b', from: 'Maya’s new smart TV', text: 'The TV she is unboxing shows: "Open the sign-in page and enter WXYZ-1234 to activate."', selfStarted: true,
+        why: 'Maya kicked this off herself on the device in front of her. This is exactly what the device flow is for — approve away.' },
+      { id: 'c', from: 'Email: "Account Security"', text: '"Approve this login to keep your account active — enter code MNOP-7788 now."', selfStarted: false,
+        why: 'Unprompted "approve to keep access" urgency plus a code you did not request equals device-code phishing. Refuse and report.' },
+      { id: 'd', from: 'Maya’s own laptop', text: 'The CLI tool she launched 10 seconds ago prints: "Enter code RSTU-4455 to authorize."', selfStarted: true,
+        why: 'She started this seconds ago on her own laptop; the gadget showed her the code. Approving completes her own login.' }
+    ];
+    var answered = 0, score = 0;
+    var board = h.el('div', { class: 'acad-lab-row' });
+    var log = h.logPanel();
+
+    function refresh() {
+      board.innerHTML = '';
+      board.appendChild(h.badge('Answered ' + answered + '/' + items.length, 'info'));
+      board.appendChild(h.badge('Score ' + score + '/' + items.length, (answered === items.length && score === items.length) ? 'ok' : 'neutral'));
+      if (answered === items.length) {
+        board.appendChild(h.badge(score === items.length ? '✅ Golden rule mastered' : 'Review the misses above', score === items.length ? 'ok' : 'warn'));
+      }
+    }
+
+    function decide(item, card, approve, btns) {
+      var correct = approve === item.selfStarted;
+      if (correct) score++;
+      answered++;
+      btns.forEach(function (b) { b.disabled = true; });
+      card.appendChild(h.row([h.badge(correct ? '✓ Right call' : '✗ Risky', correct ? 'ok' : 'bad'), (approve ? 'You approved.' : 'You refused.')]));
+      card.appendChild(h.note((item.selfStarted ? 'Safe — ' : 'Unsafe — ') + item.why));
+      log.add(correct ? 'ok' : 'bad', item.from + ' → ' + (approve ? 'approved' : 'refused') + ' — ' + (correct ? 'correct' : 'wrong'));
+      refresh();
+    }
+
+    var cards = items.map(function (item) {
+      var card = h.el('div', { class: 'acad-lab-col' });
+      card.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, item.from));
+      card.appendChild(h.note(item.text));
+      var btns = [];
+      var enterBtn = h.button('Enter / approve', 'danger', function () { decide(item, card, true, btns); });
+      var refuseBtn = h.button('Refuse', 'primary', function () { decide(item, card, false, btns); });
+      btns.push(enterBtn, refuseBtn);
+      card.appendChild(h.row([enterBtn, refuseBtn]));
+      return card;
+    });
+
+    root.appendChild(h.panel('Maya’s inbox — approve only what she started', [h.row(cards)]));
+    root.appendChild(h.panel('Scoreboard', [board]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    refresh();
+    log.add('info', 'The golden rule: never enter or approve a device code unless YOU started it, just now, on a device in front of you.');
+  }
+});
+
+/* lab-rogueapp | lesson: atk4-consent */
+AcadLabs.register('lab-rogueapp', {
+  title: 'Read the consent screen like an admin',
+  blurb: 'Toggle the scopes a rogue app requests, watch the risk climb, then Allow or Deny — with and without an admin-consent gate.',
+  render: function (root, h) {
+    var SCOPES = [
+      { id: 'openid', label: 'openid', weight: 0 },
+      { id: 'profile', label: 'profile', weight: 0 },
+      { id: 'mail.read', label: 'read your email', weight: 30 },
+      { id: 'mail.send', label: 'send email as you', weight: 30 },
+      { id: 'offline_access', label: 'offline_access', weight: 25 },
+      { id: 'files.read.all', label: 'read all files', weight: 25 }
+    ];
+    var state = {};
+    SCOPES.forEach(function (s) { state[s.id] = true; });
+    var adminPolicy = false;
+
+    var chipRow = h.el('div', { class: 'acad-lab-row' });
+    var m = h.meter(0, 'bad');
+    var riskBadge = h.el('span', {});
+    var out = h.el('div', {});
+    var grantsBox = h.el('div', {});
+    var log = h.logPanel();
+
+    function requested() { return SCOPES.filter(function (s) { return state[s.id]; }); }
+    function sensitive() { return requested().filter(function (s) { return s.weight > 0; }); }
+    function scopeStr() { return requested().map(function (s) { return s.id; }).join(' '); }
+    function riskPct() { var t = 0; requested().forEach(function (s) { t += s.weight; }); return Math.min(100, t); }
+
+    function updateRisk() {
+      var p = riskPct();
+      var kind = p >= 60 ? 'bad' : (p >= 25 ? 'warn' : 'ok');
+      m.set(p, kind);
+      riskBadge.innerHTML = '';
+      riskBadge.appendChild(h.badge('Risk ' + p + '/100 — ' + (kind === 'bad' ? 'broad & sensitive' : (kind === 'warn' ? 'some sensitive' : 'minimal')), kind));
+    }
+
+    function renderChips() {
+      chipRow.innerHTML = '';
+      SCOPES.forEach(function (s) {
+        chipRow.appendChild(h.chip(s.label, state[s.id], function (on) { state[s.id] = on; updateRisk(); }));
+      });
+    }
+
+    function allow() {
+      out.innerHTML = '';
+      var sens = sensitive();
+      if (adminPolicy && sens.length) {
+        out.appendChild(h.httpCard({ method: 'POST', path: '/consent/grant', reqBody: { app: 'TotallyLegit Analytics', scope: scopeStr() }, status: 202,
+          resBody: { status: 'pending_admin_approval', sensitive: sens.map(function (s) { return s.id; }) },
+          note: 'Sensitive scopes routed to an admin. No token issued — the rogue app waits, and a human decides.' }));
+        out.appendChild(h.badge('✅ Admin approval required — grant blocked', 'ok'));
+        log.add('ok', 'Allow tapped, but admin-consent policy held the sensitive grant for review.');
+        return;
+      }
+      var body = { access_token: 'sim-at-' + h.rand(6), token_type: 'Bearer', scope: scopeStr() };
+      if (state.offline_access) body.refresh_token = 'sim-rt-' + h.rand(8);
+      out.appendChild(h.httpCard({ method: 'POST', path: '/consent/grant', reqBody: { app: 'TotallyLegit Analytics', scope: scopeStr() }, status: 200,
+        resBody: body,
+        note: state.offline_access ? 'offline_access granted a REFRESH TOKEN — it survives a password reset. Only revoking the grant stops it.' : 'Access granted to the app.' }));
+      if (sens.length) {
+        out.appendChild(h.badge('⛔ Rogue app now holds ' + (state.offline_access ? 'lasting' : 'broad') + ' access', 'bad'));
+        log.add('bad', 'Allow tapped with sensitive scopes — token issued to the rogue app' + (state.offline_access ? ' (+ refresh token, survives reset)' : '') + '.');
+      } else {
+        out.appendChild(h.badge('✓ Only minimal scopes — low risk', 'ok'));
+        log.add('ok', 'Allow tapped with only openid/profile — minimal exposure.');
+      }
+    }
+
+    function deny() {
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({ method: 'POST', path: '/consent/grant', reqBody: { app: 'TotallyLegit Analytics', decision: 'deny' }, status: 200,
+        resBody: { granted: false }, note: 'Nothing issued. When an app over-asks, Deny is always a safe answer.' }));
+      out.appendChild(h.badge('✓ Denied — no access given', 'ok'));
+      log.add('ok', 'Consent denied — the rogue app got nothing.');
+    }
+
+    var grants = [
+      { app: 'TotallyLegit Analytics', scope: 'read all mail, send as you, offline_access' },
+      { app: 'QuickCharts', scope: 'read your calendar' },
+      { app: 'Mail Wizard', scope: 'read all mail, offline_access' }
+    ];
+    function renderGrants() {
+      grantsBox.innerHTML = '';
+      if (!grants.length) { grantsBox.appendChild(h.note('All reviewed — no lingering third-party grants.')); return; }
+      grants.forEach(function (g) {
+        var revoke = h.button('Revoke', 'danger', function () {
+          grants.splice(grants.indexOf(g), 1);
+          log.add('ok', 'Revoked ' + g.app + ' — its tokens are now dead, reset or not.');
+          renderGrants();
+        });
+        grantsBox.appendChild(h.row([h.badge(g.app, 'warn'), g.scope, revoke]));
+      });
+    }
+
+    renderChips();
+    updateRisk();
+
+    root.appendChild(h.panel('Consent screen — "TotallyLegit Analytics" wants access', [
+      h.note('The app is asking for these permissions. Toggle a chip to change what it requests, then decide.'),
+      chipRow,
+      h.field('Combined risk', m.root),
+      h.row([riskBadge]),
+      h.row([h.chip('Admin policy: require approval for sensitive scopes', false, function (on) {
+        adminPolicy = on;
+        log.add('info', 'Admin-consent policy ' + (on ? 'ENABLED — sensitive grants now need an admin.' : 'disabled — users can grant broad scopes alone.'));
+      })]),
+      h.row([h.button('Allow', 'danger', allow), h.button('Deny', 'primary', deny)]),
+      out
+    ]));
+    root.appendChild(h.panel('Housekeeping', [
+      h.note('Grants persist until revoked — even after a password change. Review them regularly.'),
+      h.button('Review granted apps', '', renderGrants),
+      grantsBox
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'Consent phishing steals nothing — the user GRANTS access. Read every scope before tapping Allow.');
+  }
+});
+/* lab-cookietheft | lesson: atk5-cookies */
+AcadLabs.register('lab-cookietheft', {
+  title: 'Harden the cookie',
+  blurb: 'Flip HttpOnly, Secure, SameSite, short lifetime and token binding, then run three attacks and watch a stolen session cookie stop being worth anything.',
+  render: function (root, h) {
+    var COOKIE = 'sid=7f3a9c1e42';
+    // Start deliberately weak so the learner can harden it.
+    var cfg = { httpOnly: false, secure: false, shortLife: false, bind: false, sameSite: 'None' };
+    var stolen = false;   // set once XSS succeeds, for flavour in the replay step
+
+    var out = h.stage(h.note('Toggle the flags, then press an attack. The event log keeps the full history.'));
+    var safety = h.meter(0, 'bad');
+    var safetyBadge = h.el('div', { class: 'acad-lab-row' });
+    var log = h.logPanel();
+
+    function show(node) { out.innerHTML = ''; out.appendChild(node); h.flash(out); }
+
+    // Session-safety score: cheap boring flags, stacked.
+    function score() {
+      var s = 0;
+      if (cfg.httpOnly) s += 25;
+      if (cfg.secure) s += 20;
+      if (cfg.sameSite === 'Strict') s += 25; else if (cfg.sameSite === 'Lax') s += 18;
+      if (cfg.shortLife) s += 10;
+      if (cfg.bind) s += 20;
+      return s > 100 ? 100 : s;
+    }
+    function hardened() {
+      return cfg.httpOnly && cfg.secure && cfg.bind && cfg.shortLife && cfg.sameSite !== 'None';
+    }
+    function refresh() {
+      var s = score();
+      var kind = s >= 90 ? 'ok' : (s >= 50 ? 'warn' : 'bad');
+      safety.set(s, kind);
+      safetyBadge.innerHTML = '';
+      safetyBadge.appendChild(h.badge('Session safety: ' + s + '%', kind));
+      if (hardened()) safetyBadge.appendChild(h.badge('✅ fully hardened', 'ok'));
+    }
+
+    // Attack 1 — XSS tries to read document.cookie.
+    function xss() {
+      if (cfg.httpOnly) {
+        log.add('ok', 'XSS ran, but document.cookie is empty — HttpOnly hid the cookie from script.');
+        show(h.httpCard({ method: 'SCRIPT', path: 'document.cookie', status: 200,
+          resBody: { readable: '' }, note: 'HttpOnly means the cookie never appears to JavaScript. The injected script scoops up nothing.' }));
+        return;
+      }
+      stolen = true;
+      log.add('bad', 'XSS read document.cookie and exfiltrated it — ' + COOKIE + ' is now in the attacker’s hands.');
+      show(h.httpCard({ method: 'SCRIPT', path: 'document.cookie', status: 200,
+        resBody: { readable: COOKIE, sentTo: 'attacker-collector' },
+        note: 'The cookie was readable by script, so the XSS payload copied it out. Turn on HttpOnly to defeat this.' }));
+    }
+
+    // Attack 2 — attacker replays the stolen cookie from their own machine.
+    function replay() {
+      if (!stolen) log.add('info', 'Attacker has no cookie yet — run the XSS attack first for the full story. Replaying a guessed copy anyway.');
+      if (cfg.bind) {
+        log.add('ok', 'Replay from the attacker’s machine → 401. The cookie is bound to Maya’s device key.');
+        show(h.httpCard({ method: 'GET', path: '/account', status: 401,
+          reqBody: { Cookie: COOKIE, from: 'attacker device' }, resBody: { error: 'invalid_token' },
+          note: 'Token binding (DPoP-style): the session is tied to a key that never left Maya’s device, so a copied cookie can’t prove possession here.' }));
+        return;
+      }
+      log.add('bad', 'Replay from the attacker’s machine → 200. A bearer cookie trusts whoever holds it.');
+      show(h.httpCard({ method: 'GET', path: '/account', status: 200,
+        reqBody: { Cookie: COOKIE, from: 'attacker device' }, resBody: { sub: 'maya', tier: 'gold', balance: '$4,210.00' },
+        note: 'No binding: the server never re-runs the login, so the pasted cookie is served as Maya. Turn on token binding to make the copy worthless.' }));
+    }
+
+    // Attack 3 — a malicious site auto-submits a cross-site request.
+    function crossSite() {
+      if (cfg.sameSite === 'Strict' || cfg.sameSite === 'Lax') {
+        log.add('ok', 'Cross-site auto-submit → the browser withheld the cookie (SameSite=' + cfg.sameSite + ').');
+        show(h.httpCard({ method: 'POST', path: '/transfer', status: 401,
+          reqBody: { origin: 'evil.example', to: 'attacker', amount: 5000 }, resBody: { error: 'no_session' },
+          note: 'SameSite=' + cfg.sameSite + ' stops the browser attaching the cookie to a request that started on another site, so the forged POST arrives with no session.' }));
+        return;
+      }
+      log.add('bad', 'Cross-site auto-submit → the browser attached the cookie (SameSite=None). Forged request rode Maya’s session.');
+      show(h.httpCard({ method: 'POST', path: '/transfer', status: 200,
+        reqBody: { origin: 'evil.example', to: 'attacker', amount: 5000 }, resBody: { status: 'sent', amount: 5000 },
+        note: 'SameSite=None sends the cookie on cross-site requests, so a hidden auto-submitting form (CSRF) spends Maya’s session. Set SameSite=Lax or Strict.' }));
+    }
+
+    function toggle(key, label) {
+      return function (now) { cfg[key] = now; log.add('info', label + (now ? ' enabled.' : ' disabled.')); refresh(); };
+    }
+
+    root.appendChild(h.panel('Cookie config board', [
+      h.row([
+        h.chip('HttpOnly', false, toggle('httpOnly', 'HttpOnly')),
+        h.chip('Secure', false, toggle('secure', 'Secure')),
+        h.chip('Short lifetime + idle timeout', false, toggle('shortLife', 'Short lifetime')),
+        h.chip('Token binding (DPoP)', false, toggle('bind', 'Token binding'))
+      ]),
+      h.field('SameSite', h.select([
+        { value: 'None', label: 'None — sent on every cross-site request', selected: true },
+        { value: 'Lax', label: 'Lax — limited cross-site sending' },
+        { value: 'Strict', label: 'Strict — never sent cross-site' }
+      ], function (v) { cfg.sameSite = v; log.add('info', 'SameSite set to ' + v + '.'); refresh(); }))
+    ]));
+    root.appendChild(h.panel('Session safety', [safetyBadge, safety.root]));
+    root.appendChild(h.panel('Run an attack', [
+      h.row([
+        h.button('XSS tries to read the cookie', 'danger', xss),
+        h.button('Replay the stolen cookie', 'danger', replay),
+        h.button('Cross-site auto-submit', 'danger', crossSite)
+      ]),
+      out
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    refresh();
+    log.add('info', 'The cookie ships wide open: HttpOnly off, Secure off, SameSite=None, no binding. Harden it flag by flag and re-run the attacks.');
+  }
+});
+
+/* lab-simswap | lesson: atk6-simswap */
+AcadLabs.register('lab-simswap', {
+  title: 'Close the back door',
+  blurb: 'Enable and disable Maya’s recovery methods, then run the attacker down every open path and see which weak link lets them in.',
+  render: function (root, h) {
+    // Start with the weak, convenient defaults most accounts ship with.
+    var m = { sms: true, secq: true, email: true, codes: false, passkey: false, helpdeskKba: true };
+
+    var verdict = h.el('div', { class: 'acad-lab-row' });
+    var strength = h.meter(0, 'bad');
+    var strengthBadge = h.el('div', { class: 'acad-lab-row' });
+    var log = h.logPanel();
+
+    function strong() { return m.codes || m.passkey; }
+
+    function score() {
+      var s = 100;
+      if (m.sms) s -= 30;
+      if (m.secq) s -= 25;
+      if (m.helpdeskKba) s -= 25;
+      if (m.email) s -= 15;
+      if (s < 0) s = 0;
+      return s;
+    }
+    function refresh() {
+      var s = score();
+      var kind = s >= 80 ? 'ok' : (s >= 50 ? 'warn' : 'bad');
+      strength.set(s, kind);
+      strengthBadge.innerHTML = '';
+      strengthBadge.appendChild(h.badge('Recovery strength: ' + s + '%', kind));
+      if (!strong()) strengthBadge.appendChild(h.badge('⚠️ no phishing-resistant recovery', 'warn'));
+    }
+
+    // Walk the attacker down every ENABLED weak path, weakest first.
+    function attack() {
+      verdict.innerHTML = '';
+      log.add('bad', '☠ Attacker calls the carrier, impersonates Maya, and ports her number to a new SIM.');
+
+      if (m.sms) {
+        log.add('bad', 'SMS recovery is on — the reset code lands on the attacker’s SIM. SIM swap succeeds.');
+        verdict.appendChild(h.badge('⛔ taken over via SMS OTP (SIM swap)', 'bad'));
+        return;
+      }
+      if (m.secq) {
+        log.add('bad', 'Security questions are on — "first pet", "mother’s maiden name" are googleable. Guessed.');
+        verdict.appendChild(h.badge('⛔ taken over via security questions', 'bad'));
+        return;
+      }
+      if (m.helpdeskKba) {
+        log.add('bad', 'Help desk still asks knowledge questions — the attacker social-engineers a manual reset.');
+        verdict.appendChild(h.badge('⛔ taken over via help-desk social engineering', 'bad'));
+        return;
+      }
+      if (m.email) {
+        log.add('bad', 'Email reset link is on — the attacker took over the email account, so every "mail me a link" flow falls. Email is the master key.');
+        verdict.appendChild(h.badge('⛔ taken over via email cascade', 'bad'));
+        return;
+      }
+      // Only passkey / offline codes remain — nothing the swap can reach.
+      log.add('ok', 'Only a passkey re-auth / offline recovery codes remain — possession the SIM swap can never reach. The attacker is stuck.');
+      verdict.appendChild(h.badge('✅ back door closed — attacker stuck', 'ok'));
+    }
+
+    function toggle(key, label) {
+      return function (now) { m[key] = now; log.add('info', label + (now ? ' enabled' : ' disabled') + ' as a recovery method.'); refresh(); };
+    }
+
+    root.appendChild(h.panel('Maya’s recovery methods', [
+      h.note('Toggle each recovery route on or off, then run the attacker’s attempt.'),
+      h.row([
+        h.chip('SMS code', true, toggle('sms', 'SMS code')),
+        h.chip('Security questions', true, toggle('secq', 'Security questions')),
+        h.chip('Email reset link', true, toggle('email', 'Email reset link'))
+      ]),
+      h.row([
+        h.chip('Offline recovery codes', false, toggle('codes', 'Offline recovery codes')),
+        h.chip('Passkey re-auth', false, toggle('passkey', 'Passkey re-auth')),
+        h.chip('Help-desk with knowledge questions', true, toggle('helpdeskKba', 'Help-desk KBA'))
+      ])
+    ]));
+    root.appendChild(h.panel('Recovery strength', [strengthBadge, strength.root]));
+    root.appendChild(h.panel('Run the attacker’s recovery attempt', [
+      h.button('☠ Run the attacker’s recovery attempt', 'danger', attack),
+      verdict,
+      h.note('Disable the weak routes and enable a passkey or offline codes, then attack again. The built-in ↺ Reset clears the log.')
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    refresh();
+    log.add('info', 'Maya’s front door is a passkey — but recovery ships with SMS, security questions, email and a chatty help desk all enabled. Attackers aim here.');
+  }
+});
+/* lab-detect2 | lesson: atk7-detect */
+AcadLabs.register('lab-detect2', {
+  title: 'Tune the tripwires',
+  blurb: 'Toggle detection rules over one night of identity events and balance threats caught against false-positive noise.',
+  render: function (root, h) {
+    var EVENTS = [
+      { txt: 'Maya · login from her usual city', kind: 'benign', rule: null },
+      { txt: 'Maya · login from another continent, 4 min later', kind: 'threat', rule: 'travel', name: 'AiTM session reuse' },
+      { txt: 'Priya · 6 MFA push prompts denied in 2 min', kind: 'threat', rule: 'mfaburst', name: 'MFA fatigue' },
+      { txt: 'Maya · consent granted to "Reporting" (unverified app)', kind: 'threat', rule: 'consent', name: 'consent phishing' },
+      { txt: 'Sam · session cookie reused from a new IP', kind: 'threat', rule: 'cookie', name: 'session hijack' },
+      { txt: 'Maya · password reset from a brand-new device', kind: 'threat', rule: 'recovery', name: 'account takeover' },
+      { txt: 'Bot A · routine API call from the data center', kind: 'benign', rule: null },
+      { txt: 'Sam · login from a new country (his VPN exit)', kind: 'benign', rule: 'travel' }
+    ];
+    var RULES = {
+      travel: 'Impossible travel',
+      mfaburst: 'MFA-denial burst',
+      consent: 'New-app consent',
+      cookie: 'Cookie-IP change',
+      recovery: 'Recovery-from-new-device'
+    };
+    var enabled = { travel: false, mfaburst: false, consent: false, cookie: false, recovery: false };
+    var allowVpn = false;
+    var TOTAL_THREATS = 5;
+
+    var streamBox = h.el('div', {});
+    var caught = h.meter(0, 'ok');
+    var noise = h.meter(0, 'warn');
+    var scoreBox = h.el('div', { class: 'acad-lab-row' });
+    var log = h.logPanel();
+
+    function flaggedBy(ev) {
+      if (!ev.rule || !enabled[ev.rule]) return false;
+      if (ev.rule === 'travel' && ev.kind === 'benign' && allowVpn) return false; // known-good, allow-listed
+      return true;
+    }
+
+    function render() {
+      streamBox.innerHTML = '';
+      var caughtN = 0, fpN = 0;
+      EVENTS.forEach(function (ev) {
+        var kids = [ev.txt];
+        if (flaggedBy(ev)) {
+          if (ev.kind === 'threat') { caughtN++; kids.push(h.badge('⚠ caught · ' + ev.name, 'bad')); }
+          else { fpN++; kids.push(h.badge('✕ false positive', 'warn')); }
+        } else if (ev.kind === 'threat') {
+          kids.push(h.badge('missed', 'neutral'));
+        }
+        streamBox.appendChild(h.row(kids));
+      });
+      caught.set(caughtN / TOTAL_THREATS * 100, caughtN === TOTAL_THREATS ? 'ok' : 'warn');
+      noise.set(Math.min(100, fpN * 33), fpN ? 'bad' : 'ok');
+      var score = Math.max(0, Math.min(100, caughtN * 20 - fpN * 15));
+      scoreBox.innerHTML = '';
+      scoreBox.appendChild(h.badge('Threats caught ' + caughtN + '/' + TOTAL_THREATS, caughtN === TOTAL_THREATS ? 'ok' : 'info'));
+      scoreBox.appendChild(h.badge('False positives ' + fpN, fpN ? 'warn' : 'ok'));
+      scoreBox.appendChild(h.badge('Score ' + score, score >= 100 ? 'ok' : (score >= 60 ? 'info' : 'bad')));
+      h.flash(scoreBox);
+    }
+
+    function toggle(rule, on) {
+      enabled[rule] = on;
+      log.add(on ? 'ok' : 'info', (on ? 'Enabled' : 'Disabled') + ' rule: ' + RULES[rule]);
+      render();
+    }
+
+    var chips = Object.keys(RULES).map(function (r) {
+      return h.chip(RULES[r], false, function (on) { toggle(r, on); });
+    });
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('Detection rules — toggle any', chips.concat([
+          h.chip('Allow-list Sam’s VPN exit (known-good)', false, function (on) {
+            allowVpn = on;
+            log.add(on ? 'ok' : 'warn', on
+              ? 'Allow-listed Sam’s VPN exit — impossible-travel stops firing on it.'
+              : 'Removed VPN allow-list — impossible-travel flags Sam again.');
+            render();
+          }),
+          h.note('Enable all five rules to catch every threat — but "Impossible travel" also trips on Sam’s legitimate VPN. Allow-list it to clear the false positive and reach a perfect score.')
+        ]))
+      ]),
+      h.col([
+        h.panel('Tonight’s event stream', [streamBox]),
+        h.panel('Scoreboard', [
+          h.field('Threats caught', caught.root),
+          h.field('False-positive noise', noise.root),
+          scoreBox
+        ])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    render();
+    log.add('info', 'Detection engineering is a balance: catch the real attacks without drowning Zara in false alarms.');
+  }
+});
+
+/* lab-tabletop | lesson: atk8-tabletop */
+AcadLabs.register('lab-tabletop', {
+  title: 'Run the incident — in the right order',
+  blurb: 'Walk Maya’s 2 a.m. account takeover through the six response phases in order, then hunt the persistence the attacker left behind.',
+  render: function (root, h) {
+    var ORDER = ['detect', 'triage', 'contain', 'eradicate', 'recover', 'learn'];
+    var LABEL = { detect: 'Detect', triage: 'Triage', contain: 'Contain', eradicate: 'Eradicate', recover: 'Recover', learn: 'Learn' };
+    var NOTE = {
+      detect: 'Tripwire fired: Maya has a live session from another continent and a payee she never added. An alert — not yet an incident.',
+      triage: 'Is it real? Impossible travel + a new device + a payee change minutes after sign-in. Confirmed — this is a real incident.',
+      contain: 'Revoked every session and refresh token and forced re-auth — BEFORE resetting credentials, so the attacker isn’t tipped off and evidence survives.',
+      eradicate: 'Credentials reset, and the easy-to-miss job is done: the attacker’s persistence is hunted out. Foothold gone.',
+      recover: 'Restored Maya with verified re-enrollment and propagated the logout via CAEP shared signals; watching the account closely.',
+      learn: 'Root cause: no phishing-resistant MFA required on payee changes. Shipped the control. Incident closed — and it taught us something.'
+    };
+    var step = 0;
+    var hunting = false;
+
+    var progressBox = h.el('div', {});
+    var statusBox = h.el('div', { class: 'acad-lab-row' });
+    var huntPanel = h.el('div', {});
+    var huntResult = h.el('div', { class: 'acad-lab-row' });
+    var log = h.logPanel();
+
+    var found = { sessions: false, email: false, oauth: false, passkey: false };
+    var HUNT = [
+      { k: 'sessions', label: 'Confirm all sessions & refresh tokens revoked' },
+      { k: 'email', label: 'Remove the attacker-added recovery email' },
+      { k: 'oauth', label: 'Delete the rogue standing OAuth grant' },
+      { k: 'passkey', label: 'Delete the attacker-added passkey' }
+    ];
+
+    function status() {
+      statusBox.innerHTML = '';
+      if (step >= ORDER.length) { statusBox.appendChild(h.badge('✅ Incident closed — clean', 'ok')); return; }
+      statusBox.appendChild(h.badge('Next phase: ' + LABEL[ORDER[step]], 'info'));
+      statusBox.appendChild(h.badge('Phase ' + (step + 1) + ' of 6', 'neutral'));
+    }
+
+    function advance(phase) {
+      progressBox.appendChild(h.panel((step + 1) + ' · ' + LABEL[phase], [h.note(NOTE[phase])]));
+      step++;
+      status();
+      h.flash(statusBox);
+    }
+
+    function clickPhase(phase) {
+      if (step >= ORDER.length) { log.add('info', 'Incident already closed — press Reset to run it again.'); return; }
+      var want = ORDER[step];
+      if (phase === want) {
+        if (phase === 'eradicate') {
+          hunting = true;
+          log.add('warn', 'Eradicate: reset the credentials, then hunt for persistence below.');
+          renderHunt();
+          return;
+        }
+        log.add(phase === 'contain' ? 'ok' : 'info', LABEL[phase] + ' → done.');
+        advance(phase);
+      } else if (ORDER.indexOf(phase) < step) {
+        log.add('info', LABEL[phase] + ' is already behind you.');
+      } else {
+        log.add('bad', 'Too early — do "' + LABEL[want] + '" first. Jump ahead and you tip off the attacker or destroy evidence.');
+      }
+    }
+
+    function renderHunt() {
+      huntPanel.innerHTML = '';
+      if (!hunting) return;
+      var chips = HUNT.map(function (item) {
+        return h.chip(item.label, found[item.k], function (on) { found[item.k] = on; });
+      });
+      huntPanel.appendChild(h.panel('Persistence hunt — evict the attacker’s foothold', chips.concat([
+        h.button('Finish the persistence hunt', 'primary', finishHunt),
+        huntResult,
+        h.note('Miss any one and the attacker walks back in tomorrow — a "resolved" incident that quietly reopens.')
+      ])));
+    }
+
+    function finishHunt() {
+      var missing = HUNT.filter(function (i) { return !found[i.k]; });
+      huntResult.innerHTML = '';
+      if (missing.length) {
+        huntResult.appendChild(h.badge('⛔ the attacker is still in — missed ' + missing.length, 'bad'));
+        missing.forEach(function (i) { huntResult.appendChild(h.badge('left behind: ' + i.label, 'warn')); });
+        log.add('bad', 'Persistence remains (' + missing.map(function (i) { return i.k; }).join(', ') + ') — not clean yet.');
+      } else {
+        huntResult.appendChild(h.badge('✅ clean — attacker fully evicted', 'ok'));
+        log.add('ok', 'Persistence hunt clean — added passkey, recovery email and OAuth grant all removed.');
+        hunting = false;
+        advance('eradicate');
+        huntPanel.innerHTML = '';
+      }
+    }
+
+    // Deterministic non-sorted order so the phases aren't pre-arranged for the learner.
+    var SHOWN = ['contain', 'detect', 'recover', 'triage', 'learn', 'eradicate'];
+    var btnRow = SHOWN.map(function (p) {
+      return h.button(LABEL[p], '', (function (ph) { return function () { clickPhase(ph); }; })(p));
+    });
+
+    root.appendChild(h.panel('The alert', [h.note('2:07 a.m. — Maya’s account shows a live session from another continent and a new payment payee. Click the response phases in the correct order.')]));
+    root.appendChild(h.panel('Response phases (click in order)', [h.row(btnRow), statusBox]));
+    root.appendChild(huntPanel);
+    root.appendChild(h.panel('Incident timeline', [progressBox]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    status();
+    log.add('info', 'Detect → Triage → Contain → Eradicate → Recover → Learn. Contain before you clean; always hunt persistence.');
+  }
+});
+
+/* ================= Final Exam + certificate (hub widget) ================= */
+
+var ACAD_EXAM_POOL = [
+  // Foundations
+  { t: 'Foundations', q: 'What is a digital "identity", most precisely?', o: ['The human being themselves', 'A digital stand-in the business uses to recognise someone or something', 'A password', 'An email address'], a: 1 },
+  { t: 'Foundations', q: 'In joiner–mover–leaver, which event is the most security-critical to automate?', o: ['Joiner', 'Mover', 'Leaver', 'They are equal'], a: 2 },
+  { t: 'Foundations', q: 'Zero trust replaces "trust the network" with:', o: ['Trust anyone inside the VPN', 'Verify every access on its own merits, wherever it comes from', 'Longer passwords', 'Trust by IP address'], a: 1 },
+  { t: 'Foundations', q: 'Why are non-human identities (service accounts, bots) a special risk?', o: ['They get phished often', 'They resign frequently', 'They never resign or get phished, so nobody watches them', 'They cost more'], a: 2 },
+  // Authentication
+  { t: 'Authentication', q: 'Why can a passkey (WebAuthn) not be phished by a look-alike site?', o: ['It uses a longer password', 'The signature is bound to the real origin, so a different domain fails', 'It sends an SMS', 'The user memorises it'], a: 1 },
+  { t: 'Authentication', q: 'Adaptive (risk-based) MFA improves security by:', o: ['Challenging every single login', 'Never challenging anyone', 'Scoring each sign-in for risk and challenging only the risky ones', 'Using only passwords'], a: 2 },
+  { t: 'Authentication', q: 'Breached-password detection can check a password without seeing it by using:', o: ['A plaintext upload', 'k-anonymity (only a hash prefix is sent)', 'The user’s email', 'A CAPTCHA'], a: 1 },
+  { t: 'Authentication', q: 'The hardest part of MFA to get right is usually:', o: ['Turning it on', 'Choosing a colour', 'Account recovery when a device is lost', 'Naming the app'], a: 2 },
+  // Tokens
+  { t: 'Token security', q: 'With refresh-token rotation, replaying an already-used refresh token causes:', o: ['A silent success for the thief', 'Reuse detection that revokes the whole token family', 'Nothing', 'A password reset'], a: 1 },
+  { t: 'Token security', q: 'DPoP makes a stolen access token useless because the token is:', o: ['Encrypted forever', 'Bound to a key the thief does not hold', 'Very short', 'Stored in a cookie'], a: 1 },
+  { t: 'Token security', q: 'After "sign out everywhere", why can a copied access token still work briefly?', o: ['It never expires', 'Access tokens are self-contained and valid until they expire', 'The server is broken', 'Cookies are immortal'], a: 1 },
+  { t: 'Token security', q: 'CAEP / Shared Signals lets a fraud alert in one app:', o: ['Delete all data', 'Instantly log the user out across many apps', 'Reset the password', 'Send an email'], a: 1 },
+  // AI & agents
+  { t: 'AI & agents', q: 'MCP governance answers which question?', o: ['How fast is the AI', 'Who may push what action through the AI-to-tools plug', 'What model is used', 'How much it costs'], a: 1 },
+  { t: 'AI & agents', q: 'Permission-aware RAG prevents an AI from:', o: ['Answering any question', 'Leaking documents the asking user has no permission to see', 'Using its training data', 'Being fast'], a: 1 },
+  { t: 'AI & agents', q: 'Human-in-the-loop (CIBA) for an agent payment means:', o: ['The agent pays alone', 'A person approves on a channel the agent does not control', 'No payments allowed', 'The agent asks another agent'], a: 1 },
+  { t: 'AI & agents', q: 'Fine-grained authorization (ReBAC) answers questions about:', o: ['Only people ("is Priya an admin?")', 'People AND specific things ("can Priya open THIS invoice?")', 'Network speed', 'Password length'], a: 1 },
+  // Operations
+  { t: 'Operations', q: 'SCIM is best described as:', o: ['A password format', 'A shared standard language for provisioning/deprovisioning users', 'An encryption cipher', 'A CAPTCHA'], a: 1 },
+  { t: 'Operations', q: 'Your identity logs are valuable mainly because they are:', o: ['Good for billing', 'The richest threat-detection feed you own', 'Required by the browser', 'A backup of passwords'], a: 1 },
+  { t: 'Operations', q: 'Access reviews (certification) exist to:', o: ['Add more access', 'Periodically confirm people still need the access they have', 'Reset passwords', 'Speed up login'], a: 1 },
+  { t: 'Operations', q: 'A break-glass account should be:', o: ['Used daily by admins', 'Tightly controlled, monitored, and only used in emergencies', 'Shared publicly', 'Disabled forever'], a: 1 },
+  // Authorization & API
+  { t: 'Authorization & API', q: 'The role-explosion problem is solved by moving from RBAC toward:', o: ['More roles', 'Attribute- or relationship-based access (ABAC/ReBAC)', 'Longer passwords', 'No authorization'], a: 1 },
+  { t: 'Authorization & API', q: 'Policy as code (e.g. OPA/Rego) lets you change authorization decisions by:', o: ['Redeploying every service', 'Updating an externalized policy, not the app code', 'Editing the database by hand', 'Restarting the browser'], a: 1 },
+  { t: 'Authorization & API', q: 'OAuth scopes exist to enforce:', o: ['Faster tokens', 'Least privilege — an app gets only the access it needs', 'Longer sessions', 'Shorter passwords'], a: 1 },
+  { t: 'Authorization & API', q: 'BOLA (broken object-level authorization), the #1 API risk, is:', o: ['A slow database', 'Failing to check the caller may access THIS specific object', 'A weak password', 'A CAPTCHA bypass'], a: 1 },
+  // Protocols & federation
+  { t: 'Protocols', q: 'In the OIDC auth-code flow, the "back channel" is:', o: ['Through the user’s browser', 'Server-to-server, private, where the code is traded for tokens', 'An SMS', 'The consent screen'], a: 1 },
+  { t: 'Protocols', q: 'The client-credentials grant is used when:', o: ['A human logs in on a phone', 'There is no human — a service authenticates as itself', 'A passkey is registered', 'An email is verified'], a: 1 },
+  { t: 'Protocols', q: 'RFC 8693 token exchange records who is really calling via which claim?', o: ['The "exp" claim', 'The "act" (actor) claim', 'The "iss" claim', 'The "kid" claim'], a: 1 },
+  { t: 'Protocols', q: 'An id_token differs from an access_token in that it is for:', o: ['Calling APIs', 'Telling the app WHO logged in', 'Encrypting cookies', 'Storing passwords'], a: 1 },
+  // Attacks & defenses
+  { t: 'Attacks & defenses', q: 'An adversary-in-the-middle proxy defeats app-based OTP because it:', o: ['Guesses the code', 'Relays the code in real time along with the session cookie', 'Breaks the encryption', 'Disables the phone'], a: 1 },
+  { t: 'Attacks & defenses', q: 'The winning defense against MFA fatigue (push bombing) is:', o: ['More prompts', 'Number matching plus lockout after repeated denials', 'Longer passwords', 'Disabling MFA'], a: 1 },
+  { t: 'Attacks & defenses', q: 'The golden rule against device-code phishing is:', o: ['Always approve codes from IT', 'Never enter or approve a device code you did not personally start', 'Use SMS instead', 'Share the code'], a: 1 },
+  { t: 'Attacks & defenses', q: 'Consent phishing is dangerous because the granted access:', o: ['Expires instantly', 'Is a token that persists even after a password reset', 'Requires the password again', 'Only reads public data'], a: 1 },
+  { t: 'Attacks & defenses', q: 'A stolen session cookie is blocked from replay when the session is:', o: ['Longer', 'Bound to a device/key so a copy alone fails', 'Named differently', 'Stored in the URL'], a: 1 },
+  { t: 'Attacks & defenses', q: 'SIM swap defeats which factor, pushing you toward phishing-resistant recovery?', o: ['Passkeys', 'SMS one-time codes', 'Hardware keys', 'Offline recovery codes'], a: 1 }
+];
+
+AcadLabs.register('lab-exam', {
+  title: 'Final exam — earn your certificate',
+  blurb: '25 questions drawn at random from all seven tracks. Score 80% or higher to unlock a personalised certificate. Everything runs in your browser; nothing is submitted anywhere.',
+  render: function (root, h) {
+    var PASS = 0.8, N = 25;
+    var saved;
+    try { saved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { saved = null; }
+
+    var intro = h.el('div');
+    var kids = [
+      h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning Foundations through Attacks & Defenses. Pick the best answer for each, then submit to see your score.')
+    ];
+    if (saved && saved.best != null) {
+      kids.push(h.note('Your best so far: ' + saved.best + '/' + N + (saved.passed ? ' — passed ✓' : '')));
+    }
+    kids.push(h.el('div', { 'class': 'acad-lab-row' }, [h.button('Start the exam', 'primary', start)]));
+    intro.appendChild(h.panel(null, kids));
+    root.appendChild(intro);
+
+    function pick() {
+      // shuffle a copy (Fisher-Yates) and take N
+      var arr = ACAD_EXAM_POOL.slice();
+      for (var i = arr.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+      }
+      return arr.slice(0, Math.min(N, arr.length)).map(function (item) {
+        // shuffle options, track new correct index
+        var opts = item.o.map(function (text, idx) { return { text: text, correct: idx === item.a }; });
+        for (var i = opts.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var tmp = opts[i]; opts[i] = opts[j]; opts[j] = tmp;
+        }
+        return { t: item.t, q: item.q, opts: opts };
+      });
+    }
+
+    function start() {
+      var quiz = pick();
+      var chosen = new Array(quiz.length);
+      root.innerHTML = '';
+      var form = h.el('div', { 'class': 'acad-exam-form' });
+      quiz.forEach(function (item, qi) {
+        var opts = h.el('div', { 'class': 'acad-exam-opts' }, item.opts.map(function (opt, oi) {
+          var id = 'exq' + qi + 'o' + oi;
+          var input = h.el('input', { type: 'radio', name: 'exq' + qi, id: id });
+          input.addEventListener('change', function () { chosen[qi] = oi; });
+          return h.el('label', { 'class': 'acad-exam-opt', 'for': id }, [input, h.el('span', null, opt.text)]);
+        }));
+        form.appendChild(h.el('div', { 'class': 'acad-exam-q' }, [
+          h.el('div', { 'class': 'acad-exam-qhead' }, [
+            h.el('span', { 'class': 'acad-exam-qnum' }, 'Q' + (qi + 1)),
+            h.badge(item.t, 'info')
+          ]),
+          h.el('p', { 'class': 'acad-exam-qtext' }, item.q),
+          opts
+        ]));
+      });
+      var msg = h.el('div', { 'class': 'acad-exam-msg', 'aria-live': 'polite' });
+      form.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [
+        h.button('Submit answers', 'primary', function () { grade(quiz, chosen, msg); }),
+        msg
+      ]));
+      root.appendChild(form);
+    }
+
+    function grade(quiz, chosen, msg) {
+      var unanswered = 0;
+      for (var i = 0; i < quiz.length; i++) if (chosen[i] == null) unanswered++;
+      if (unanswered) { msg.innerHTML = ''; msg.appendChild(h.badge(unanswered + ' question(s) still unanswered', 'warn')); return; }
+      var score = 0;
+      quiz.forEach(function (item, qi) { if (item.opts[chosen[qi]] && item.opts[chosen[qi]].correct) score++; });
+      var passed = score / quiz.length >= PASS;
+      // persist best
+      var prev = null; try { prev = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) {}
+      var best = prev && prev.best != null ? Math.max(prev.best, score) : score;
+      try { localStorage.setItem('acad_exam', JSON.stringify({ best: best, passed: (prev && prev.passed) || passed })); } catch (e) {}
+      showResult(quiz, chosen, score, passed);
+    }
+
+    function showResult(quiz, chosen, score, passed) {
+      root.innerHTML = '';
+      var pct = Math.round(score / quiz.length * 100);
+      var head = h.panel(null, [
+        h.el('h4', { 'class': 'acad-lab-title' }, passed ? 'Passed — ' + score + '/' + quiz.length + ' (' + pct + '%)' : 'Not yet — ' + score + '/' + quiz.length + ' (' + pct + '%)'),
+        h.badge(passed ? 'You earned your certificate' : 'You need ' + Math.ceil(quiz.length * 0.8) + '/' + quiz.length + ' to pass', passed ? 'ok' : 'warn'),
+        h.el('div', { 'class': 'acad-lab-row' }, [
+          h.button('Review answers', '', function () { review(quiz, chosen); }),
+          h.button('Retake', '', start)
+        ])
+      ]);
+      root.appendChild(head);
+      if (passed) root.appendChild(certPanel(pct));
+    }
+
+    function review(quiz, chosen) {
+      var box = document.querySelector('.acad-exam-review');
+      if (box) { box.parentNode.removeChild(box); return; }
+      box = h.el('div', { 'class': 'acad-exam-review' }, quiz.map(function (item, qi) {
+        var yours = item.opts[chosen[qi]];
+        var correct = item.opts.filter(function (o) { return o.correct; })[0];
+        var ok = yours && yours.correct;
+        return h.el('div', { 'class': 'acad-exam-q' }, [
+          h.el('p', { 'class': 'acad-exam-qtext' }, 'Q' + (qi + 1) + '. ' + item.q),
+          h.el('p', null, [h.badge(ok ? 'correct' : 'missed', ok ? 'ok' : 'bad'), ' ', document.createTextNode('Answer: ' + correct.text)])
+        ]);
+      }));
+      root.appendChild(box);
+    }
+
+    function certPanel(pct) {
+      var nameInput = h.input({ placeholder: 'Your name', maxlength: '40' });
+      var canvas = h.el('canvas', { width: '1000', height: '700', 'class': 'acad-cert-canvas' });
+      function draw() {
+        var name = (nameInput.value || 'Identity Learner').slice(0, 40);
+        drawCertificate(canvas, name, pct);
+      }
+      nameInput.addEventListener('input', draw);
+      var dl = h.button('⬇ Download certificate (PNG)', 'primary', function () {
+        draw();
+        var a = document.createElement('a');
+        a.download = 'IntegrAuth-Academy-Certificate.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+      });
+      draw();
+      return h.panel('Your certificate', [
+        h.field('Name on the certificate', nameInput),
+        canvas,
+        h.el('div', { 'class': 'acad-lab-row' }, [dl]),
+        h.note('The certificate is generated entirely in your browser — your name is never sent anywhere.')
+      ]);
+    }
+
+    function drawCertificate(canvas, name, pct) {
+      var ctx = canvas.getContext('2d');
+      var W = canvas.width, H = canvas.height;
+      // background
+      var g = ctx.createLinearGradient(0, 0, W, H);
+      g.addColorStop(0, '#0f172a'); g.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // border
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 6;
+      ctx.strokeRect(28, 28, W - 56, H - 56);
+      ctx.strokeStyle = 'rgba(99,102,241,0.4)'; ctx.lineWidth = 2;
+      ctx.strokeRect(44, 44, W - 88, H - 88);
+      ctx.textAlign = 'center';
+      // header
+      ctx.fillStyle = '#a5b4fc'; ctx.font = '600 26px Inter, Arial, sans-serif';
+      ctx.fillText('INTEGRAUTH ACADEMY', W / 2, 130);
+      ctx.fillStyle = '#e2e8f0'; ctx.font = '700 46px Inter, Arial, sans-serif';
+      ctx.fillText('Certificate of Completion', W / 2, 200);
+      ctx.fillStyle = '#94a3b8'; ctx.font = '400 22px Inter, Arial, sans-serif';
+      ctx.fillText('This certifies that', W / 2, 275);
+      // name
+      ctx.fillStyle = '#ffffff'; ctx.font = '700 54px Georgia, serif';
+      ctx.fillText(name, W / 2, 350);
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(W / 2 - 260, 372); ctx.lineTo(W / 2 + 260, 372); ctx.stroke();
+      // body
+      ctx.fillStyle = '#cbd5e1'; ctx.font = '400 22px Inter, Arial, sans-serif';
+      ctx.fillText('has completed the IntegrAuth Academy final exam spanning every track', W / 2, 430);
+      ctx.fillText('of identity, security & AI — with a score of ' + pct + '%.', W / 2, 464);
+      // brand line
+      ctx.fillStyle = '#818cf8'; ctx.font = '600 19px Inter, Arial, sans-serif';
+      ctx.fillText('Identity & Security for Humans, Machines & AI Agents', W / 2, 540);
+      // seal
+      ctx.beginPath(); ctx.arc(W / 2, 615, 40, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(99,102,241,0.15)'; ctx.fill();
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = '#a5b4fc'; ctx.font = '700 30px Inter, Arial, sans-serif';
+      ctx.fillText('✓', W / 2, 626);
+      ctx.fillStyle = '#64748b'; ctx.font = '400 16px Inter, Arial, sans-serif';
+      ctx.fillText('integrauth.com/academy', W / 2, 675);
+    }
+  }
+});

@@ -431,7 +431,8 @@ function initAcademy() {
     ai: 'Track 4 · AI & Agents',
     ops: 'Track 5 · Identity Operations',
     authz: 'Track 6 · Authorization & API Security',
-    proto: 'Track 7 · Protocols & Federation'
+    proto: 'Track 7 · Protocols & Federation',
+    atk: 'Track 8 · Identity Attacks & Defenses'
   };
 
   const lessons = Array.prototype.slice.call(document.querySelectorAll('.acad-lesson'));
