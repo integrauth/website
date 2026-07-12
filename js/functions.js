@@ -419,6 +419,7 @@ function initAcademy() {
 
   const KEY_POS = 'acad_pos';
   const KEY_READ = 'acad_read';
+  const KEY_QUIZ = 'acad_quiz';
 
   function readSet() {
     try { return new Set(JSON.parse(localStorage.getItem(KEY_READ) || '[]')); }
@@ -427,6 +428,55 @@ function initAcademy() {
 
   function saveRead(set) {
     try { localStorage.setItem(KEY_READ, JSON.stringify(Array.from(set))); } catch (e) {}
+  }
+
+  // Cheat-sheet & pop-quiz lessons (*-quiz) only count as read once every
+  // answer has been revealed; acad_quiz stores the revealed question indices.
+  function quizStore() {
+    try { return JSON.parse(localStorage.getItem(KEY_QUIZ) || '{}'); }
+    catch (e) { return {}; }
+  }
+
+  function saveQuizStore(s) {
+    try { localStorage.setItem(KEY_QUIZ, JSON.stringify(s)); } catch (e) {}
+  }
+
+  function isQuizLesson(lesson) {
+    return !!lesson && /-quiz$/.test(lesson.id) && !!lesson.querySelector('.acad-quiz');
+  }
+
+  // Paint per-question checkmarks + the progress line; returns true when all revealed.
+  function syncQuizProgress(lesson) {
+    const blocks = Array.prototype.slice.call(lesson.querySelectorAll('.acad-quiz'));
+    const revealed = new Set(quizStore()[lesson.id] || []);
+    blocks.forEach(function (b, i) {
+      const q = b.querySelector('.acad-q');
+      if (!q) return;
+      let check = q.querySelector('.acad-quiz-check');
+      if (revealed.has(i) && !check) {
+        check = document.createElement('i');
+        check.className = 'fas fa-check acad-quiz-check';
+        check.setAttribute('aria-hidden', 'true');
+        q.appendChild(check);
+      } else if (!revealed.has(i) && check) {
+        check.remove();
+      }
+    });
+    let bar = lesson.querySelector('.acad-quiz-progress');
+    if (!bar && blocks.length) {
+      bar = document.createElement('p');
+      bar.className = 'acad-quiz-progress';
+      bar.setAttribute('aria-live', 'polite');
+      blocks[0].parentNode.insertBefore(bar, blocks[0]);
+    }
+    const done = revealed.size >= blocks.length;
+    if (bar) {
+      bar.textContent = done
+        ? '✓ All ' + blocks.length + ' answers revealed — lesson complete!'
+        : revealed.size + '/' + blocks.length + ' answers revealed — reveal them all to mark this lesson read.';
+      bar.classList.toggle('done', done);
+    }
+    return done;
   }
 
   function trackOf(lesson) { return lesson.getAttribute('data-track'); }
@@ -538,7 +588,11 @@ function initAcademy() {
     const label = document.getElementById('acadTrackLabel');
     if (label) label.textContent = TRACK_LABELS[track] || track;
     const read = readSet();
-    read.add(id);
+    if (isQuizLesson(lesson)) {
+      if (syncQuizProgress(lesson)) read.add(id);
+    } else {
+      read.add(id);
+    }
     saveRead(read);
     try { localStorage.setItem(KEY_POS, id); } catch (e) {}
     buildChips(track, id);
@@ -570,6 +624,26 @@ function initAcademy() {
       if (answer) {
         answer.hidden = !answer.hidden;
         reveal.textContent = answer.hidden ? 'Reveal answer' : 'Hide answer';
+        // Quiz lessons: record the reveal (hiding again doesn't un-record)
+        // and mark the lesson read once every answer has been seen.
+        const lesson = reveal.closest('.acad-lesson');
+        if (!answer.hidden && isQuizLesson(lesson)) {
+          const blocks = Array.prototype.slice.call(lesson.querySelectorAll('.acad-quiz'));
+          const idx = blocks.indexOf(reveal.closest('.acad-quiz'));
+          const store = quizStore();
+          const list = store[lesson.id] || (store[lesson.id] = []);
+          if (idx >= 0 && list.indexOf(idx) === -1) {
+            list.push(idx);
+            saveQuizStore(store);
+            if (syncQuizProgress(lesson)) {
+              const read = readSet();
+              read.add(lesson.id);
+              saveRead(read);
+              buildChips(trackOf(lesson), lesson.id);
+            }
+            updateProgress();
+          }
+        }
       }
     }
   });
@@ -582,7 +656,9 @@ function initAcademy() {
     try {
       localStorage.removeItem(KEY_POS);
       localStorage.removeItem(KEY_READ);
+      localStorage.removeItem(KEY_QUIZ);
     } catch (e) {}
+    document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
     showHub();
   });
 

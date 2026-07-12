@@ -4887,6 +4887,24 @@ body.theme-contrast .acad-fig {
   color: var(--acad-muted);
 }
 
+/* Pop-quiz per-question tracking (injected by initAcademy on *-quiz lessons) */
+.acad-quiz-progress {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--acad-muted);
+  margin: 0.75rem 0;
+}
+
+.acad-quiz-progress.done {
+  color: var(--acad-em);
+}
+
+.acad-q .acad-quiz-check {
+  color: var(--acad-em);
+  margin-left: 0.45rem;
+  font-size: 0.85em;
+}
+
 /* Glossary */
 .acad-filter {
   width: 100%;
