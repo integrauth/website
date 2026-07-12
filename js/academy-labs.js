@@ -448,19 +448,22 @@ AcadLabs.register('lab-jwt', {
       try { payload = JSON.parse(payloadTa.value); }
       catch (e) { log.add('bad', 'Payload is not valid JSON — fix it first.'); return; }
       var parts = token.split('.');
+      var p2 = b64url(JSON.stringify(payload));
+      if (p2 === parts[1]) {
+        log.add('warn', 'Payload is byte-identical to what was signed, so the old seal still matches. Actually change a claim first — e.g. give yourself more scope.');
+        return;
+      }
       // Keep the OLD header + OLD signature; swap in the edited payload. The seal no longer matches.
-      token = parts[0] + '.' + b64url(JSON.stringify(payload)) + '.' + parts[2];
+      token = parts[0] + '.' + p2 + '.' + parts[2];
       render(); h.flash(tokenBox);
       log.add('warn', 'You rewrote the payload but reused the old signature — the seal is now broken.');
     }
 
-    function resign() {
-      if (!token) return;
-      var payload;
-      try { payload = JSON.parse(payloadTa.value); } catch (e) { payload = freshClaims(); }
-      token = h.fakeJwt(payload);
-      render(); h.flash(tokenBox);
-      log.add('info', 'Re-signed. Valid again — but a real IdP would NEVER sign claims Maya isn\'t entitled to.');
+    function askIdp() {
+      // The IdP only ever signs what ITS records say — edited claims are ignored.
+      token = h.fakeJwt(freshClaims());
+      loadTextarea(); render(); h.flash(tokenBox);
+      log.add('info', 'The IdP issued a new token — with the claims from ITS records, not yours. Your edits were thrown away: a trusted issuer signs what Maya is entitled to, never what the requester typed. The only way to forge a "valid" token is to steal the IdP\'s private key.');
     }
 
     function callApi() {
@@ -500,7 +503,7 @@ AcadLabs.register('lab-jwt', {
           h.field('Raw payload (editable JSON)', payloadTa),
           h.row([
             h.button('Rebuild with tampered payload', 'danger', tamper),
-            h.button('Ask the IdP to re-sign', 'ghost', resign)
+            h.button('Ask the IdP to sign your edited claims', 'ghost', askIdp)
           ]),
           h.button('Call GET /balance with this token', '', callApi),
           apiOut
