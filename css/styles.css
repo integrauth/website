@@ -5291,3 +5291,84 @@ body.theme-contrast .acad-lab-token .seg-s { color: #065f46; }
   .acad-lab-head { flex-direction: column; }
   .acad-lab-reset { align-self: flex-end; }
 }
+
+/* ==========================================================================
+   Back-to-top floating button (injected by functions.js on every page)
+   ========================================================================== */
+.back-to-top {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 1040;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  background: var(--primary-gradient);
+  color: #fff;
+  font-size: 1.05rem;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(12px);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s;
+}
+
+.back-to-top.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.back-to-top:hover {
+  filter: brightness(1.12);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
+.back-to-top:active {
+  transform: translateY(0) scale(0.95);
+}
+
+.back-to-top:focus-visible {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 3px;
+}
+
+body.theme-contrast .back-to-top {
+  background: #000000;
+  color: #ffffff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 2px #000000;
+  filter: none;
+}
+
+body.theme-contrast .back-to-top:focus-visible {
+  outline: 3px solid #000000;
+}
+
+body.theme-cyber .back-to-top {
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .back-to-top {
+    transition: opacity 0.25s ease, visibility 0.25s;
+    transform: none;
+  }
+  .back-to-top:hover,
+  .back-to-top:active {
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .back-to-top {
+    bottom: 1rem;
+    right: 1rem;
+    width: 42px;
+    height: 42px;
+    font-size: 0.95rem;
+  }
+}

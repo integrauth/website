@@ -54,6 +54,10 @@ function handleScroll() {
       navbar.removeClass('navbar-scrolled');
     }
 
+    // Back-to-top button visibility
+    const backToTop = document.querySelector('.back-to-top');
+    if (backToTop) backToTop.classList.toggle('visible', scroll > 400);
+
     // Active navigation state (single-page index only, matched by href)
     if (document.getElementById('home')) {
       const scrollDistance = scroll + 100;
@@ -218,6 +222,21 @@ function initServicesMarquee() {
   });
 }
 
+// Back-to-top floating button (injected on every page that loads this file)
+function initBackToTop() {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'back-to-top';
+  btn.setAttribute('aria-label', 'Back to top');
+  btn.innerHTML = '<i class="fas fa-arrow-up" aria-hidden="true"></i>';
+  btn.addEventListener('click', function () {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+  });
+  document.body.appendChild(btn);
+  if (window.pageYOffset > 400) btn.classList.add('visible');
+}
+
 // Product Modal Functions
 function openProductModal(productId) {
   const modal = document.getElementById('productModal');
@@ -321,6 +340,7 @@ $(function() {
   fixWhatsAppLinks();
   initServicesMarquee();
   initAcademy();
+  initBackToTop();
 
   // Attach scroll handler with passive listener for better performance
   $(window).on('scroll', handleScroll);
