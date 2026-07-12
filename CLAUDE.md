@@ -30,6 +30,7 @@ website/
 ├── index.html, academy.html, privacy.html, terms.html, support.html, cancellation.html
 ├── css/styles.css (31KB, 1353 lines)
 ├── js/functions.js (6KB, 192 lines)
+├── js/academy-labs.js (~99KB — labs framework + 17 simulated labs; loaded ONLY by academy.html)
 ├── images/
 │   ├── social-icons/ (11 icons)
 │   └── websites/ (43 tech logos, 568KB)
@@ -63,6 +64,8 @@ Standalone free-learning page: 5 tracks / 37 byte-sized lessons (Foundations "Id
 - **Diagrams**: hand-authored inline SVG `<figure class="acad-fig">`, colored ONLY via `ax-*` classes (`ax-actor/ax-human/ax-bad/ax-atext/ax-life/ax-msg/ax-ret/ax-note/ax-em/ax-block/ax-ring/ax-arrowhead`) backed by `--acad-*` CSS variables themed per body class — never hardcode colors in lesson SVGs
 - **Fictional cast** (keep consistent): Maya (customer), Sam (partner agent), Priya (employee), Bot A (RPA bot), Kai (AI agent), Zara (security operator)
 - Vendor-neutral rule: lessons cite standards (RFCs, OpenID, W3C/FIDO, NIST) and open source (OpenFGA/OPA/SPIFFE) only — no IdP vendor or client names
+- **Interactive labs** (added 2026-07-12): 17 fully simulated, client-side labs — `<div class="acad-lab" data-lab="lab-*">` placeholders inside lessons (f2/f3/f4/f6, a1/a2/a6, t1/t2/t3/t5, ai1/ai2/ai3/ai4, o1/o4), rendered by `js/academy-labs.js`: an IIFE framework (`AcadLabs.register(id, {title, blurb, render(root, h)})` + helper API `h.el/button/badge/panel/chip/fakeJwt/verifyJwt/tokenView/jsonView/httpCard/logPanel/meter/interval` — timers auto-clean on the built-in Reset). Real WebCrypto where it teaches (TOTP RFC 6238 HMAC-SHA1, SHA-1 k-anonymity); everything else deterministic simulation with correct RFC status/error codes; **no network calls ever**. Styled by the `.acad-lab-*` block at the end of styles.css (built on `--acad-*` tokens, all 4 themes). Adding a lab = placeholder div in the lesson + `AcadLabs.register` module appended to academy-labs.js + re-minify
+- ai3-rag also carries a "Beyond retrieval: what's replacing standard RAG" section: OKF (Open Knowledge Format, open vendor-neutral spec v0.1 mid-2026 — markdown + YAML frontmatter knowledge wiki), GraphRAG, agentic RAG, hierarchical chunking, hybrid retrieval + re-ranking, talk-to-data — each with an "identity checkpoint"
 
 ### Design System (css/styles.css)
 
@@ -161,6 +164,9 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
 - `<link rel="stylesheet" href="css/styles.min.css?v=X.X">`
 - `<link rel="preload" href="css/styles.min.css?v=X.X">`
 - `<script src="js/functions.min.js?v=X.X">`
+- `<script src="js/academy-labs.min.js?v=X.X">` (academy.html only)
+
+**Minify labs JS**: `npx terser js/academy-labs.js -o js/academy-labs.min.js -c -m`
 
 ---
 
