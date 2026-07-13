@@ -5611,6 +5611,7 @@ body.theme-cyber .back-to-top {
 .acad-seq svg {
   width: 100%;
   height: auto;
+  max-height: 52vh;
   display: block;
 }
 
@@ -5629,12 +5630,12 @@ body.theme-cyber .back-to-top {
 }
 
 .acad-seq-step {
-  opacity: 0;
+  opacity: 0.32;
   transition: opacity 0.35s ease;
 }
 
 .acad-seq-step.on {
-  opacity: 0.55;
+  opacity: 0.62;
 }
 
 .acad-seq-step.on.cur {

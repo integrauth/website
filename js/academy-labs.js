@@ -11,7 +11,19 @@
     register: function (id, def) { REG[id] = def; },
     defineFlow: function (id, def) { FLOWS[id] = def; },
     getFlow: function (id) { return FLOWS[id]; },
-    flowIds: function () { return Object.keys(FLOWS); }
+    flowIds: function () { return Object.keys(FLOWS); },
+    // Tear down every mounted lab and render it fresh — used by "Reset all progress"
+    // so on-screen widgets (Challenge, Final Exam, Flow Explorer) return to their start state.
+    remountAll: function () {
+      document.querySelectorAll('.acad-lab[data-lab]').forEach(function (host) {
+        var def = REG[host.getAttribute('data-lab')];
+        if (!def) return;
+        if (host.__labCleanup) {
+          host.__labCleanup.forEach(function (fn) { try { fn(); } catch (e) { /* noop */ } });
+        }
+        mount(host, def);
+      });
+    }
   };
 
   /* ---------- DOM helpers ---------- */
@@ -284,8 +296,8 @@
     actors.forEach(function (a, i) {
       xs[a.id] = actors.length === 1 ? W / 2 : padX + i * ((W - 2 * padX) / (actors.length - 1));
     });
-    var firstRow = 78, rowH = 40;
-    var H = firstRow + (steps.length - 1) * rowH + 26;
+    var firstRow = 60, rowH = 30;
+    var H = firstRow + (steps.length - 1) * rowH + 18;
 
     var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': flow.title + ' — sequence diagram' });
     svg.appendChild(svgEl('defs', null, [
@@ -297,9 +309,9 @@
       var x = xs[a.id];
       var kindCls = a.kind === 'human' ? 'ax-human' : (a.kind === 'bad' ? 'ax-bad' : 'ax-actor');
       svg.appendChild(svgEl('g', null, [
-        svgEl('line', { x1: x, y1: 42, x2: x, y2: H - 4, 'class': 'ax-life', 'stroke-dasharray': '4 4' }),
-        svgEl('rect', { x: x - 64, y: 5, width: 128, height: 32, rx: 8, 'class': kindCls }),
-        svgEl('text', { x: x, y: 26, 'text-anchor': 'middle', 'font-size': '12.5', 'font-weight': '600', 'class': 'ax-atext' }, a.label)
+        svgEl('line', { x1: x, y1: 38, x2: x, y2: H - 4, 'class': 'ax-life', 'stroke-dasharray': '4 4' }),
+        svgEl('rect', { x: x - 64, y: 5, width: 128, height: 27, rx: 8, 'class': kindCls }),
+        svgEl('text', { x: x, y: 23, 'text-anchor': 'middle', 'font-size': '12.5', 'font-weight': '600', 'class': 'ax-atext' }, a.label)
       ]));
     });
 
@@ -311,8 +323,8 @@
         var cx = xs[s.f != null ? s.f : actors[0].id];
         var bw = Math.min(236, W - 20);
         var bx = Math.max(10, Math.min(cx - bw / 2, W - bw - 10));
-        g.appendChild(svgEl('rect', { x: bx, y: y - 16, width: bw, height: 26, rx: 6, 'class': 'ax-block' }));
-        g.appendChild(svgEl('text', { x: bx + bw / 2, y: y + 1, 'text-anchor': 'middle', 'font-size': '11.5', 'class': bad ? 'ax-bad' : 'ax-note' }, s.l));
+        g.appendChild(svgEl('rect', { x: bx, y: y - 13, width: bw, height: 21, rx: 6, 'class': 'ax-block' }));
+        g.appendChild(svgEl('text', { x: bx + bw / 2, y: y + 1, 'text-anchor': 'middle', 'font-size': '11', 'class': bad ? 'ax-bad' : 'ax-note' }, s.l));
       } else {
         var x1 = xs[s.f], x2 = xs[s.t];
         var dir = x2 > x1 ? 1 : -1;
@@ -329,13 +341,14 @@
       return g;
     });
 
-    var count = el('span', { 'class': 'acad-seq-count' });
     var noteBox = el('div', { 'class': 'acad-seq-note', 'aria-live': 'polite' });
     var cur = 0, playing = null;
-    var back, next, playBtn;
+    // Controls appear both above and below the diagram; keep every copy in sync.
+    var backs = [], nexts = [], playBtns = [], counts = [];
 
     function stopPlay() {
-      if (playing) { clearInterval(playing); playing = null; playBtn.textContent = '▶ Auto-play'; }
+      if (playing) { clearInterval(playing); playing = null; }
+      playBtns.forEach(function (b) { b.textContent = '▶ Auto-play'; });
     }
 
     function setStep(k) {
@@ -343,7 +356,8 @@
       groups.forEach(function (g, i) {
         g.setAttribute('class', 'acad-seq-step' + (i < cur ? ' on' : '') + (i === cur - 1 ? ' cur' : ''));
       });
-      count.textContent = cur === 0 ? steps.length + ' steps' : 'Step ' + cur + ' / ' + steps.length;
+      var label = cur === 0 ? steps.length + ' steps' : 'Step ' + cur + ' / ' + steps.length;
+      counts.forEach(function (c) { c.textContent = label; });
       noteBox.innerHTML = '';
       if (cur === 0) {
         noteBox.appendChild(el('p', { 'class': 'acad-seq-narr' },
@@ -356,22 +370,28 @@
         if (s.http) noteBox.appendChild(jsonView(s.http));
         if (cur === steps.length && flow.outro) noteBox.appendChild(note(flow.outro));
       }
-      back.disabled = cur === 0;
-      next.disabled = cur >= steps.length;
+      backs.forEach(function (b) { b.disabled = cur === 0; });
+      nexts.forEach(function (b) { b.disabled = cur >= steps.length; });
       if (cur >= steps.length) stopPlay();
     }
 
-    back = button('◀ Back', '', function () { stopPlay(); setStep(cur - 1); });
-    next = button('Next ▶', '', function () { stopPlay(); setStep(cur + 1); });
-    playBtn = button('▶ Auto-play', '', function () {
-      if (playing) { stopPlay(); return; }
-      if (cur >= steps.length) setStep(0);
-      playBtn.textContent = '⏸ Pause';
-      playing = setInterval(function () {
-        if (cur >= steps.length) stopPlay(); else setStep(cur + 1);
-      }, 2600);
-    });
-    var restart = button('⟲ Restart', '', function () { stopPlay(); setStep(0); });
+    function mkControls() {
+      var count = el('span', { 'class': 'acad-seq-count' });
+      var restart = button('⟲ Restart', '', function () { stopPlay(); setStep(0); });
+      var back = button('◀ Back', '', function () { stopPlay(); setStep(cur - 1); });
+      var next = button('Next ▶', '', function () { stopPlay(); setStep(cur + 1); });
+      var playBtn = button('▶ Auto-play', '', function () {
+        if (playing) { stopPlay(); return; }
+        if (cur >= steps.length) setStep(0);
+        playBtns.forEach(function (b) { b.textContent = '⏸ Pause'; });
+        playing = setInterval(function () {
+          if (cur >= steps.length) stopPlay(); else setStep(cur + 1);
+        }, 2600);
+      });
+      backs.push(back); nexts.push(next); playBtns.push(playBtn); counts.push(count);
+      return el('div', { 'class': 'acad-seq-controls' }, [restart, back, next, playBtn, count]);
+    }
+
     if (ctx) ctx.cleanup.push(stopPlay);
 
     var headKids = [];
@@ -379,9 +399,10 @@
     if (flow.tag) headKids.push(el('span', { 'class': 'acad-seq-tag' }, flow.tag));
     var root = el('div', { 'class': 'acad-seq' }, [
       headKids.length ? el('div', { 'class': 'acad-seq-head' }, headKids) : null,
+      mkControls(),
       svg,
       noteBox,
-      el('div', { 'class': 'acad-seq-controls' }, [restart, back, next, playBtn, count])
+      mkControls()
     ]);
     setStep(opts.start || 0);
     return root;
@@ -413,6 +434,7 @@
 
   function mount(host, def) {
     var ctx = { cleanup: [] };
+    host.__labCleanup = ctx.cleanup;
     host.innerHTML = '';
 
     var body = el('div', { class: 'acad-lab-body' });

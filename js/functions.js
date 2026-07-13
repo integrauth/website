@@ -705,8 +705,13 @@ function initAcademy() {
       localStorage.removeItem(KEY_POS);
       localStorage.removeItem(KEY_READ);
       localStorage.removeItem(KEY_QUIZ);
+      localStorage.removeItem('acad_exam');
     } catch (e) {}
     document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
+    // Re-render on-screen labs (Challenge, Final Exam, Flow Explorer) back to their start state.
+    if (window.AcadLabs && typeof window.AcadLabs.remountAll === 'function') {
+      try { window.AcadLabs.remountAll(); } catch (e) {}
+    }
     updateProgress();
   });
 
