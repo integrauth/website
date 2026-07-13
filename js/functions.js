@@ -632,6 +632,46 @@ function initAcademy() {
     window.scrollTo({ top: 0 });
   }
 
+  // Live-update check: GitHub Pages is static (no push channel), so poll a
+  // tiny version marker and offer a reload. Progress lives in localStorage,
+  // so a reload never loses anything — safe to prompt at any point. Kept
+  // light on the server: checked once a day, on tab refocus, and whenever
+  // the learner crosses into a new track (not on every lesson turn).
+  const acadBuildMeta = document.querySelector('meta[name="acad-build"]');
+  const acadCurrentBuild = acadBuildMeta ? acadBuildMeta.content : null;
+  let acadUpdateSettled = false; // stop polling once a toast has been shown or dismissed
+  let acadLastCheckedTrack = null;
+
+  function showUpdateToast() {
+    if (acadUpdateSettled) return;
+    acadUpdateSettled = true;
+    const toast = document.createElement('div');
+    toast.className = 'acad-update-toast';
+    toast.setAttribute('role', 'status');
+    toast.innerHTML =
+      '<span>New lessons &amp; fixes are available.</span>' +
+      '<button type="button" class="acad-update-reload">Reload</button>' +
+      '<button type="button" class="acad-update-dismiss" aria-label="Dismiss">&times;</button>';
+    toast.querySelector('.acad-update-reload').addEventListener('click', function () { location.reload(); });
+    toast.querySelector('.acad-update-dismiss').addEventListener('click', function () { toast.remove(); });
+    document.body.appendChild(toast);
+  }
+
+  function checkForUpdate() {
+    if (acadUpdateSettled || !acadCurrentBuild) return;
+    fetch('/academy-version.txt', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (v) { if (v && v.trim() && v.trim() !== acadCurrentBuild) showUpdateToast(); })
+      .catch(function () {});
+  }
+
+  if (acadCurrentBuild) {
+    setInterval(checkForUpdate, 24 * 60 * 60 * 1000); // once a day
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') checkForUpdate();
+    });
+  }
+
   function showLesson(id, skipScroll) {
     const lesson = byId[id];
     if (!lesson) return false;
@@ -639,6 +679,7 @@ function initAcademy() {
     reader.hidden = false;
     lessons.forEach(function (s) { s.classList.toggle('is-active', s === lesson); });
     const track = trackOf(lesson);
+    if (track !== acadLastCheckedTrack) { acadLastCheckedTrack = track; checkForUpdate(); }
     const label = document.getElementById('acadTrackLabel');
     if (label) label.textContent = TRACK_LABELS[track] || track;
     const read = readSet();
@@ -1020,44 +1061,6 @@ function initAcademy() {
       });
     }
     enhance();
-  })();
-
-  // Live-update check: GitHub Pages is static (no push channel), so poll a
-  // tiny version marker and offer a reload. Progress lives in localStorage,
-  // so a reload never loses anything — safe to prompt at any point.
-  (function () {
-    const buildMeta = document.querySelector('meta[name="acad-build"]');
-    if (!buildMeta) return;
-    const currentBuild = buildMeta.content;
-    let settled = false; // stop polling once a toast has been shown or dismissed
-
-    function showUpdateToast() {
-      if (settled) return;
-      settled = true;
-      const toast = document.createElement('div');
-      toast.className = 'acad-update-toast';
-      toast.setAttribute('role', 'status');
-      toast.innerHTML =
-        '<span>New lessons &amp; fixes are available.</span>' +
-        '<button type="button" class="acad-update-reload">Reload</button>' +
-        '<button type="button" class="acad-update-dismiss" aria-label="Dismiss">&times;</button>';
-      toast.querySelector('.acad-update-reload').addEventListener('click', function () { location.reload(); });
-      toast.querySelector('.acad-update-dismiss').addEventListener('click', function () { toast.remove(); });
-      document.body.appendChild(toast);
-    }
-
-    function checkForUpdate() {
-      if (settled) return;
-      fetch('/academy-version.txt', { cache: 'no-store' })
-        .then(function (r) { return r.ok ? r.text() : null; })
-        .then(function (v) { if (v && v.trim() && v.trim() !== currentBuild) showUpdateToast(); })
-        .catch(function () {});
-    }
-
-    setInterval(checkForUpdate, 5 * 60 * 1000);
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible') checkForUpdate();
-    });
   })();
 
   // Boot: URL hash wins > saved position > hub
