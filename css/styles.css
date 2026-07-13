@@ -4237,9 +4237,66 @@ body.theme-cyber .tools-cta a {
 }
 
 /* ==========================================================================
-   IntegrAuth Academy (academy.html)
-   Diagram + lesson palette via CSS custom properties, themed per body class
+   Academy boot loader — shown only when landing on a #hash deep link, to
+   bridge the gap between first paint (raw hub markup, for SEO/no-JS) and
+   initAcademy() resolving + hiding the hub. See the inline <script> in
+   academy.html's <head> that toggles html.acad-hash-boot before body paints.
    ========================================================================== */
+.acad-boot-loader {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+  background: var(--acad-fig-bg, #ffffff);
+}
+html.acad-hash-boot .acad-boot-loader { display: flex; }
+html.acad-hash-boot #acadHub,
+html.acad-hash-boot #acadReader { display: none !important; }
+
+.acad-boot-loader-card { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 2rem; }
+.acad-boot-shield {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--acad-actor) 12%, transparent);
+  color: var(--acad-actor);
+  font-size: 1.9rem;
+  animation: acadBootPulse 1.6s ease-in-out infinite;
+}
+.acad-boot-scan {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--acad-actor);
+  opacity: 0;
+  animation: acadBootRing 1.6s ease-out infinite;
+}
+@keyframes acadBootPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@keyframes acadBootRing { 0% { transform: scale(0.8); opacity: 0.6; } 100% { transform: scale(1.5); opacity: 0; } }
+.acad-boot-loader-text {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--acad-ink);
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+.acad-boot-dots span { animation: acadBootDot 1.4s infinite; opacity: 0; }
+.acad-boot-dots span:nth-child(2) { animation-delay: 0.2s; }
+.acad-boot-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes acadBootDot { 0%, 20% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .acad-boot-shield, .acad-boot-scan, .acad-boot-dots span { animation: none; }
+}
+
 body {
   --acad-ink: #334155;
   --acad-muted: #64748b;
@@ -5526,7 +5583,7 @@ body.theme-cyber .acad-lab { --acad-warn: #fbbf24; }
 .acad-lab-reset:hover, .acad-lab-reset:focus-visible { color: var(--acad-actor); border-color: var(--acad-actor); }
 
 .acad-lab-body { display: flex; flex-direction: column; gap: 0.9rem; }
-.acad-lab-row { display: flex; flex-wrap: wrap; gap: 0.9rem; align-items: flex-start; }
+.acad-lab-row { display: flex; flex-wrap: wrap; gap: 1.1rem 0.9rem; align-items: center; }
 .acad-lab-stack { display: flex; flex-direction: column; gap: 0.55rem; }
 .acad-lab-col { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 0.7rem; }
 .acad-lab-audit-entry { display: flex; flex-direction: column; gap: 0.5rem; padding-bottom: 0.7rem; border-bottom: 1px dashed var(--acad-line); }

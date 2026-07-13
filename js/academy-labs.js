@@ -7611,7 +7611,7 @@ AcadLabs.register('lab-orgs', {
     var NAMES = ['priya', 'dev', 'lena', 'omar', 'tess', 'raj', 'nina', 'cole'];
 
     var listBox = h.el('div', {});
-    var noteBox = h.el('div', {});
+    var noteBox = h.el('div', { class: 'acad-lab-stack' });
     var polBox = h.el('div', {});
     var multiBox = h.el('div', {});
     var log = h.logPanel();
@@ -7662,12 +7662,12 @@ AcadLabs.register('lab-orgs', {
       var email = emailIn.value.trim();
       var role = roleSel.value;
       if (!email || email.indexOf('@') < 0) {
-        noteBox.appendChild(h.badge('⛔ enter a valid email', 'bad'));
+        noteBox.appendChild(h.row([h.badge('⛔ enter a valid email', 'bad')]));
         log.add('warn', 'Invite rejected — invalid email.');
         return;
       }
       if (policy.domain && domainOf(email) !== DOMAIN) {
-        noteBox.appendChild(h.badge('⛔ domain not allowed', 'bad'));
+        noteBox.appendChild(h.row([h.badge('⛔ domain not allowed', 'bad')]));
         noteBox.appendChild(h.note('Policy allows @' + DOMAIN + ' only. ' + email + ' is a personal address — invite bounced.'));
         log.add('bad', 'Invite to ' + email + ' bounced — company-email-only policy.');
         h.flash(noteBox);
@@ -7678,8 +7678,10 @@ AcadLabs.register('lab-orgs', {
       members.push(m);
       log.add('info', 'Invited ' + email + ' as ' + role + ' → pending (invite email sent).');
       var msg = 'Invite sent to ' + email + ' as ' + role + '. ';
-      if (via === 'sso') { msg += 'On click they skip your login and get routed to the company IdP (home-realm discovery). '; noteBox.appendChild(h.badge('routed to company SSO', 'info')); }
-      if (policy.mfa) { msg += 'They must enroll MFA on first login.'; noteBox.appendChild(h.badge('MFA enrollment required', 'warn')); }
+      var badges = [];
+      if (via === 'sso') { msg += 'On click they skip your login and get routed to the company IdP (home-realm discovery). '; badges.push(h.badge('routed to company SSO', 'info')); }
+      if (policy.mfa) { msg += 'They must enroll MFA on first login.'; badges.push(h.badge('MFA enrollment required', 'warn')); }
+      if (badges.length) noteBox.appendChild(h.row(badges));
       noteBox.appendChild(h.note(msg));
       // rotate the prefill to the next colleague
       seq = (seq + 1) % NAMES.length;
@@ -9130,7 +9132,7 @@ AcadLabs.register('lab-outage', {
 
     var meter = h.meter(100, 'bad');
     var impactBox = h.el('div', { class: 'acad-lab-row' });
-    var outcomeBox = h.el('div', {});
+    var outcomeBox = h.el('div', { class: 'acad-lab-stack' });
     var firstBox = h.el('div', {});
     var log = h.logPanel();
 

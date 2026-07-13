@@ -1196,4 +1196,6 @@ function initAcademy() {
       } catch (e) {}
     }
   }
+  // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader.
+  document.documentElement.classList.remove('acad-hash-boot');
 }
