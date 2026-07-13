@@ -616,20 +616,111 @@ function initAcademy() {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'acad-page-btn';
-      b.setAttribute('data-goto', '__hub__');
-      b.textContent = 'Back to all tracks ↺';
+      b.setAttribute('data-goto', '__flows__');
+      const track = document.createElement('span');
+      track.className = 'acad-page-track';
+      track.textContent = 'All tracks complete 🎉';
+      const title = document.createElement('span');
+      title.className = 'acad-page-title';
+      title.textContent = 'Flow Explorer, Challenge mode & Final Exam →';
+      b.appendChild(track);
+      b.appendChild(title);
       pager.appendChild(b);
     }
   }
 
-  function showHub() {
+  function showHub(focusId) {
     reader.hidden = true;
     hub.hidden = false;
     lessons.forEach(function (s) { s.classList.remove('is-active'); });
     if (location.hash) history.replaceState(null, '', location.pathname);
     try { localStorage.removeItem(KEY_POS); } catch (e) {}
     updateProgress();
-    window.scrollTo({ top: 0 });
+    const focusEl = focusId ? document.getElementById(focusId) : null;
+    if (focusEl) {
+      focusEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      focusEl.classList.add('acad-hub-pulse');
+      setTimeout(function () { focusEl.classList.remove('acad-hub-pulse'); }, 2200);
+    } else {
+      window.scrollTo({ top: 0 });
+    }
+  }
+
+  // Guided tour: teaches newcomers how to get from lesson 1 to the certificate.
+  const ACAD_TOUR = [
+    { title: 'Welcome to the IntegrAuth Academy', text: '11 tracks, 111 byte-sized lessons and hands-on labs — all client-side, nothing to sign up for. Here’s how to get from your first lesson to your certificate.' },
+    { selector: '.acad-track-card', title: '1. Pick a track', text: 'Click any track card — or a lesson link inside it — to start reading. Each lesson is a 3–5 minute read.' },
+    { title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
+    { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
+    { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in five real-world scenarios, then pick the fix.' },
+    { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 25-question exam pulled from every track. Score 80%+ to unlock a certificate you can download.' },
+    { selector: '.acad-hub-foot', title: 'Your progress', text: 'Everything lives in your browser — reset a single track, export/import progress, or replay this tour anytime from the button up top.' }
+  ];
+  let acadTourActive = false;
+  let acadTourStep = 0;
+  let acadTourSpotEl = null;
+  let acadTourCard = null;
+
+  function tourClearSpot() {
+    if (acadTourSpotEl) { acadTourSpotEl.classList.remove('acad-tour-spot'); acadTourSpotEl = null; }
+  }
+
+  function tourRender() {
+    const step = ACAD_TOUR[acadTourStep];
+    tourClearSpot();
+    const el = step.selector ? document.querySelector(step.selector) : null;
+    if (el) {
+      el.classList.add('acad-tour-spot');
+      acadTourSpotEl = el;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    acadTourCard.querySelector('.acad-tour-title').textContent = step.title;
+    acadTourCard.querySelector('.acad-tour-text').textContent = step.text;
+    acadTourCard.querySelector('.acad-tour-count').textContent = (acadTourStep + 1) + ' / ' + ACAD_TOUR.length;
+    acadTourCard.querySelector('.acad-tour-back').disabled = acadTourStep === 0;
+    acadTourCard.querySelector('.acad-tour-next').textContent = acadTourStep === ACAD_TOUR.length - 1 ? 'Done' : 'Next →';
+  }
+
+  function tourKeydown(e) {
+    if (e.key === 'Escape') endTour();
+  }
+
+  function endTour() {
+    if (!acadTourActive) return;
+    acadTourActive = false;
+    tourClearSpot();
+    if (acadTourCard) { acadTourCard.remove(); acadTourCard = null; }
+    document.removeEventListener('keydown', tourKeydown);
+  }
+
+  function startTour() {
+    if (acadTourActive) return;
+    showHub();
+    acadTourActive = true;
+    acadTourStep = 0;
+    acadTourCard = document.createElement('div');
+    acadTourCard.className = 'acad-tour-card';
+    acadTourCard.setAttribute('role', 'dialog');
+    acadTourCard.setAttribute('aria-label', 'Academy tour');
+    acadTourCard.innerHTML =
+      '<div class="acad-tour-head"><span class="acad-tour-title"></span><span class="acad-tour-count"></span></div>' +
+      '<p class="acad-tour-text"></p>' +
+      '<div class="acad-tour-nav"><button type="button" class="acad-tour-dismiss">Skip tour</button>' +
+      '<div class="acad-tour-btns"><button type="button" class="acad-tour-back">← Back</button>' +
+      '<button type="button" class="acad-tour-next">Next →</button></div></div>';
+    document.body.appendChild(acadTourCard);
+    acadTourCard.querySelector('.acad-tour-dismiss').addEventListener('click', endTour);
+    acadTourCard.querySelector('.acad-tour-back').addEventListener('click', function () {
+      if (acadTourStep > 0) { acadTourStep--; tourRender(); }
+    });
+    acadTourCard.querySelector('.acad-tour-next').addEventListener('click', function () {
+      if (acadTourStep === ACAD_TOUR.length - 1) { endTour(); return; }
+      acadTourStep++; tourRender();
+    });
+    document.addEventListener('keydown', tourKeydown);
+    tourRender();
   }
 
   // Live-update check: GitHub Pages is static (no push channel), so poll a
@@ -675,6 +766,7 @@ function initAcademy() {
   function showLesson(id, skipScroll) {
     const lesson = byId[id];
     if (!lesson) return false;
+    if (acadTourActive) endTour();
     hub.hidden = true;
     reader.hidden = false;
     lessons.forEach(function (s) { s.classList.toggle('is-active', s === lesson); });
@@ -704,7 +796,10 @@ function initAcademy() {
     if (gotoBtn) {
       e.preventDefault();
       const id = gotoBtn.getAttribute('data-goto');
-      if (id === '__hub__') showHub(); else showLesson(id);
+      const HUB_SECTIONS = { __flows__: 'acadFlows', __challenge__: 'acadChallenge', __exam__: 'acadExam' };
+      if (id === '__hub__') showHub();
+      else if (HUB_SECTIONS[id]) showHub(HUB_SECTIONS[id]);
+      else showLesson(id);
       return;
     }
     const link = e.target.closest('a[href^="#"]');
@@ -1010,6 +1105,21 @@ function initAcademy() {
     tools.appendChild(results);
     tools.appendChild(paths);
     grid.parentNode.insertBefore(tools, grid);
+
+    // Tour trigger, grouped with the top reset button so it stays visible from anywhere in the hub.
+    const topReset = document.getElementById('acadResetAllTop');
+    if (topReset && topReset.parentNode) {
+      const tourBtn = document.createElement('button');
+      tourBtn.type = 'button';
+      tourBtn.id = 'acadTourBtn';
+      tourBtn.textContent = '🧭 Take the tour';
+      tourBtn.addEventListener('click', startTour);
+      const actions = document.createElement('span');
+      actions.className = 'acad-progress-actions';
+      topReset.parentNode.insertBefore(actions, topReset);
+      actions.appendChild(tourBtn);
+      actions.appendChild(topReset);
+    }
   }
 
   // Glossary tooltips: hover/focus any .acad-term to see its definition (from f11-glossary).
@@ -1070,6 +1180,20 @@ function initAcademy() {
   } else {
     let saved = null;
     try { saved = localStorage.getItem(KEY_POS); } catch (e) {}
-    if (saved && byId[saved]) showLesson(saved, true); else showHub();
+    if (saved && byId[saved]) {
+      showLesson(saved, true);
+    } else {
+      showHub();
+      // First-ever, fresh landing on the hub (no deep link, no resumed lesson) — offer the tour once.
+      try {
+        if (!localStorage.getItem('acad_tour_seen')) {
+          localStorage.setItem('acad_tour_seen', '1');
+          setTimeout(function () {
+            // Skip if the learner has already navigated away from the hub in the meantime.
+            if (!location.hash) startTour();
+          }, 900);
+        }
+      } catch (e) {}
+    }
   }
 }

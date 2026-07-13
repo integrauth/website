@@ -4485,6 +4485,157 @@ body.theme-contrast .acad-hero {
   margin: 0 auto 1.75rem;
 }
 
+.acad-progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-shrink: 0;
+}
+
+.acad-flowx-next {
+  text-align: center;
+  margin-top: 1.75rem;
+}
+
+.acad-flowx-next-btn {
+  max-width: none;
+  text-align: center;
+}
+
+.acad-hub-pulse {
+  border-radius: var(--radius-lg);
+  animation: acadHubPulse 1.8s ease-out 2;
+}
+
+@keyframes acadHubPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acad-actor) 55%, transparent); }
+  70% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--acad-actor) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acad-actor) 0%, transparent); }
+}
+
+.acad-tour-spot {
+  position: relative;
+  z-index: 9993;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 4px var(--acad-actor), 0 0 0 9999px rgba(0, 0, 0, 0.6);
+}
+
+.acad-tour-card {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 9995;
+  width: min(420px, calc(100% - 2rem));
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-top: 3px solid var(--acad-actor);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(10px);
+  padding: 1.1rem 1.25rem;
+  color: var(--acad-ink);
+  animation: acadToastIn 0.25s ease;
+}
+
+.acad-tour-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.acad-tour-title {
+  font-weight: 800;
+  font-size: 0.98rem;
+}
+
+.acad-tour-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--acad-muted);
+  white-space: nowrap;
+}
+
+.acad-tour-text {
+  font-size: 0.86rem;
+  color: var(--acad-muted);
+  line-height: 1.5;
+  margin: 0 0 0.85rem;
+}
+
+.acad-tour-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.acad-tour-dismiss {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--acad-muted);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.25rem 0;
+}
+
+.acad-tour-dismiss:hover {
+  color: var(--acad-ink);
+}
+
+.acad-tour-btns {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.acad-tour-back,
+.acad-tour-next {
+  appearance: none;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.acad-tour-back {
+  background: transparent;
+  border: 1px solid var(--acad-panel-border);
+  color: var(--acad-ink);
+}
+
+.acad-tour-back:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.acad-tour-next {
+  background: var(--acad-actor);
+  border: 1px solid transparent;
+  color: var(--acad-atext, #fff);
+}
+
+.acad-tour-next:hover {
+  filter: brightness(1.1);
+}
+
+.acad-tour-back:focus-visible,
+.acad-tour-next:focus-visible,
+.acad-tour-dismiss:focus-visible {
+  outline: 2px solid var(--acad-actor);
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .acad-tour-card { left: 1rem; right: 1rem; bottom: 1rem; transform: none; width: auto; }
+}
+
 .acad-hub-foot {
   text-align: center;
   margin-top: 1.25rem;
@@ -4758,6 +4909,8 @@ body.theme-contrast .acad-hero {
   .acad-hero { animation: none; }
   .acad-update-toast { animation: none; }
   .acad-update-reload { animation: none; }
+  .acad-hub-pulse { animation: none; }
+  .acad-tour-card { animation: none; }
 }
 
 .acad-chnum {
@@ -6145,7 +6298,8 @@ body.theme-cyber .back-to-top {
 @media print {
   .navbar, .acad-toolbar, #acadChips, .acad-pager, .acad-reader-foot,
   .acad-progress, .acad-hub-progress, footer, .acad-hubtools, .acad-hub-foot, .acad-lab-reset,
-  .acad-reset-track, #acadFlows, #acadExam, #acadChallenge, .acad-try {
+  .acad-reset-track, #acadFlows, #acadExam, #acadChallenge, .acad-try,
+  .acad-tour-card, .acad-flowx-next {
     display: none !important;
   }
   body { background: #fff !important; color: #000 !important; }
