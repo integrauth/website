@@ -523,6 +523,11 @@ AcadLabs.register('lab-assurance', {
       badgeBox.appendChild(h.badge(a === 0 ? 'AAL0 · nothing proven' : 'AAL' + a, kind === 'bad' ? 'bad' : (a >= 2 ? 'ok' : 'warn')));
       badgeBox.appendChild(h.badge(phishResistant() ? '🛡️ phishing-resistant' : '🎣 phishable', phishResistant() ? 'ok' : 'warn'));
       if (factors.sms) badgeBox.appendChild(h.badge('SMS OTP = SIM-swappable, fallback only', 'warn'));
+      // Factors just changed, so any earlier 200/401 no longer reflects Maya's assurance level.
+      if (out.childNodes.length) {
+        out.innerHTML = '';
+        out.appendChild(h.note('Factors changed — try the call again to see the new outcome.'));
+      }
     }
 
     var chips = [
@@ -1736,6 +1741,8 @@ AcadLabs.register('lab-mcp', {
       disabled = !disabled;
       killBtn.textContent = disabled ? '🟢 Kill switch: ON (Kai disabled)' : '🔴 Kill switch: OFF';
       log.add(disabled ? 'bad' : 'ok', 'Zara ' + (disabled ? 'DISABLED' : 're-enabled') + ' agent Kai in the registry');
+      // The registry just changed — the last tool-call result no longer reflects it.
+      show(h.note('Registry changed — press a tool button again to see the new outcome.'));
     });
 
     var controls = h.col([
@@ -1800,13 +1807,20 @@ AcadLabs.register('lab-fga', {
     }
 
     var listBox = h.el('div', { class: 'acad-lab-col' });
+    var result = h.el('div', {});
+    // The tuple store just changed — an earlier ALLOW/DENY may no longer hold.
+    function clearCheckResult() {
+      if (!result.childNodes.length) return;
+      result.innerHTML = '';
+      result.appendChild(h.note('The store changed — run Check() again to see the new result.'));
+    }
     function renderList() {
       listBox.innerHTML = '';
       tuples.forEach(function (t, idx) {
         listBox.appendChild(h.row([
           h.badge(t.s + ' · ' + t.r + ' · ' + t.o, 'info'),
           h.button('✕', 'ghost', function () {
-            tuples.splice(idx, 1); renderList();
+            tuples.splice(idx, 1); renderList(); clearCheckResult();
             log.add('warn', 'DELETE tuple (' + t.s + ', ' + t.r + ', ' + t.o + ') — the fact is gone, so any path through it collapses');
           })
         ]));
@@ -1830,7 +1844,7 @@ AcadLabs.register('lab-fga', {
       h.button('+ Write tuple', 'primary', function () {
         var s = subj.value, r = addRel.value, o = addObj.value;
         if (tuples.some(function (t) { return t.s === s && t.r === r && t.o === o; })) { log.add('info', 'Tuple (' + s + ', ' + r + ', ' + o + ') already in the store — writes are idempotent'); return; }
-        tuples.push({ s: s, r: r, o: o }); renderList(); h.flash(listBox);
+        tuples.push({ s: s, r: r, o: o }); renderList(); h.flash(listBox); clearCheckResult();
         log.add('ok', 'WRITE tuple (' + s + ', ' + r + ', ' + o + ')');
       })
     ]);
@@ -1839,7 +1853,6 @@ AcadLabs.register('lab-fga', {
     var ckUser = h.select(['user:priya', 'user:zara', 'user:maya', 'user:sam'].map(function (u) { return { value: u, label: u }; }));
     var ckRel = h.select(['viewer', 'editor', 'owner'].map(function (r) { return { value: r, label: r }; }));
     var ckObj = h.select(['doc:roadmap', 'doc:payroll', 'folder:strategy'].map(function (o) { return { value: o, label: o }; }));
-    var result = h.el('div', {});
     var checkForm = h.panel('Check(user, relation, object)', [
       h.row([h.field('user', ckUser), h.field('relation', ckRel), h.field('object', ckObj)]),
       h.button('Run check', 'primary', function () {
@@ -2049,6 +2062,9 @@ AcadLabs.register('lab-ciba', {
       setClock(null); // Maya answered — the expiry countdown no longer applies
       renderPhone();
       log.add(d === 'approve' ? 'ok' : 'bad', 'Maya ' + (d === 'approve' ? 'APPROVED' : 'DENIED') + ' ' + binding + ' on her phone');
+      // Her decision happens out-of-band — it hasn't hit the token endpoint yet, so
+      // clear the last /bc-authorize 200 out of view before it's mistaken for the outcome.
+      show(h.note('Maya just decided on her phone. Nothing has told Sam yet — click "2 · Poll /token" to find out.'));
     }
 
     function initiate() {
@@ -2542,7 +2558,11 @@ AcadLabs.register('lab-personas', {
       { value: 'work', label: 'Workforce employee', selected: true },
       { value: 'cust', label: 'Personal customer' },
       { value: 'admin', label: 'Break-glass admin' }
-    ], function (v) { active = v; renderPersona(); log.add('info', 'Switched to ' + P[v].name + ' persona.'); }));
+    ], function (v) {
+      active = v; renderPersona(); log.add('info', 'Switched to ' + P[v].name + ' persona.');
+      // The active persona just changed — the last system response was for the OLD one.
+      show(h.note('Persona switched — pick a system again to see this persona\'s access.'));
+    }));
 
     root.appendChild(h.row([
       h.col([
@@ -3712,6 +3732,7 @@ AcadLabs.register('lab-copilot', {
   render: function (root, h) {
     var log = h.logPanel();
     var out = h.stage(h.note('All five layers are ON. Launch an attack — the first live layer that catches it wins.'));
+    var attacked = false;
 
     var layers = [
       { id: 'input', name: 'Input guardrail', desc: 'prompt-injection scan', on: true },
@@ -3760,6 +3781,7 @@ AcadLabs.register('lab-copilot', {
     }
 
     function run(id) {
+      attacked = true;
       var atk = attacks[id];
       out.innerHTML = '';
       var track = h.el('div', { class: 'acad-lab-stack' });
@@ -3797,6 +3819,11 @@ AcadLabs.register('lab-copilot', {
       h.el('div', { class: 'acad-lab-row' }, layers.map(function (L) {
         return h.chip(L.name + ' · ' + L.desc, L.on, function (on) {
           L.on = on; log.add(on ? 'ok' : 'warn', 'Layer ' + (on ? 'ENABLED' : 'DISABLED') + ': ' + L.name + '.');
+          // A layer just changed — the last run's verdict no longer reflects the live layers.
+          if (attacked) {
+            out.innerHTML = '';
+            out.appendChild(h.note('Layers changed — launch the attack again to see the new outcome.'));
+          }
         });
       }))
     ]));
@@ -4395,6 +4422,13 @@ AcadLabs.register('lab-rebac', {
     var listBox = h.el('div', { class: 'acad-lab-col' });
     var resultBox = h.el('div', {});
 
+    // The tuple store just changed — the last check run no longer reflects it.
+    function clearResults() {
+      if (!resultBox.childNodes.length) return;
+      resultBox.innerHTML = '';
+      resultBox.appendChild(h.note('Tuples changed — run checks again to see the new result.'));
+    }
+
     function renderList() {
       listBox.innerHTML = '';
       if (!tuples.length) { listBox.appendChild(h.note('No tuples yet — every check will fail.')); return; }
@@ -4402,7 +4436,7 @@ AcadLabs.register('lab-rebac', {
         listBox.appendChild(h.row([
           h.badge('(' + t.s + ', ' + t.r + ', ' + t.o + ')', 'info'),
           h.button('✕', 'ghost', function () {
-            tuples.splice(idx, 1); renderList();
+            tuples.splice(idx, 1); renderList(); clearResults();
             log.add('warn', 'DELETE (' + t.s + ', ' + t.r + ', ' + t.o + ')');
           })
         ]));
@@ -4421,7 +4455,7 @@ AcadLabs.register('lab-rebac', {
       if (tuples.some(function (t) { return t.s === s && t.r === r && t.o === o; })) {
         log.add('info', 'Already stored — writes are idempotent.'); return;
       }
-      tuples.push({ s: s, r: r, o: o }); renderList(); h.flash(listBox);
+      tuples.push({ s: s, r: r, o: o }); renderList(); h.flash(listBox); clearResults();
       log.add('ok', 'WRITE (' + s + ', ' + r + ', ' + o + ')');
     }
 
@@ -6171,10 +6205,18 @@ AcadLabs.register('lab-rogueapp', {
       riskBadge.appendChild(h.badge('Risk ' + p + '/100 — ' + (kind === 'bad' ? 'broad & sensitive' : (kind === 'warn' ? 'some sensitive' : 'minimal')), kind));
     }
 
+    // The scopes/policy just changed, so any earlier Allow/Deny result no longer
+    // reflects what would happen now — clear it instead of leaving a stale verdict up.
+    function clearDecision() {
+      if (!out.childNodes.length) return;
+      out.innerHTML = '';
+      out.appendChild(h.note('Settings changed since the last decision — tap Allow or Deny again to see the new outcome.'));
+    }
+
     function renderChips() {
       chipRow.innerHTML = '';
       SCOPES.forEach(function (s) {
-        chipRow.appendChild(h.chip(s.label, state[s.id], function (on) { state[s.id] = on; updateRisk(); }));
+        chipRow.appendChild(h.chip(s.label, state[s.id], function (on) { state[s.id] = on; updateRisk(); clearDecision(); }));
       });
     }
 
@@ -6240,6 +6282,7 @@ AcadLabs.register('lab-rogueapp', {
       h.row([h.chip('Admin policy: require approval for sensitive scopes', false, function (on) {
         adminPolicy = on;
         log.add('info', 'Admin-consent policy ' + (on ? 'ENABLED — sensitive grants now need an admin.' : 'disabled — users can grant broad scopes alone.'));
+        clearDecision();
       })]),
       h.row([h.button('Allow', 'danger', allow), h.button('Deny', 'primary', deny)]),
       out
@@ -6267,6 +6310,7 @@ AcadLabs.register('lab-cookietheft', {
     var safety = h.meter(0, 'bad');
     var safetyBadge = h.el('div', { class: 'acad-lab-row' });
     var log = h.logPanel();
+    var attacked = false;
 
     function show(node) { out.innerHTML = ''; out.appendChild(node); h.flash(out); }
 
@@ -6290,10 +6334,13 @@ AcadLabs.register('lab-cookietheft', {
       safetyBadge.innerHTML = '';
       safetyBadge.appendChild(h.badge('Session safety: ' + s + '%', kind));
       if (hardened()) safetyBadge.appendChild(h.badge('✅ fully hardened', 'ok'));
+      // Config just changed — an earlier attack's result no longer reflects it.
+      if (attacked) show(h.note('Config changed — re-run an attack to see the new outcome.'));
     }
 
     // Attack 1 — XSS tries to read document.cookie.
     function xss() {
+      attacked = true;
       if (cfg.httpOnly) {
         log.add('ok', 'XSS ran, but document.cookie is empty — HttpOnly hid the cookie from script.');
         show(h.httpCard({ method: 'SCRIPT', path: 'document.cookie', status: 200,
@@ -6309,6 +6356,7 @@ AcadLabs.register('lab-cookietheft', {
 
     // Attack 2 — attacker replays the stolen cookie from their own machine.
     function replay() {
+      attacked = true;
       if (!stolen) log.add('info', 'Attacker has no cookie yet — run the XSS attack first for the full story. Replaying a guessed copy anyway.');
       if (cfg.bind) {
         log.add('ok', 'Replay from the attacker’s machine → 401. The cookie is bound to Maya’s device key.');
@@ -6325,6 +6373,7 @@ AcadLabs.register('lab-cookietheft', {
 
     // Attack 3 — a malicious site auto-submits a cross-site request.
     function crossSite() {
+      attacked = true;
       if (cfg.sameSite === 'Strict' || cfg.sameSite === 'Lax') {
         log.add('ok', 'Cross-site auto-submit → the browser withheld the cookie (SameSite=' + cfg.sameSite + ').');
         show(h.httpCard({ method: 'POST', path: '/transfer', status: 401,
@@ -6401,6 +6450,11 @@ AcadLabs.register('lab-simswap', {
       strengthBadge.innerHTML = '';
       strengthBadge.appendChild(h.badge('Recovery strength: ' + s + '%', kind));
       if (!strong()) strengthBadge.appendChild(h.badge('⚠️ no phishing-resistant recovery', 'warn'));
+      // Recovery methods just changed — an earlier attack verdict no longer reflects them.
+      if (verdict.childNodes.length) {
+        verdict.innerHTML = '';
+        verdict.appendChild(h.note('Recovery methods changed — run the attempt again to see the new outcome.'));
+      }
     }
 
     // Walk the attacker down every ENABLED weak path, weakest first.
@@ -6953,6 +7007,11 @@ AcadLabs.register('lab-signup', {
       asrMeter.set(m.asr, kindFor(m.asr));
       convLbl.textContent = 'Conversion — ' + m.conv + '%';
       asrLbl.textContent = 'Assurance — ' + m.asr + '%';
+      // The form design just changed — the last funnel run no longer reflects it.
+      if (funnelOut.childNodes.length) {
+        funnelOut.innerHTML = '';
+        funnelOut.appendChild(h.note('Design changed — run the 100 signups again to see the new numbers.'));
+      }
     }
 
     function runSignups() {
@@ -7088,6 +7147,11 @@ AcadLabs.register('lab-recovery', {
       } else {
         meterLbl.textContent = 'Real recovery strength — ' + val + '% · set by the WEAKEST enabled ('
           + routes[w].label + '), even though your strongest is ' + routes[s].label;
+      }
+      // The enabled routes just changed — an earlier attack result no longer reflects them.
+      if (attackOut.childNodes.length) {
+        attackOut.innerHTML = '';
+        attackOut.appendChild(h.note('Routes changed — attack again to see the new outcome.'));
       }
     }
 
@@ -7800,6 +7864,11 @@ AcadLabs.register('lab-wif', {
       loosenBadge.innerHTML = '';
       if (anyRepo) loosenBadge.appendChild(h.badge('⛔ repo condition removed — forks now qualify', 'bad'));
       else loosenBadge.appendChild(h.badge('✓ repo pinned', 'ok'));
+      // The trust policy just changed — an earlier evaluation no longer reflects it.
+      if (resultBox.childNodes.length) {
+        resultBox.innerHTML = '';
+        resultBox.appendChild(h.note('Policy changed — send a token again to see the new outcome.'));
+      }
     }
 
     function evaluate(which) {
@@ -8095,6 +8164,11 @@ AcadLabs.register('lab-secrets', {
             mode = v; age = 0;
             log.add('info', 'Switched to ' + (v === 'dynamic' ? 'dynamic short-lived' : 'static long-lived') + ' secrets.');
             renderSecret();
+            // Secret type just changed — an earlier leak's blast radius no longer applies.
+            if (blastBox.childNodes.length) {
+              blastBox.innerHTML = '';
+              blastBox.appendChild(h.note('Secret type changed — leak it again to see the new blast radius.'));
+            }
           })),
           ageMeter.root,
           secretBox
@@ -8154,6 +8228,11 @@ AcadLabs.register('lab-crossacct', {
       else if (who === 'anyA') policyBox.appendChild(h.badge('trusts a whole account, no principal named', 'warn'));
       else policyBox.appendChild(h.badge('names one specific principal', 'ok'));
       policyBox.appendChild(h.badge(requireCond ? 'external condition required ✓' : 'no condition', requireCond ? 'ok' : 'warn'));
+      // The trust policy just changed — the last attempt's verdict no longer reflects it.
+      if (out.childNodes.length) {
+        out.innerHTML = '';
+        out.appendChild(h.note('Policy changed — fire an attempt again to see the new outcome.'));
+      }
     }
 
     // caller: 'legit' (named principal in A) | 'attacker' (third account) | 'deputy' (privileged multi-tenant workload in A, tricked)
@@ -8293,6 +8372,11 @@ AcadLabs.register('lab-trim', {
       renderChips();
       var t = tightness();
       lpMeter.set(t, t >= 100 ? 'ok' : (t >= 60 ? 'warn' : 'bad'));
+      // The policy just changed — an earlier takeover result no longer reflects it.
+      if (out.childNodes.length) {
+        out.innerHTML = '';
+        out.appendChild(h.note('Policy changed — run the takeover again to see the new blast radius.'));
+      }
     }
 
     function trim() {
@@ -8391,6 +8475,7 @@ AcadLabs.register('lab-bff', {
     var meter = h.meter(100, 'bad');
     var whereBox = h.el('div', {});
     var out = h.stage(h.note('Pick a design, then launch an attack. The event log keeps every result.'));
+    var attacked = false;
 
     function show(node) { out.innerHTML = ''; out.appendChild(node); h.flash(out); }
 
@@ -8403,9 +8488,12 @@ AcadLabs.register('lab-bff', {
         h.badge('browser exposure ' + d.exposure + '%', d.exposure >= 90 ? 'bad' : (d.exposure >= 40 ? 'warn' : 'ok')),
         h.badge(d.exposure >= 90 ? 'one script = game over' : 'XSS finds nothing worth stealing', d.exposure >= 90 ? 'bad' : 'ok')
       ]));
+      // Design just changed — an earlier attack's outcome no longer reflects it.
+      if (attacked) show(h.note('Design changed — fire an attack again to see the new outcome.'));
     }
 
     function fire(attack, label) {
+      attacked = true;
       var d = DESIGNS[current];
       var r = d[attack];
       var icon = r.kind === 'ok' ? '✅' : '⛔';
@@ -8539,7 +8627,11 @@ AcadLabs.register('lab-meshauth', {
             { value: 'forward', label: 'Forward the user’s original token everywhere', selected: true },
             { value: 'exchange', label: 'Token exchange per hop' },
             { value: 'none', label: 'No identity — trust the network' }
-          ], function (v) { strategy = v; log.add('info', 'Strategy: ' + STRAT[v].name); renderBlast(); })),
+          ], function (v) {
+            strategy = v; log.add('info', 'Strategy: ' + STRAT[v].name); renderBlast();
+            // The propagation strategy just changed — the last hop trail no longer reflects it.
+            out.innerHTML = ''; out.appendChild(h.note('Strategy changed — send the request again to see the new hop trail.'));
+          })),
           h.button('Send the request →', 'primary', send)
         ]),
         h.panel('💥 A service is compromised', [
@@ -8743,6 +8835,11 @@ AcadLabs.register('lab-lifetimes', {
       atkMeter.set(atkPct(w), atkKind(w));
       var f = friction();
       friMeter.set(f, friKind(f));
+      // A dial just moved — an earlier replay result no longer reflects it.
+      if (replayOut.childNodes.length) {
+        replayOut.innerHTML = '';
+        replayOut.appendChild(h.note('Dials changed — replay again to see the new outcome.'));
+      }
     }
 
     function minutesLabel(m) {
@@ -8821,7 +8918,13 @@ AcadLabs.register('lab-lifetimes', {
             { value: '30', label: 'T + 30 min', selected: true },
             { value: '360', label: 'T + 6 hours' },
             { value: '4320', label: 'T + 3 days' }
-          ], function (v) { replayAt = +v; })),
+          ], function (v) {
+            replayAt = +v;
+            if (replayOut.childNodes.length) {
+              replayOut.innerHTML = '';
+              replayOut.appendChild(h.note('Replay time changed — replay again to see the new outcome.'));
+            }
+          })),
           h.button('Replay stolen token', 'danger', replay),
           replayOut
         ])
@@ -9543,6 +9646,14 @@ AcadLabs.register('lab-magic', {
       out.appendChild(h.note(noteText));
     }
 
+    // A setting just changed, so any earlier attack/click verdict no longer
+    // reflects it — clear the stale badge instead of leaving it looking current.
+    function clearResult() {
+      if (!out.childNodes.length) return;
+      out.innerHTML = '';
+      out.appendChild(h.note('Settings changed — run it again to see the new outcome.'));
+    }
+
     function requestLink() {
       issued++;
       link = { token: 'mlk_' + ('000' + issued).slice(-3) + 'a9f3c7e21b', code: ('00000' + (issued * 137 % 1000000)).slice(-6), spent: false };
@@ -9621,10 +9732,10 @@ AcadLabs.register('lab-magic', {
     root.appendChild(h.row([
       h.col([
         h.panel('Magic-link settings', [
-          h.chip('Single-use token', cfg.singleUse, function (v) { cfg.singleUse = v; log.add('info', 'single-use = ' + v); renderLink(); }),
-          h.chip('Short expiry (10 min)', cfg.shortExpiry, function (v) { cfg.shortExpiry = v; log.add('info', 'short-expiry = ' + v); renderLink(); }),
-          h.chip('Same-device binding', cfg.sameDevice, function (v) { cfg.sameDevice = v; log.add('info', 'same-device binding = ' + v); renderLink(); }),
-          h.chip('Fallback: type a 6-digit code', cfg.codeFallback, function (v) { cfg.codeFallback = v; log.add('info', 'code fallback = ' + v); renderLink(); }),
+          h.chip('Single-use token', cfg.singleUse, function (v) { cfg.singleUse = v; log.add('info', 'single-use = ' + v); renderLink(); clearResult(); }),
+          h.chip('Short expiry (10 min)', cfg.shortExpiry, function (v) { cfg.shortExpiry = v; log.add('info', 'short-expiry = ' + v); renderLink(); clearResult(); }),
+          h.chip('Same-device binding', cfg.sameDevice, function (v) { cfg.sameDevice = v; log.add('info', 'same-device binding = ' + v); renderLink(); clearResult(); }),
+          h.chip('Fallback: type a 6-digit code', cfg.codeFallback, function (v) { cfg.codeFallback = v; log.add('info', 'code fallback = ' + v); renderLink(); clearResult(); }),
           h.button('Maya requests a link', 'primary', requestLink),
           h.button('Maya clicks the fresh link', '', mayaClicks)
         ]),
@@ -9715,7 +9826,14 @@ AcadLabs.register('lab-idv', {
       }
     }
     root.appendChild(h.panel('Deepfake selfie vs. liveness (the level-3 check)', [
-      h.chip('Active liveness challenge on', liveness, function (v) { liveness = v; log.add('info', 'liveness challenge = ' + v); }),
+      h.chip('Active liveness challenge on', liveness, function (v) {
+        liveness = v; log.add('info', 'liveness challenge = ' + v);
+        // Liveness just toggled — an earlier deepfake verdict no longer reflects it.
+        if (dfOut.childNodes.length) {
+          dfOut.innerHTML = '';
+          dfOut.appendChild(h.note('Setting changed — submit the deepfake again to see the new outcome.'));
+        }
+      }),
       h.button('Submit a deepfake selfie', 'danger', deepfake),
       dfOut
     ]));
