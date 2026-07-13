@@ -4258,17 +4258,16 @@ html.acad-hash-boot #acadReader { display: none !important; }
 .acad-boot-loader-card { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 2rem; }
 .acad-boot-shield {
   position: relative;
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   background: color-mix(in srgb, var(--acad-actor) 12%, transparent);
-  color: var(--acad-actor);
-  font-size: 1.9rem;
   animation: acadBootPulse 1.6s ease-in-out infinite;
 }
+.acad-boot-shield img { width: 34px; height: 34px; display: block; }
 .acad-boot-scan {
   position: absolute;
   inset: -6px;
@@ -4279,22 +4278,8 @@ html.acad-hash-boot #acadReader { display: none !important; }
 }
 @keyframes acadBootPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 @keyframes acadBootRing { 0% { transform: scale(0.8); opacity: 0.6; } 100% { transform: scale(1.5); opacity: 0; } }
-.acad-boot-loader-text {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--acad-ink);
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-}
-.acad-boot-dots span { animation: acadBootDot 1.4s infinite; opacity: 0; }
-.acad-boot-dots span:nth-child(2) { animation-delay: 0.2s; }
-.acad-boot-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes acadBootDot { 0%, 20% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .acad-boot-shield, .acad-boot-scan, .acad-boot-dots span { animation: none; }
+  .acad-boot-shield, .acad-boot-scan { animation: none; }
 }
 
 body {
