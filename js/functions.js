@@ -428,10 +428,10 @@ function initAcademy() {
     foundations: 'Track 1 · Foundations',
     authn: 'Track 2 · Modern Authentication',
     tokens: 'Track 3 · Token Security',
-    ai: 'Track 4 · AI & Agents',
-    ops: 'Track 5 · Identity Operations',
-    authz: 'Track 6 · Authorization & API Security',
-    proto: 'Track 7 · Protocols & Federation',
+    authz: 'Track 4 · Authorization & API Security',
+    proto: 'Track 5 · Protocols & Federation',
+    ai: 'Track 6 · AI & Agents',
+    ops: 'Track 7 · Identity Operations',
     atk: 'Track 8 · Identity Attacks & Defenses',
     ciam: 'Track 9 · Customer Identity (CIAM)',
     cloud: 'Track 10 · Cloud & Workload Identity',
@@ -661,7 +661,7 @@ function initAcademy() {
     { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
     { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in five real-world scenarios, then pick the fix.' },
     { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 25-question exam pulled from every track. Score 80%+ to unlock a certificate you can download.' },
-    { selector: '.acad-hub-foot', title: 'Your progress', text: 'Everything lives in your browser — reset a single track, export/import progress, or replay this tour anytime from the button up top.' }
+    { selector: '.acad-hub-foot', title: 'Your progress', text: 'Everything lives in your browser — reset a single track, or replay this tour anytime from the button up top.' }
   ];
   let acadTourActive = false;
   let acadTourStep = 0;
@@ -889,69 +889,9 @@ function initAcademy() {
     updateProgress();
   }
 
-  const resetAllBtn = document.getElementById('acadResetAll');
   document.querySelectorAll('.acad-reset-all').forEach(function (btn) {
     btn.addEventListener('click', resetAllProgress);
   });
-
-  // Progress export / import — portability without accounts (all client-side).
-  const KEY_EXAM = 'acad_exam';
-  if (resetAllBtn && resetAllBtn.parentNode) {
-    const foot = resetAllBtn.parentNode;
-
-    const exportBtn = document.createElement('button');
-    exportBtn.type = 'button';
-    exportBtn.id = 'acadExport';
-    exportBtn.textContent = '⬇ Export progress';
-    exportBtn.addEventListener('click', function () {
-      let data = { v: 1, read: [], quiz: {}, exam: null };
-      try { data.read = JSON.parse(localStorage.getItem(KEY_READ) || '[]'); } catch (e) {}
-      try { data.quiz = JSON.parse(localStorage.getItem(KEY_QUIZ) || '{}'); } catch (e) {}
-      try { data.exam = JSON.parse(localStorage.getItem(KEY_EXAM) || 'null'); } catch (e) {}
-      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'integrauth-academy-progress.json';
-      a.click();
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-    });
-
-    const importInput = document.createElement('input');
-    importInput.type = 'file';
-    importInput.accept = 'application/json,.json';
-    importInput.style.display = 'none';
-    importInput.addEventListener('change', function () {
-      const file = importInput.files && importInput.files[0];
-      if (!file) return;
-      const fr = new FileReader();
-      fr.onload = function () {
-        let data;
-        try { data = JSON.parse(fr.result); } catch (e) { window.alert('That file is not valid Academy progress.'); return; }
-        if (!data || !Array.isArray(data.read)) { window.alert('That file is not valid Academy progress.'); return; }
-        if (!window.confirm('Restore progress from this file? It replaces your current progress on this device.')) { importInput.value = ''; return; }
-        try {
-          localStorage.setItem(KEY_READ, JSON.stringify(data.read));
-          localStorage.setItem(KEY_QUIZ, JSON.stringify(data.quiz || {}));
-          if (data.exam) localStorage.setItem(KEY_EXAM, JSON.stringify(data.exam));
-        } catch (e) {}
-        document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
-        updateProgress();
-        importInput.value = '';
-        window.alert('Progress restored — ' + data.read.length + ' lessons marked read.');
-      };
-      fr.readAsText(file);
-    });
-
-    const importBtn = document.createElement('button');
-    importBtn.type = 'button';
-    importBtn.id = 'acadImport';
-    importBtn.textContent = '⬆ Import progress';
-    importBtn.addEventListener('click', function () { importInput.click(); });
-
-    foot.appendChild(exportBtn);
-    foot.appendChild(importBtn);
-    foot.appendChild(importInput);
-  }
 
   window.addEventListener('hashchange', function () {
     const id = location.hash.slice(1);

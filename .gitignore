@@ -43,3 +43,6 @@ coverage/
 
 # Internal product planning docs (never deploy to public site)
 product-plans/
+
+# Personal dev notes / test commands (never deploy to public site)
+dev-notes/
