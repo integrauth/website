@@ -2860,7 +2860,7 @@ AcadLabs.register('lab-standards', {
     var scoreBadge = h.badge('Score 0 / ' + scen.length, 'info');
     var qBox = h.el('div', { class: 'acad-lab-stage' });
     var btnBox = h.el('div', { class: 'acad-lab-row' });
-    var fbBox = h.el('div', {});
+    var fbBox = h.el('div', { class: 'acad-lab-row' });
 
     function draw() {
       answered = false;
@@ -3110,7 +3110,7 @@ AcadLabs.register('lab-botcheck', {
     var scoreBadge = h.badge('Score 0 / ' + clients.length, 'info');
     var sheetBox = h.el('div', { class: 'acad-lab-stage' });
     var btnBox = h.el('div', { class: 'acad-lab-row' });
-    var fbBox = h.el('div', {});
+    var fbBox = h.el('div', { class: 'acad-lab-row' });
 
     function draw() {
       answered = false;
