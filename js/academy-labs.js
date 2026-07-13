@@ -9889,6 +9889,10 @@ AcadLabs.register('lab-recon', {
     var flagBox = h.el('div', {});
     var mtr = h.meter(0, 'info');
     var mtrLabel = h.el('span', { class: 'acad-lab-badge neutral' }, 'Run reconciliation to measure drift');
+    // Duplicated below the Discrepancies panel too — that list can run long, and the meter
+    // at the top scrolls out of view right when a remediation choice would move it.
+    var mtr2 = h.meter(0, 'info');
+    var mtrLabel2 = h.el('span', { class: 'acad-lab-badge neutral' }, 'Run reconciliation to measure drift');
 
     // Classify one account against the directory (seenOwners threads across the loop).
     function classify(a, seenOwners) {
@@ -9909,9 +9913,11 @@ AcadLabs.register('lab-recon', {
       var pct = totalRisk ? Math.round((open / totalRisk) * 100) : 0;
       var kind = pct === 0 ? 'ok' : (pct > 50 ? 'bad' : 'warn');
       mtr.set(pct, kind);
-      mtrLabel.className = 'acad-lab-badge ' + kind;
-      if (!flags) { mtrLabel.textContent = 'Run reconciliation to measure drift'; return; }
-      mtrLabel.textContent = pct === 0 ? '✅ Drift closed — 0% risk remaining' : ('Drift: ' + pct + '% risk still open');
+      mtr2.set(pct, kind);
+      mtrLabel.className = mtrLabel2.className = 'acad-lab-badge ' + kind;
+      var text = !flags ? 'Run reconciliation to measure drift'
+        : pct === 0 ? '✅ Drift closed — 0% risk remaining' : ('Drift: ' + pct + '% risk still open');
+      mtrLabel.textContent = mtrLabel2.textContent = text;
     }
 
     function apply(f, choice) {
@@ -9989,6 +9995,7 @@ AcadLabs.register('lab-recon', {
     root.appendChild(h.panel('Drift meter', [mtr.root, h.row([mtrLabel])]));
     root.appendChild(h.button('Run reconciliation', 'primary', runRecon));
     root.appendChild(h.panel('Discrepancies — choose a remediation for each', [flagBox]));
+    root.appendChild(h.panel('Drift meter', [mtr2.root, h.row([mtrLabel2])]));
     root.appendChild(h.panel('Event log', [log.root]));
     renderFlags();
     log.add('info', 'Priya left 3 months ago but an app account still works. Run reconciliation to find every account that drifted out of sync.');

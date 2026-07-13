@@ -4308,6 +4308,7 @@ rect.ax-bad { fill: var(--acad-bad); }
 line.ax-bad, path.ax-bad { stroke: var(--acad-bad); fill: none; }
 text.ax-bad { fill: var(--acad-bad); stroke: none; }
 .ax-atext { fill: var(--acad-atext); }
+.ax-em-ink { fill: var(--acad-em-ink); }
 .ax-life { stroke: var(--acad-line); }
 .ax-life line { stroke: var(--acad-line); }
 .ax-msg { stroke: var(--acad-ink); fill: none; }
