@@ -576,7 +576,19 @@ function initAcademy() {
       b.type = 'button';
       b.className = 'acad-page-btn';
       b.setAttribute('data-goto', prev.id);
-      b.textContent = '← ' + prev.getAttribute('data-title');
+      const prevTrack = trackOf(prev);
+      if (prevTrack !== trackOf(lesson)) {
+        const track = document.createElement('span');
+        track.className = 'acad-page-track';
+        track.textContent = TRACK_LABELS[prevTrack] || prevTrack;
+        const title = document.createElement('span');
+        title.className = 'acad-page-title';
+        title.textContent = '← ' + prev.getAttribute('data-title');
+        b.appendChild(track);
+        b.appendChild(title);
+      } else {
+        b.textContent = '← ' + prev.getAttribute('data-title');
+      }
       pager.appendChild(b);
     } else {
       pager.appendChild(document.createElement('span'));

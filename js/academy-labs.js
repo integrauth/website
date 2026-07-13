@@ -9557,19 +9557,21 @@ AcadLabs.register('lab-audittrail', {
     var sealed = [];
     (function () { var prev = 'genesis'; events.forEach(function (e) { var s = hh(prev + rowStr(e)); sealed.push(s); prev = s; }); })();
 
-    var listBox = h.el('div', {});
+    var listBox = h.el('div', { class: 'acad-lab-stack' });
     function draw() {
       listBox.innerHTML = '';
       var prev = 'genesis';
       events.forEach(function (e, i) {
         var live = hh(prev + rowStr(e)); prev = live;
         var broken = live !== sealed[i];
-        var line = h.el('div', { class: 'acad-lab-row' }, [
+        var infoRow = h.el('div', { class: 'acad-lab-row' }, [
           h.badge('#' + e.n, broken ? 'bad' : 'neutral'),
           h.el('span', {}, 'agent:' + e.agent + ' · for ' + e.obo + ' · ' + e.action + ' ' + e.amount + ' · approval ' + e.appr + ' · ' + e.outcome),
           h.badge(broken ? '✗ tamper' : 'hash ' + sealed[i], broken ? 'bad' : 'ok')
         ]);
-        if (!found) line.appendChild(h.button('flag as suspicious', 'ghost', function () { investigate(e); }));
+        var kids = [infoRow];
+        if (!found) kids.push(h.button('🚩 Flag as suspicious', '', function () { investigate(e); }));
+        var line = h.el('div', { class: 'acad-lab-audit-entry' }, kids);
         listBox.appendChild(line);
       });
     }
