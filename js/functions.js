@@ -650,7 +650,7 @@ function initAcademy() {
     toast.setAttribute('role', 'status');
     toast.innerHTML =
       '<span>New lessons &amp; fixes are available.</span>' +
-      '<button type="button" class="acad-update-reload">Reload</button>' +
+      '<button type="button" class="acad-update-reload">&#8635; Reload</button>' +
       '<button type="button" class="acad-update-dismiss" aria-label="Dismiss">&times;</button>';
     toast.querySelector('.acad-update-reload').addEventListener('click', function () { location.reload(); });
     toast.querySelector('.acad-update-dismiss').addEventListener('click', function () { toast.remove(); });

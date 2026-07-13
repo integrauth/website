@@ -4248,6 +4248,7 @@ body {
   --acad-human: #764ba2;
   --acad-bad: #dc2626;
   --acad-em: #059669;
+  --acad-em-ink: #ffffff;
   --acad-atext: #ffffff;
   --acad-fig-bg: #ffffff;
   --acad-panel: rgba(255, 255, 255, 0.95);
@@ -4263,6 +4264,7 @@ body.bg-dark {
   --acad-human: #7c3aed;
   --acad-bad: #ef4444;
   --acad-em: #34d399;
+  --acad-em-ink: #052e1f;
   --acad-fig-bg: #0f172a;
   --acad-panel: rgba(30, 41, 59, 0.75);
   --acad-panel-border: rgba(165, 180, 252, 0.25);
@@ -4277,6 +4279,7 @@ body.theme-contrast {
   --acad-human: #4c1d95;
   --acad-bad: #b91c1c;
   --acad-em: #065f46;
+  --acad-em-ink: #ffffff;
   --acad-fig-bg: #ffffff;
   --acad-panel: #ffffff;
   --acad-panel-border: #000000;
@@ -4291,6 +4294,7 @@ body.theme-cyber {
   --acad-human: #6d28d9;
   --acad-bad: #f87171;
   --acad-em: #22d3ee;
+  --acad-em-ink: #062a30;
   --acad-fig-bg: #020617;
   --acad-panel: rgba(15, 23, 42, 0.85);
   --acad-panel-border: rgba(34, 211, 238, 0.25);
@@ -4679,6 +4683,7 @@ body.theme-contrast .acad-hero {
   background: var(--acad-panel);
   border: 1px solid var(--acad-panel-border);
   border-radius: var(--radius-lg);
+  border-left: 3px solid var(--acad-em);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(10px);
   color: var(--acad-ink);
@@ -4695,16 +4700,24 @@ body.theme-contrast .acad-hero {
   appearance: none;
   border: none;
   border-radius: 999px;
-  padding: 0.4rem 0.95rem;
-  background: var(--acad-actor);
-  color: #fff;
-  font-weight: 700;
-  font-size: 0.85rem;
+  padding: 0.5rem 1.15rem;
+  background: var(--acad-em);
+  color: var(--acad-em-ink);
+  font-weight: 800;
+  font-size: 0.9rem;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--acad-actor) 55%, transparent);
+  animation: acadReloadPulse 1.7s ease-out 3;
 }
 
 .acad-update-reload:hover { filter: brightness(1.1); }
+
+@keyframes acadReloadPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acad-actor) 55%, transparent); }
+  70% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--acad-actor) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acad-actor) 0%, transparent); }
+}
 
 .acad-update-dismiss {
   appearance: none;
@@ -4743,6 +4756,8 @@ body.theme-contrast .acad-hero {
 @media (prefers-reduced-motion: reduce) {
   .acad-lesson.is-active { animation: none; }
   .acad-hero { animation: none; }
+  .acad-update-toast { animation: none; }
+  .acad-update-reload { animation: none; }
 }
 
 .acad-chnum {
