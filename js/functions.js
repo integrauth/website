@@ -1022,6 +1022,44 @@ function initAcademy() {
     enhance();
   })();
 
+  // Live-update check: GitHub Pages is static (no push channel), so poll a
+  // tiny version marker and offer a reload. Progress lives in localStorage,
+  // so a reload never loses anything — safe to prompt at any point.
+  (function () {
+    const buildMeta = document.querySelector('meta[name="acad-build"]');
+    if (!buildMeta) return;
+    const currentBuild = buildMeta.content;
+    let settled = false; // stop polling once a toast has been shown or dismissed
+
+    function showUpdateToast() {
+      if (settled) return;
+      settled = true;
+      const toast = document.createElement('div');
+      toast.className = 'acad-update-toast';
+      toast.setAttribute('role', 'status');
+      toast.innerHTML =
+        '<span>New lessons &amp; fixes are available.</span>' +
+        '<button type="button" class="acad-update-reload">Reload</button>' +
+        '<button type="button" class="acad-update-dismiss" aria-label="Dismiss">&times;</button>';
+      toast.querySelector('.acad-update-reload').addEventListener('click', function () { location.reload(); });
+      toast.querySelector('.acad-update-dismiss').addEventListener('click', function () { toast.remove(); });
+      document.body.appendChild(toast);
+    }
+
+    function checkForUpdate() {
+      if (settled) return;
+      fetch('/academy-version.txt', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.text() : null; })
+        .then(function (v) { if (v && v.trim() && v.trim() !== currentBuild) showUpdateToast(); })
+        .catch(function () {});
+    }
+
+    setInterval(checkForUpdate, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') checkForUpdate();
+    });
+  })();
+
   // Boot: URL hash wins > saved position > hub
   const initial = location.hash.slice(1);
   if (initial && byId[initial]) {

@@ -4664,6 +4664,65 @@ body.theme-contrast .acad-hero {
   display: block;
 }
 
+/* --- Live-update toast --- */
+.acad-update-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: calc(100% - 2rem);
+  padding: 0.7rem 0.9rem 0.7rem 1.1rem;
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(10px);
+  color: var(--acad-ink);
+  font-size: 0.9rem;
+  animation: acadToastIn 0.3s ease;
+}
+
+@keyframes acadToastIn {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.acad-update-reload {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.95rem;
+  background: var(--acad-actor);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.acad-update-reload:hover { filter: brightness(1.1); }
+
+.acad-update-dismiss {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--acad-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+}
+
+.acad-update-dismiss:hover { color: var(--acad-ink); }
+
+@media (max-width: 560px) {
+  .acad-update-toast { left: 1rem; right: 1rem; bottom: 1rem; transform: none; max-width: none; }
+}
+
 /* --- Lesson content --- */
 .acad-lesson {
   display: none;
@@ -5357,7 +5416,7 @@ body.theme-cyber .acad-lab { --acad-warn: #fbbf24; }
 .acad-lab-btn.ghost { border-style: dashed; color: var(--acad-muted); }
 .acad-lab-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .acad-lab-btn:focus-visible, .acad-lab-chip:focus-visible, .acad-lab-reset:focus-visible,
-.acad-lab-input:focus-visible {
+.acad-lab-input:focus-visible, .acad-update-reload:focus-visible, .acad-update-dismiss:focus-visible {
   outline: 2px solid var(--acad-actor);
   outline-offset: 2px;
 }
