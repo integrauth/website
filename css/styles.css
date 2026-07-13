@@ -5587,7 +5587,8 @@ body.theme-cyber .acad-lab { --acad-warn: #fbbf24; }
 .acad-lab-btn.ghost { border-style: dashed; color: var(--acad-muted); }
 .acad-lab-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .acad-lab-btn:focus-visible, .acad-lab-chip:focus-visible, .acad-lab-reset:focus-visible,
-.acad-lab-input:focus-visible, .acad-update-reload:focus-visible, .acad-update-dismiss:focus-visible {
+.acad-lab-input:focus-visible, .acad-update-reload:focus-visible, .acad-update-dismiss:focus-visible,
+.acad-lab-copy-btn:focus-visible {
   outline: 2px solid var(--acad-actor);
   outline-offset: 2px;
 }
@@ -5662,6 +5663,29 @@ textarea.acad-lab-input { font-family: ui-monospace, SFMono-Regular, Menlo, Cons
 body.theme-contrast .acad-lab-token .seg-h { color: #1d4ed8; }
 body.theme-contrast .acad-lab-token .seg-p { color: #6d28d9; }
 body.theme-contrast .acad-lab-token .seg-s { color: #065f46; }
+
+.acad-lab-code-copy { display: flex; align-items: stretch; gap: 0.4rem; }
+.acad-lab-code-copy .acad-lab-token { flex: 1 1 auto; min-width: 0; margin: 0; }
+.acad-lab-copy-btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--acad-line);
+  background: var(--acad-fig-bg);
+  color: var(--acad-muted);
+  border-radius: 8px;
+  padding: 0 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+.acad-lab-copy-btn:hover { border-color: var(--acad-actor); color: var(--acad-actor); }
+.acad-lab-copy-btn:active { transform: scale(0.94); }
+.acad-lab-copy-btn.ok { border-color: var(--acad-em); color: var(--acad-em); }
+.acad-lab-copy-btn.bad { border-color: var(--acad-bad); color: var(--acad-bad); }
 
 .acad-lab-json {
   margin: 0;

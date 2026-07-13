@@ -173,6 +173,50 @@
     } catch (e) { return null; }
   }
 
+  function copyToClipboard(text, btn) {
+    function done(ok) {
+      btn.textContent = ok ? '✓' : '⚠';
+      btn.classList.add(ok ? 'ok' : 'bad');
+      setTimeout(function () {
+        btn.textContent = '⧉';
+        btn.classList.remove('ok', 'bad');
+      }, 1200);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+      return;
+    }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      done(ok);
+    } catch (e) { done(false); }
+  }
+
+  // getText may be a string or a function evaluated at click time (for values that change, e.g. a ticking TOTP code).
+  function copyBtn(getText) {
+    var btn = el('button', { type: 'button', class: 'acad-lab-copy-btn', 'aria-label': 'Copy to clipboard', title: 'Copy' }, '⧉');
+    btn.addEventListener('click', function () {
+      copyToClipboard(String(typeof getText === 'function' ? getText() : getText), btn);
+    });
+    return btn;
+  }
+
+  // Wraps a code/token element together with a copy button that always copies its live textContent.
+  function codeCopyWrap(codeEl) {
+    return el('div', { class: 'acad-lab-code-copy' }, [codeEl, copyBtn(function () { return codeEl.textContent; })]);
+  }
+
+  function codeCopy(text) {
+    return codeCopyWrap(el('code', { class: 'acad-lab-token' }, text));
+  }
+
   function tokenView(token) {
     var parts = String(token || '').split('.');
     var segs = ['seg-h', 'seg-p', 'seg-s'];
@@ -181,7 +225,7 @@
       if (i) codeEl.appendChild(el('span', { class: 'seg-dot' }, '.'));
       codeEl.appendChild(el('span', { class: segs[i] || 'seg-s' }, p));
     });
-    return codeEl;
+    return codeCopyWrap(codeEl);
   }
 
   function jsonView(obj) {
@@ -426,6 +470,7 @@
       field: field, select: select, input: input, chip: chip, stage: stage,
       fakeJwt: fakeJwt, verifyJwt: verifyJwt, decodeJwt: decodeJwt,
       tokenView: tokenView, jsonView: jsonView, rand: rand,
+      copyBtn: copyBtn, codeCopy: codeCopy,
       httpCard: httpCard, logPanel: logPanel, meter: meter, flash: flash,
       flowPlayer: function (ref, opts) { return buildFlowPlayer(ref, opts, ctx); },
       interval: function (fn, ms) {
@@ -1044,6 +1089,7 @@ AcadLabs.register('lab-totp', {
     }
 
     var codeEl = h.el('code', { class: 'acad-lab-token' }, '••• •••');
+    var codeWrap = h.el('div', { class: 'acad-lab-code-copy' }, [codeEl, h.copyBtn(function () { return codeEl.textContent; })]);
     var secsEl = h.el('span', {}, '30s');
     var countdown = h.meter(100, 'info');
 
@@ -1086,7 +1132,7 @@ AcadLabs.register('lab-totp', {
           h.jsonView({ base32: base32(secret).replace(/.{4}/g, '$& ').trim(), algorithm: 'SHA-1', digits: 6, period: 30 })
         ]),
         h.panel('📟 Current code', [
-          codeEl,
+          codeWrap,
           h.row([h.badge('changes every 30s', 'info'), secsEl]),
           countdown.root,
           h.note('code = HMAC-SHA1(secret, floor(unixtime / 30)) → dynamic truncation → 6 digits.')
@@ -1232,7 +1278,7 @@ AcadLabs.register('lab-rotation', {
       family.forEach(function (t) {
         var kind = t.status === 'active' ? 'ok' : (t.status === 'stale' ? 'warn' : 'bad');
         var label = t.status === 'active'
-          ? h.el('code', { class: 'acad-lab-token' }, t.id)
+          ? h.codeCopy(t.id)
           : h.el('del', {}, h.el('code', { class: 'acad-lab-token' }, t.id));
         familyBox.appendChild(h.row([label, h.badge(t.status, kind)]));
       });
@@ -2241,7 +2287,7 @@ AcadLabs.register('lab-push', {
       loginSlot.innerHTML = '';
       loginSlot.appendChild(h.badge('Priya is signing in', 'info'));
       loginSlot.appendChild(h.note('Enter this number on your phone:'));
-      loginSlot.appendChild(h.el('code', { class: 'acad-lab-token' }, String(correct)));
+      loginSlot.appendChild(h.codeCopy(String(correct)));
       h.flash(loginSlot);
 
       phoneSlot.innerHTML = '';
@@ -5577,7 +5623,7 @@ AcadLabs.register('lab-device', {
       tvOut.innerHTML = '';
       codeBox.innerHTML = '';
       codeBox.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Go to idp.example/device and enter:'));
-      codeBox.appendChild(h.el('code', { class: 'acad-lab-token' }, userCode));
+      codeBox.appendChild(h.codeCopy(userCode));
       expiry.set(100, 'ok');
       log.add('info', 'TV: POST /device_authorization → user_code ' + userCode + ' + device_code (secret), interval=2.5s.');
       pollId = h.interval(poll, 2500);
@@ -7989,7 +8035,7 @@ AcadLabs.register('lab-svid', {
       box.innerHTML = '';
       if (!w.svid) { box.appendChild(h.note('Not started — no identity yet.')); m.set(0, 'neutral'); return; }
       box.appendChild(h.badge(w.valid ? '✓ valid SVID' : '⛔ expired', w.valid ? 'ok' : 'bad'));
-      box.appendChild(h.el('code', { class: 'acad-lab-token' }, w.svid));
+      box.appendChild(h.codeCopy(w.svid));
       box.appendChild(h.note('X.509-SVID · gen ' + w.gen + ' · ttl ' + (w.valid ? w.ttl + 's' : '0s')));
       m.set(w.valid ? (w.ttl / LIFE) * 100 : 0, !w.valid ? 'bad' : (w.ttl <= 5 ? 'warn' : 'ok'));
     }
@@ -8099,7 +8145,7 @@ AcadLabs.register('lab-secrets', {
     function renderSecret() {
       secretBox.innerHTML = '';
       secretBox.appendChild(h.badge(mode === 'dynamic' ? 'dynamic · short-lived' : 'static · long-lived', mode === 'dynamic' ? 'ok' : 'warn'));
-      secretBox.appendChild(h.el('code', { class: 'acad-lab-token' }, secretVal()));
+      secretBox.appendChild(h.codeCopy(secretVal()));
       var life = mode === 'dynamic' ? (DYN_LIFE + 's ttl') : 'no expiry';
       secretBox.appendChild(h.note('Database credential · v' + version + ' · age ' + age + 's · ' + life));
       if (mode === 'dynamic') {
