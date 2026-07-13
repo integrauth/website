@@ -5906,8 +5906,8 @@ AcadLabs.register('lab-wellknown', {
     };
 
     var current = 'good1';
-    var docBox = h.el('div', {});
-    var qBox = h.el('div', {});
+    var docBox = h.el('div', { class: 'acad-lab-col' });
+    var qBox = h.el('div', { class: 'acad-lab-col' });
 
     function showDoc() {
       var entry = DOCS[current];
@@ -5945,7 +5945,7 @@ AcadLabs.register('lab-wellknown', {
     var OLD = { kty: 'RSA', use: 'sig', alg: 'RS256', kid: '2026-01', n: 'sim-9f3c1a…', e: 'AQAB' };
     var NEW = { kty: 'RSA', use: 'sig', alg: 'RS256', kid: '2026-07', n: 'sim-b7e044…', e: 'AQAB' };
     var rotState = 0; // 0 = only old, 1 = both published, 2 = old retired
-    var jwksBox = h.el('div', {});
+    var jwksBox = h.el('div', { class: 'acad-lab-col' });
     var rotBtn = h.button('Publish the new signing key', 'primary', rotate);
 
     function keys() {
@@ -6235,7 +6235,7 @@ AcadLabs.register('lab-rogueapp', {
     var m = h.meter(0, 'bad');
     var riskBadge = h.el('span', {});
     var out = h.el('div', {});
-    var grantsBox = h.el('div', {});
+    var grantsBox = h.el('div', { class: 'acad-lab-col' });
     var log = h.logPanel();
 
     function requested() { return SCOPES.filter(function (s) { return state[s.id]; }); }
@@ -6313,7 +6313,10 @@ AcadLabs.register('lab-rogueapp', {
           log.add('ok', 'Revoked ' + g.app + ' — its tokens are now dead, reset or not.');
           renderGrants();
         });
-        grantsBox.appendChild(h.row([h.badge(g.app, 'warn'), g.scope, revoke]));
+        grantsBox.appendChild(h.el('div', { class: 'acad-lab-grant-row' }, [
+          h.el('div', { class: 'acad-lab-grant-info' }, [h.badge(g.app, 'warn'), h.el('span', { class: 'acad-lab-grant-scope' }, g.scope)]),
+          revoke
+        ]));
       });
     }
 

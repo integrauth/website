@@ -4317,6 +4317,7 @@ text.ax-bad { fill: var(--acad-bad); stroke: none; }
 .ax-ret line, .ax-ret path { stroke: var(--acad-muted); fill: none; }
 .ax-note { fill: var(--acad-ink); }
 .ax-note text { fill: var(--acad-ink); }
+rect.ax-note { fill: none; stroke: var(--acad-line); }
 .ax-em { fill: var(--acad-em); font-weight: 700; }
 .ax-em line, .ax-em path { stroke: var(--acad-em); fill: none; }
 .ax-arrowhead { fill: var(--acad-ink); stroke: none; }
@@ -5687,6 +5688,23 @@ body.theme-contrast .acad-lab-token .seg-s { color: #065f46; }
 .acad-lab-copy-btn.ok { border-color: var(--acad-em); color: var(--acad-em); }
 .acad-lab-copy-btn.bad { border-color: var(--acad-bad); color: var(--acad-bad); }
 
+.acad-lab-grant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.acad-lab-grant-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.acad-lab-grant-scope { flex: 1 1 auto; min-width: 0; }
+
 .acad-lab-json {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -5696,9 +5714,27 @@ body.theme-contrast .acad-lab-token .seg-s { color: #065f46; }
   background: var(--acad-fig-bg);
   border: 1px solid var(--acad-line);
   border-radius: 8px;
-  padding: 0.6rem 0.7rem;
+  padding: 0.6rem 1rem 0.6rem 0.7rem;
   overflow: auto;
   max-height: 8rem;
+}
+
+/* Thin, neutral scrollbars inside lab boxes — the site-wide scrollbar is 8px and
+   brand-purple, which reads as a button next to .acad-lab-btn.primary at this scale. */
+.acad-lab-json, .acad-lab-log, .acad-lab-input {
+  scrollbar-width: thin;
+  scrollbar-color: var(--acad-muted) transparent;
+}
+.acad-lab-json::-webkit-scrollbar, .acad-lab-log::-webkit-scrollbar, .acad-lab-input::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.acad-lab-json::-webkit-scrollbar-track, .acad-lab-log::-webkit-scrollbar-track, .acad-lab-input::-webkit-scrollbar-track {
+  background: transparent;
+}
+.acad-lab-json::-webkit-scrollbar-thumb, .acad-lab-log::-webkit-scrollbar-thumb, .acad-lab-input::-webkit-scrollbar-thumb {
+  background: var(--acad-muted);
+  border-radius: 4px;
 }
 
 .acad-lab-http {
