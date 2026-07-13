@@ -13,7 +13,7 @@ Enterprise-grade IAM, API Security, and AI Security company website. Static sing
 
 **Core Services**: AI & Agent Security (agent authentication, non-human identities, MCP security & secure MCP libraries, FGA/ReBAC, AI integrations), Enterprise IAM, API Security Gateway, Cloud Integration (AWS/Azure/GCP), Enterprise SSO
 
-**Brand line**: "Identity & Security for Humans, Machines & AI Agents" (AI-first rebrand, 2026-07)
+**Brand line**: "Identity & Security for All — Humans, Machines, RPA bots & AI Agents" (two-line hero tagline; updated 2026-07-13, was "...for Humans, Machines & AI Agents" from the AI-first rebrand, 2026-07)
 
 **Tech Stack**: HTML5, CSS3, JavaScript ES6+, jQuery 3.7.1, Bootstrap 5.3.3, Font Awesome 6.4.0
 

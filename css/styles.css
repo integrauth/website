@@ -3163,13 +3163,15 @@ body.theme-contrast .navbar-scrolled {
 body.theme-contrast .navbar-brand,
 body.theme-contrast .navbar-nav .nav-link {
   color: #000000 !important;
+  text-decoration: none;
 }
 
 body.theme-contrast .navbar-nav .nav-link:hover,
+body.theme-contrast .navbar-nav .nav-link:focus,
 body.theme-contrast .navbar-nav .nav-link.active {
   color: #000000 !important;
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
+  text-decoration: none;
+  background: transparent;
 }
 
 body.theme-contrast .navbar-nav .nav-link::after {
@@ -4258,8 +4260,8 @@ html.acad-hash-boot #acadReader { display: none !important; }
 .acad-boot-loader-card { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 2rem; }
 .acad-boot-shield {
   position: relative;
-  width: 72px;
-  height: 72px;
+  width: 108px;
+  height: 108px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4267,7 +4269,7 @@ html.acad-hash-boot #acadReader { display: none !important; }
   background: color-mix(in srgb, var(--acad-actor) 12%, transparent);
   animation: acadBootPulse 1.6s ease-in-out infinite;
 }
-.acad-boot-shield img { width: 34px; height: 34px; display: block; }
+.acad-boot-shield img { width: 56px; height: 56px; display: block; }
 .acad-boot-scan {
   position: absolute;
   inset: -6px;
@@ -5360,13 +5362,15 @@ body.theme-contrast .acad-banner {
 }
 
 .acad-banner .btn:hover {
+  background-color: #fff;
   transform: translateY(-2px);
   box-shadow: var(--shadow-xl);
   color: var(--primary-color);
 }
 
-body.theme-contrast .acad-banner .btn {
-  background: #ffd60a;
+body.theme-contrast .acad-banner .btn,
+body.theme-contrast .acad-banner .btn:hover {
+  background-color: #ffd60a;
   color: #000;
 }
 

@@ -503,6 +503,7 @@
         type: 'button', class: 'acad-lab-reset', 'aria-label': 'Reset lab',
         onclick: function () {
           ctx.cleanup.forEach(function (fn) { try { fn(); } catch (e) { /* noop */ } });
+          if (typeof def.onReset === 'function') { try { def.onReset(); } catch (e) { /* noop */ } }
           mount(host, def);
         }
       }, '↺ Reset')
@@ -6775,77 +6776,108 @@ AcadLabs.register('lab-tabletop', {
 
 /* ================= Final Exam + certificate (hub widget) ================= */
 
+var CERT_LOGO = new Image();
+var CERT_LOGO_READY = false;
+CERT_LOGO.onload = function () { CERT_LOGO_READY = true; };
+CERT_LOGO.src = '/IntegrAuth.svg';
+
 var ACAD_EXAM_POOL = [
   // Foundations
-  { t: 'Foundations', q: 'What is a digital "identity", most precisely?', o: ['The human being themselves', 'A digital stand-in the business uses to recognise someone or something', 'A password', 'An email address'], a: 1 },
-  { t: 'Foundations', q: 'In joiner–mover–leaver, which event is the most security-critical to automate?', o: ['Joiner', 'Mover', 'Leaver', 'They are equal'], a: 2 },
-  { t: 'Foundations', q: 'Zero trust replaces "trust the network" with:', o: ['Trust anyone inside the VPN', 'Verify every access on its own merits, wherever it comes from', 'Longer passwords', 'Trust by IP address'], a: 1 },
-  { t: 'Foundations', q: 'Why are non-human identities (service accounts, bots) a special risk?', o: ['They get phished often', 'They resign frequently', 'They never resign or get phished, so nobody watches them', 'They cost more'], a: 2 },
+  { t: 'Foundations', q: 'What is a digital "identity", most precisely?', o: ['The physical person, with no separate digital representation at all', 'A digital stand-in the business uses to recognise someone or something', 'A single login session that ends the moment the browser closes', 'The complete audit trail of everything a user has ever done'], a: 1 },
+  { t: 'Foundations', q: 'In joiner–mover–leaver, which event is the most security-critical to automate?', o: ['Joiner — granting first access when someone starts', 'Mover — adjusting access when someone changes teams', 'Leaver — revoking access the moment someone departs', 'Onboarding — collecting the new hire\'s paperwork'], a: 2 },
+  { t: 'Foundations', q: 'Zero trust replaces "trust the network" with:', o: ['Trusting any request that originates inside the corporate VPN', 'Verifying every access on its own merits, wherever it comes from', 'Trusting a device permanently once it passes one security scan', 'Granting broad access to anyone on the internal network segment'], a: 1 },
+  { t: 'Foundations', q: 'Why are non-human identities (service accounts, bots) a special risk?', o: ['They rotate credentials so often that logs become unreadable', 'They resign and get replaced more often than human staff', 'They never resign or get phished, so nobody watches them closely', 'They require MFA prompts that only a human can complete'], a: 2 },
   // Authentication
-  { t: 'Authentication', q: 'Why can a passkey (WebAuthn) not be phished by a look-alike site?', o: ['It uses a longer password', 'The signature is bound to the real origin, so a different domain fails', 'It sends an SMS', 'The user memorises it'], a: 1 },
-  { t: 'Authentication', q: 'Adaptive (risk-based) MFA improves security by:', o: ['Challenging every single login', 'Never challenging anyone', 'Scoring each sign-in for risk and challenging only the risky ones', 'Using only passwords'], a: 2 },
-  { t: 'Authentication', q: 'Breached-password detection can check a password without seeing it by using:', o: ['A plaintext upload', 'k-anonymity (only a hash prefix is sent)', 'The user’s email', 'A CAPTCHA'], a: 1 },
-  { t: 'Authentication', q: 'The hardest part of MFA to get right is usually:', o: ['Turning it on', 'Choosing a colour', 'Account recovery when a device is lost', 'Naming the app'], a: 2 },
+  { t: 'Authentication', q: 'Why can a passkey (WebAuthn) not be phished by a look-alike site?', o: ['It encrypts the login page so look-alike sites cannot load it', 'The signature is cryptographically bound to the real origin, so a different domain fails', 'It requires a one-time SMS code the attacker cannot intercept', 'It stores the credential only in the user\'s memory, not the browser'], a: 1 },
+  { t: 'Authentication', q: 'Adaptive (risk-based) MFA improves security by:', o: ['Challenging every single login with the same fixed set of factors', 'Skipping MFA entirely once a user has signed in one time before', 'Scoring each sign-in for risk and challenging only the risky ones', 'Rotating the user\'s password automatically after every session'], a: 2 },
+  { t: 'Authentication', q: 'Breached-password detection can check a password without seeing it by using:', o: ['Uploading the full plaintext password to a vendor for comparison', 'k-anonymity — only a short hash prefix is ever sent, never the password', 'Sending a hash of the user\'s email address instead of the password', 'Asking the user to solve a CAPTCHA before checking'], a: 1 },
+  { t: 'Authentication', q: 'The hardest part of MFA to get right is usually:', o: ['Turning the feature on in the admin console', 'Getting users to install an authenticator app at all', 'Account recovery when someone loses their enrolled device', 'Picking which push-notification icon to display'], a: 2 },
   // Tokens
-  { t: 'Token security', q: 'With refresh-token rotation, replaying an already-used refresh token causes:', o: ['A silent success for the thief', 'Reuse detection that revokes the whole token family', 'Nothing', 'A password reset'], a: 1 },
-  { t: 'Token security', q: 'DPoP makes a stolen access token useless because the token is:', o: ['Encrypted forever', 'Bound to a key the thief does not hold', 'Very short', 'Stored in a cookie'], a: 1 },
-  { t: 'Token security', q: 'After "sign out everywhere", why can a copied access token still work briefly?', o: ['It never expires', 'Access tokens are self-contained and valid until they expire', 'The server is broken', 'Cookies are immortal'], a: 1 },
-  { t: 'Token security', q: 'CAEP / Shared Signals lets a fraud alert in one app:', o: ['Delete all data', 'Instantly log the user out across many apps', 'Reset the password', 'Send an email'], a: 1 },
+  { t: 'Token security', q: 'With refresh-token rotation, replaying an already-used refresh token causes:', o: ['A silent success — the stolen token just keeps working', 'Reuse detection that revokes the entire token family at once', 'A short delay before the same token can be used again', 'An automatic password-reset email to the user'], a: 1 },
+  { t: 'Token security', q: 'DPoP makes a stolen access token useless because the token is:', o: ['Encrypted with a key that never needs to rotate', 'Bound to a private key the thief doesn\'t hold, so a copy alone is useless', 'Limited to read-only scopes by default', 'Stored only in an HttpOnly cookie instead of local storage'], a: 1 },
+  { t: 'Token security', q: 'After "sign out everywhere", why can a copied access token still work briefly?', o: ['It never expires once issued, by design', 'Access tokens are self-contained and stay valid until they naturally expire', 'The identity provider caches the old session for 24 hours', 'Refresh tokens and access tokens always share one lifetime'], a: 1 },
+  { t: 'Token security', q: 'CAEP / Shared Signals lets a fraud alert in one app:', o: ['Automatically delete the user\'s account across every app', 'Instantly log the user out across every connected app', 'Force a password reset on every connected app', 'Queue a daily digest email listing suspicious sign-ins'], a: 1 },
   // AI & agents
-  { t: 'AI & agents', q: 'MCP governance answers which question?', o: ['How fast is the AI', 'Who may push what action through the AI-to-tools plug', 'What model is used', 'How much it costs'], a: 1 },
-  { t: 'AI & agents', q: 'Permission-aware RAG prevents an AI from:', o: ['Answering any question', 'Leaking documents the asking user has no permission to see', 'Using its training data', 'Being fast'], a: 1 },
-  { t: 'AI & agents', q: 'Human-in-the-loop (CIBA) for an agent payment means:', o: ['The agent pays alone', 'A person approves on a channel the agent does not control', 'No payments allowed', 'The agent asks another agent'], a: 1 },
-  { t: 'AI & agents', q: 'Fine-grained authorization (ReBAC) answers questions about:', o: ['Only people ("is Priya an admin?")', 'People AND specific things ("can Priya open THIS invoice?")', 'Network speed', 'Password length'], a: 1 },
+  { t: 'AI & agents', q: 'MCP governance answers which question?', o: ['How quickly the model responds to a tool call', 'Who may push which action through the AI-to-tools connector', 'Which foundation-model vendor is powering the agent', 'How the tool-call traffic is billed per token'], a: 1 },
+  { t: 'AI & agents', q: 'Permission-aware RAG prevents an AI from:', o: ['Answering questions outside its configured topic area', 'Leaking documents that the asking user has no permission to see', 'Relying on outdated data baked into its training set', 'Returning an answer slower than a direct database query'], a: 1 },
+  { t: 'AI & agents', q: 'Human-in-the-loop (CIBA) for an agent payment means:', o: ['The agent completes the payment on its own, without asking anyone', 'A person approves the payment on a channel the agent cannot influence', 'Payments above a threshold are blocked outright, with no path to approve them', 'A second AI agent reviews and co-signs the first agent\'s request'], a: 1 },
+  { t: 'AI & agents', q: 'Fine-grained authorization (ReBAC) answers questions about:', o: ['Only whether a person holds a named role, like "is Priya an admin?"', 'Both people and specific resources, like "can Priya open THIS invoice?"', 'How quickly a permission check travels across the network', 'How long a user\'s password must be to qualify for access'], a: 1 },
   // Operations
-  { t: 'Operations', q: 'SCIM is best described as:', o: ['A password format', 'A shared standard language for provisioning/deprovisioning users', 'An encryption cipher', 'A CAPTCHA'], a: 1 },
-  { t: 'Operations', q: 'Your identity logs are valuable mainly because they are:', o: ['Good for billing', 'The richest threat-detection feed you own', 'Required by the browser', 'A backup of passwords'], a: 1 },
-  { t: 'Operations', q: 'Access reviews (certification) exist to:', o: ['Add more access', 'Periodically confirm people still need the access they have', 'Reset passwords', 'Speed up login'], a: 1 },
-  { t: 'Operations', q: 'A break-glass account should be:', o: ['Used daily by admins', 'Tightly controlled, monitored, and only used in emergencies', 'Shared publicly', 'Disabled forever'], a: 1 },
+  { t: 'Operations', q: 'SCIM is best described as:', o: ['A proprietary password-hashing format used by one vendor', 'A shared standard for automatically provisioning and deprovisioning users', 'An encryption cipher for protecting data at rest', 'A challenge users solve to prove they are human'], a: 1 },
+  { t: 'Operations', q: 'Your identity logs are valuable mainly because they are:', o: ['Mainly useful for calculating monthly subscription invoices', 'The richest threat-detection signal your organisation owns', 'A regulatory requirement with no other practical use', 'A convenient backup copy of every user\'s password'], a: 1 },
+  { t: 'Operations', q: 'Access reviews (certification) exist to:', o: ['Grant every reviewer broader access for the review period', 'Periodically confirm people still need the access they already hold', 'Force a password reset for the accounts being reviewed', 'Shorten login time by caching credentials locally'], a: 1 },
+  { t: 'Operations', q: 'A break-glass account should be:', o: ['Used daily by administrators for routine tasks', 'Tightly controlled, closely monitored, and used only in genuine emergencies', 'Shared openly among the whole IT team for convenience', 'Permanently disabled so it can never be used at all'], a: 1 },
   // Authorization & API
-  { t: 'Authorization & API', q: 'The role-explosion problem is solved by moving from RBAC toward:', o: ['More roles', 'Attribute- or relationship-based access (ABAC/ReBAC)', 'Longer passwords', 'No authorization'], a: 1 },
-  { t: 'Authorization & API', q: 'Policy as code (e.g. OPA/Rego) lets you change authorization decisions by:', o: ['Redeploying every service', 'Updating an externalized policy, not the app code', 'Editing the database by hand', 'Restarting the browser'], a: 1 },
-  { t: 'Authorization & API', q: 'OAuth scopes exist to enforce:', o: ['Faster tokens', 'Least privilege — an app gets only the access it needs', 'Longer sessions', 'Shorter passwords'], a: 1 },
-  { t: 'Authorization & API', q: 'BOLA (broken object-level authorization), the #1 API risk, is:', o: ['A slow database', 'Failing to check the caller may access THIS specific object', 'A weak password', 'A CAPTCHA bypass'], a: 1 },
+  { t: 'Authorization & API', q: 'The role-explosion problem is solved by moving from RBAC toward:', o: ['Creating even more finely-sliced roles for every edge case', 'Attribute- or relationship-based access control (ABAC/ReBAC)', 'Requiring a longer password before granting any role', 'Removing authorization checks to simplify the codebase'], a: 1 },
+  { t: 'Authorization & API', q: 'Policy as code (e.g. OPA/Rego) lets you change authorization decisions by:', o: ['Redeploying every service that embeds its own hardcoded rules', 'Updating an externalized policy, without touching the application code', 'Editing raw rows in the production database by hand', 'Restarting the identity provider to clear its cache'], a: 1 },
+  { t: 'Authorization & API', q: 'OAuth scopes exist to enforce:', o: ['Issuing tokens that are faster for the server to validate', 'Least privilege — an app receives only the access it actually needs', 'Extending how long a session stays valid without re-authenticating', 'Reducing how long a password must be to register'], a: 1 },
+  { t: 'Authorization & API', q: 'BOLA (broken object-level authorization), the #1 API risk, is:', o: ['A database query that runs too slowly under load', 'Failing to check that the caller may access THIS specific object', 'A password that is too short to resist guessing', 'A bot bypassing the signup form\'s human check'], a: 1 },
   // Protocols & federation
-  { t: 'Protocols', q: 'In the OIDC auth-code flow, the "back channel" is:', o: ['Through the user’s browser', 'Server-to-server, private, where the code is traded for tokens', 'An SMS', 'The consent screen'], a: 1 },
-  { t: 'Protocols', q: 'The client-credentials grant is used when:', o: ['A human logs in on a phone', 'There is no human — a service authenticates as itself', 'A passkey is registered', 'An email is verified'], a: 1 },
+  { t: 'Protocols', q: 'In the OIDC auth-code flow, the "back channel" is:', o: ['Through the user\'s browser, visible in the redirect URL', 'Server-to-server and private, where the code is traded for tokens', 'A one-time SMS code sent after the redirect completes', 'The consent screen the user approves before redirecting back'], a: 1 },
+  { t: 'Protocols', q: 'The client-credentials grant is used when:', o: ['A human is logging in from a mobile app', 'There is no human at all — a service authenticates as itself', 'A user is registering a new passkey for their account', 'A user is confirming ownership of their email address'], a: 1 },
   { t: 'Protocols', q: 'RFC 8693 token exchange records who is really calling via which claim?', o: ['The "exp" claim', 'The "act" (actor) claim', 'The "iss" claim', 'The "kid" claim'], a: 1 },
-  { t: 'Protocols', q: 'An id_token differs from an access_token in that it is for:', o: ['Calling APIs', 'Telling the app WHO logged in', 'Encrypting cookies', 'Storing passwords'], a: 1 },
+  { t: 'Protocols', q: 'An id_token differs from an access_token in that it is for:', o: ['Calling protected APIs on the user\'s behalf', 'Telling the application WHO just logged in', 'Encrypting the session cookie in the browser', 'Storing the user\'s password for later verification'], a: 1 },
   // Attacks & defenses
-  { t: 'Attacks & defenses', q: 'An adversary-in-the-middle proxy defeats app-based OTP because it:', o: ['Guesses the code', 'Relays the code in real time along with the session cookie', 'Breaks the encryption', 'Disables the phone'], a: 1 },
-  { t: 'Attacks & defenses', q: 'The winning defense against MFA fatigue (push bombing) is:', o: ['More prompts', 'Number matching plus lockout after repeated denials', 'Longer passwords', 'Disabling MFA'], a: 1 },
-  { t: 'Attacks & defenses', q: 'The golden rule against device-code phishing is:', o: ['Always approve codes from IT', 'Never enter or approve a device code you did not personally start', 'Use SMS instead', 'Share the code'], a: 1 },
-  { t: 'Attacks & defenses', q: 'Consent phishing is dangerous because the granted access:', o: ['Expires instantly', 'Is a token that persists even after a password reset', 'Requires the password again', 'Only reads public data'], a: 1 },
-  { t: 'Attacks & defenses', q: 'A stolen session cookie is blocked from replay when the session is:', o: ['Longer', 'Bound to a device/key so a copy alone fails', 'Named differently', 'Stored in the URL'], a: 1 },
-  { t: 'Attacks & defenses', q: 'SIM swap defeats which factor, pushing you toward phishing-resistant recovery?', o: ['Passkeys', 'SMS one-time codes', 'Hardware keys', 'Offline recovery codes'], a: 1 },
+  { t: 'Attacks & defenses', q: 'An adversary-in-the-middle proxy defeats app-based OTP because it:', o: ['Brute-forces the six-digit code before it expires', 'Relays the code in real time and steals the resulting session cookie', 'Breaks the TLS encryption between browser and server', 'Disables the victim\'s phone so it can\'t receive the code'], a: 1 },
+  { t: 'Attacks & defenses', q: 'The winning defense against MFA fatigue (push bombing) is:', o: ['Sending more prompts so the user eventually notices', 'Number matching plus a lockout after repeated denials', 'Requiring a longer password alongside the push prompt', 'Turning MFA off for users who complain about prompts'], a: 1 },
+  { t: 'Attacks & defenses', q: 'The golden rule against device-code phishing is:', o: ['Always approve a code if the request claims to be from IT support', 'Never enter or approve a device code you did not personally start', 'Switch to SMS codes instead of the device-code flow', 'Read the code aloud to whoever is asking for it'], a: 1 },
+  { t: 'Attacks & defenses', q: 'Consent phishing is dangerous because the granted access:', o: ['Expires the moment the browser tab is closed', 'Is a token that persists even after the victim resets their password', 'Requires the attacker to re-enter the victim\'s password', 'Is limited to reading only publicly available data'], a: 1 },
+  { t: 'Attacks & defenses', q: 'A stolen session cookie is blocked from replay when the session is:', o: ['Given a longer random value that\'s harder to guess', 'Bound to a device or key, so a copied value alone fails', 'Renamed to something less obvious than "session"', 'Passed as a URL parameter instead of a cookie'], a: 1 },
+  { t: 'Attacks & defenses', q: 'SIM swap defeats which factor, pushing you toward phishing-resistant recovery?', o: ['Passkeys bound to the device', 'SMS one-time codes sent to the phone number', 'Hardware security keys like a FIDO token', 'Printed offline recovery codes'], a: 1 },
   // ciam (exam)
-  { t: 'Customer identity', q: 'On a signup form, every extra field you require tends to:', o: ['Improve security for free', 'Lower conversion — more people abandon', 'Speed up the page', 'Verify the email'], a: 1 },
-  { t: 'Customer identity', q: 'Why is the account-recovery path a favourite attack target?', o: ['It is encrypted', 'It is a route that bypasses the normal login', 'It is rarely used', 'It needs a passkey'], a: 1 },
-  { t: 'Customer identity', q: 'Auto-linking a social login to an existing account by email is unsafe when:', o: ['The user has a long password', 'The email was not verified by the upstream provider', 'The account is new', 'MFA is on'], a: 1 },
-  { t: 'Customer identity', q: 'Lazy (just-in-time) user migration avoids a reset storm by:', o: ['Emailing everyone a new password', 'Verifying against the old system on first login, then re-hashing locally', 'Deleting old accounts', 'Disabling login'], a: 1 },
+  { t: 'Customer identity', q: 'On a signup form, every extra field you require tends to:', o: ['Improve security automatically, at no cost to conversion', 'Lower conversion — more people abandon partway through', 'Make the page render faster in the browser', 'Automatically verify that the email address is real'], a: 1 },
+  { t: 'Customer identity', q: 'Why is the account-recovery path a favourite attack target?', o: ['It is always encrypted end-to-end, unlike normal login', 'It is a route explicitly designed to bypass the normal login', 'It is rarely used, so attackers overlook it', 'It requires a passkey the attacker cannot forge'], a: 1 },
+  { t: 'Customer identity', q: 'Auto-linking a social login to an existing account by email is unsafe when:', o: ['The user\'s existing password happens to be very long', 'The email address was never verified by the upstream provider', 'The account was created very recently', 'The user already has MFA enabled on the existing account'], a: 1 },
+  { t: 'Customer identity', q: 'Lazy (just-in-time) user migration avoids a reset storm by:', o: ['Emailing every user a brand-new temporary password', 'Verifying against the old system on first login, then re-hashing locally', 'Deleting the old accounts and asking users to sign up again', 'Disabling login for the whole system during the migration'], a: 1 },
   // cloud (exam)
-  { t: 'Cloud & workload', q: 'Workload identity federation lets a CI job get a cloud token by:', o: ['Storing a long-lived secret in the repo', 'Exchanging a signed identity it already has for a short-lived cloud token — no stored secret', 'Using the developer\'s password', 'Emailing an admin'], a: 1 },
-  { t: 'Cloud & workload', q: 'A SPIFFE SVID is best described as:', o: ['A password for servers', 'A short-lived, verifiable identity document for a workload', 'A firewall rule', 'An API key'], a: 1 },
-  { t: 'Cloud & workload', q: 'The blast radius of a leaked long-lived secret is reduced most by:', o: ['Making it longer', 'Replacing it with short-lived, automatically-rotated credentials', 'Emailing it encrypted', 'Writing it in the wiki'], a: 1 },
-  { t: 'Cloud & workload', q: 'Least-privilege for a cloud role means:', o: ['Grant admin to be safe', 'Grant only the specific permissions the workload actually needs', 'Grant nothing', 'Grant by IP'], a: 1 },
+  { t: 'Cloud & workload', q: 'Workload identity federation lets a CI job get a cloud token by:', o: ['Storing a long-lived cloud secret directly in the repository', 'Exchanging a signed identity it already holds for a short-lived cloud token, with no stored secret', 'Reusing the developer\'s own personal cloud credentials', 'Emailing an administrator to request access manually'], a: 1 },
+  { t: 'Cloud & workload', q: 'A SPIFFE SVID is best described as:', o: ['A long-lived password shared between servers', 'A short-lived, cryptographically verifiable identity document for a workload', 'A firewall rule that restricts network traffic', 'A static API key checked into configuration'], a: 1 },
+  { t: 'Cloud & workload', q: 'The blast radius of a leaked long-lived secret is reduced most by:', o: ['Making the secret string longer but keeping it long-lived', 'Replacing it with a short-lived, automatically-rotated credential', 'Encrypting the secret before emailing it to the team', 'Documenting the secret\'s value in an internal wiki page'], a: 1 },
+  { t: 'Cloud & workload', q: 'Least-privilege for a cloud role means:', o: ['Granting admin rights so nothing is ever blocked by accident', 'Granting only the specific permissions the workload actually needs', 'Granting no permissions at all, by default, forever', 'Granting access based solely on the caller\'s IP address'], a: 1 },
   // arch (exam)
-  { t: 'Architecture', q: 'The BFF (backend-for-frontend) pattern improves SPA security by:', o: ['Storing tokens in localStorage', 'Keeping tokens server-side and handing the browser only a session cookie', 'Removing all auth', 'Using longer tokens'], a: 1 },
-  { t: 'Architecture', q: 'In a microservices call chain, propagating the user\'s identity safely is best done with:', o: ['Forwarding the original token everywhere', 'Token exchange to a narrower, audience-scoped token per hop', 'A shared admin password', 'No identity at all'], a: 1 },
-  { t: 'Architecture', q: 'Strong multi-tenant isolation means:', o: ['All tenants share one row', 'One tenant can never read or affect another tenant\'s data', 'Tenants pick their own passwords', 'Every tenant is an admin'], a: 1 },
-  { t: 'Architecture', q: 'The main risk of very long access-token lifetimes is:', o: ['Slower logins', 'A stolen token stays valid far longer, widening the damage window', 'More network calls', 'Shorter passwords'], a: 1 },
+  { t: 'Architecture', q: 'The BFF (backend-for-frontend) pattern improves SPA security by:', o: ['Storing access tokens directly in the browser\'s localStorage', 'Keeping tokens server-side and handing the browser only a session cookie', 'Removing authentication from the single-page app entirely', 'Issuing tokens with a much longer lifetime'], a: 1 },
+  { t: 'Architecture', q: 'In a microservices call chain, propagating the user\'s identity safely is best done with:', o: ['Forwarding the exact same original token to every downstream service', 'Token exchange to a narrower, audience-scoped token at each hop', 'One shared admin password used across all services', 'Dropping identity entirely once the request leaves the edge'], a: 1 },
+  { t: 'Architecture', q: 'Strong multi-tenant isolation means:', o: ['All tenants share the exact same database row for efficiency', 'One tenant can never read or affect another tenant\'s data', 'Each tenant is free to choose their own encryption algorithm', 'Every tenant is automatically granted admin rights over the platform'], a: 1 },
+  { t: 'Architecture', q: 'The main risk of very long access-token lifetimes is:', o: ['Users have to log in more slowly the first time', 'A stolen token stays valid far longer, widening the damage window', 'The client must make more network calls to refresh it', 'Passwords can safely be made shorter as a trade-off'], a: 1 },
 ];
 
 AcadLabs.register('lab-exam', {
   title: 'Final exam — earn your certificate',
-  blurb: '25 questions drawn at random from all seven tracks. Score 80% or higher to unlock a personalised certificate. Everything runs in your browser; nothing is submitted anywhere.',
+  blurb: '25 questions drawn at random from all 11 tracks. Score 80% or higher to unlock a personalised certificate. Everything runs in your browser; nothing is submitted anywhere.',
+  onReset: function () { try { localStorage.removeItem('acad_exam'); } catch (e) { /* noop */ } },
   render: function (root, h) {
     var PASS = 0.8, N = 25;
+
+    var totalLessons = document.querySelectorAll('.acad-lesson').length;
+    var readCount = 0;
+    try { readCount = JSON.parse(localStorage.getItem('acad_read') || '[]').length; } catch (e) { /* noop */ }
+    var locked = totalLessons > 0 && readCount < totalLessons;
+    var host = root.parentNode;
+    if (host) host.setAttribute('data-exam-locked', locked ? '1' : '0');
+
+    if (locked) {
+      var lockPct = Math.round(readCount / totalLessons * 100);
+      var lockMeter = h.meter(lockPct, 'warn');
+      root.appendChild(h.panel(null, [
+        h.el('h4', { 'class': 'acad-lab-title' }, '🔒 Finish every lesson to unlock the final exam'),
+        h.el('p', { 'class': 'acad-lab-blurb' }, 'You have read ' + readCount + '/' + totalLessons + ' lessons (' + lockPct + '%). The final exam — and the certificate it unlocks — opens once every lesson across all 11 tracks is marked read.'),
+        lockMeter.root,
+        h.el('div', { 'class': 'acad-lab-row' }, [
+          h.button('Go to lessons', 'primary', function () {
+            var hub = document.getElementById('acadHub');
+            if (hub) hub.scrollIntoView({ behavior: 'smooth' });
+          })
+        ])
+      ]));
+      return;
+    }
+
     var saved;
     try { saved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { saved = null; }
 
     var intro = h.el('div');
     var kids = [
-      h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning Foundations through Attacks & Defenses. Pick the best answer for each, then submit to see your score.')
+      h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning Foundations through Identity Architecture. Pick the best answer for each, then submit to see your score.')
     ];
     if (saved && saved.best != null) {
       kids.push(h.note('Your best so far: ' + saved.best + '/' + N + (saved.passed ? ' — passed ✓' : '')));
@@ -6961,6 +6993,7 @@ AcadLabs.register('lab-exam', {
         a.click();
       });
       draw();
+      if (!CERT_LOGO_READY) CERT_LOGO.addEventListener('load', draw, { once: true });
       return h.panel('Your certificate', [
         h.field('Name on the certificate', nameInput),
         canvas,
@@ -6970,45 +7003,75 @@ AcadLabs.register('lab-exam', {
     }
 
     function drawCertificate(canvas, name, pct) {
+      // Render at 2x for a crisp PNG download; CSS scales the on-page canvas back down.
+      var SCALE = 2, W = 1000, H = 700;
+      if (canvas.width !== W * SCALE) { canvas.width = W * SCALE; canvas.height = H * SCALE; }
       var ctx = canvas.getContext('2d');
-      var W = canvas.width, H = canvas.height;
-      // background
-      var g = ctx.createLinearGradient(0, 0, W, H);
-      g.addColorStop(0, '#0f172a'); g.addColorStop(1, '#1e1b4b');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-      // border
-      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 6;
-      ctx.strokeRect(28, 28, W - 56, H - 56);
-      ctx.strokeStyle = 'rgba(99,102,241,0.4)'; ctx.lineWidth = 2;
-      ctx.strokeRect(44, 44, W - 88, H - 88);
+      ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
       ctx.textAlign = 'center';
+
+      // background
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+      var wash = ctx.createRadialGradient(W / 2, 210, 40, W / 2, 210, 420);
+      wash.addColorStop(0, 'rgba(99,102,241,0.06)'); wash.addColorStop(1, 'rgba(99,102,241,0)');
+      ctx.fillStyle = wash; ctx.fillRect(0, 0, W, H);
+
+      // border frame (gradient outer rule + thin inner rule + corner accents)
+      var bg = ctx.createLinearGradient(0, 0, W, H);
+      bg.addColorStop(0, '#667eea'); bg.addColorStop(1, '#764ba2');
+      ctx.strokeStyle = bg; ctx.lineWidth = 5;
+      ctx.strokeRect(26, 26, W - 52, H - 52);
+      ctx.strokeStyle = 'rgba(99,102,241,0.3)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(42, 42, W - 84, H - 84);
+      [[42, 42], [W - 42, 42], [42, H - 42], [W - 42, H - 42]].forEach(function (c) {
+        ctx.beginPath(); ctx.arc(c[0], c[1], 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#6366f1'; ctx.fill();
+      });
+
+      // logo
+      if (CERT_LOGO_READY) {
+        try { ctx.drawImage(CERT_LOGO, W / 2 - 34, 66, 68, 68); } catch (e) { /* noop */ }
+      }
+
       // header
-      ctx.fillStyle = '#a5b4fc'; ctx.font = '600 26px Inter, Arial, sans-serif';
-      ctx.fillText('INTEGRAUTH ACADEMY', W / 2, 130);
-      ctx.fillStyle = '#e2e8f0'; ctx.font = '700 46px Inter, Arial, sans-serif';
-      ctx.fillText('Certificate of Completion', W / 2, 200);
-      ctx.fillStyle = '#94a3b8'; ctx.font = '400 22px Inter, Arial, sans-serif';
-      ctx.fillText('This certifies that', W / 2, 275);
+      ctx.fillStyle = '#6366f1'; ctx.font = '700 20px Inter, Arial, sans-serif';
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '3px';
+      ctx.fillText('INTEGRAUTH ACADEMY', W / 2, 168);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+      ctx.fillStyle = '#0f172a'; ctx.font = '800 42px Inter, Arial, sans-serif';
+      ctx.fillText('Certificate of Completion', W / 2, 218);
+      ctx.fillStyle = '#64748b'; ctx.font = '400 20px Inter, Arial, sans-serif';
+      ctx.fillText('This certifies that', W / 2, 262);
+
       // name
-      ctx.fillStyle = '#ffffff'; ctx.font = '700 54px Georgia, serif';
-      ctx.fillText(name, W / 2, 350);
-      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(W / 2 - 260, 372); ctx.lineTo(W / 2 + 260, 372); ctx.stroke();
+      ctx.fillStyle = '#1e1b4b'; ctx.font = '700 50px Georgia, serif';
+      ctx.fillText(name, W / 2, 330);
+      var ug = ctx.createLinearGradient(W / 2 - 240, 0, W / 2 + 240, 0);
+      ug.addColorStop(0, 'rgba(99,102,241,0.15)'); ug.addColorStop(0.5, '#6366f1'); ug.addColorStop(1, 'rgba(99,102,241,0.15)');
+      ctx.strokeStyle = ug; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(W / 2 - 240, 350); ctx.lineTo(W / 2 + 240, 350); ctx.stroke();
+
       // body
-      ctx.fillStyle = '#cbd5e1'; ctx.font = '400 22px Inter, Arial, sans-serif';
-      ctx.fillText('has completed the IntegrAuth Academy final exam spanning every track', W / 2, 430);
-      ctx.fillText('of identity, security & AI — with a score of ' + pct + '%.', W / 2, 464);
-      // brand line
-      ctx.fillStyle = '#818cf8'; ctx.font = '600 19px Inter, Arial, sans-serif';
-      ctx.fillText('Identity & Security for Humans, Machines & AI Agents', W / 2, 540);
+      ctx.fillStyle = '#475569'; ctx.font = '400 20px Inter, Arial, sans-serif';
+      ctx.fillText('has completed the IntegrAuth Academy final exam spanning every track', W / 2, 398);
+      ctx.fillText('of identity, security & AI — with a score of ' + pct + '%.', W / 2, 428);
+
       // seal
-      ctx.beginPath(); ctx.arc(W / 2, 615, 40, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(99,102,241,0.15)'; ctx.fill();
-      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 3; ctx.stroke();
-      ctx.fillStyle = '#a5b4fc'; ctx.font = '700 30px Inter, Arial, sans-serif';
-      ctx.fillText('✓', W / 2, 626);
-      ctx.fillStyle = '#64748b'; ctx.font = '400 16px Inter, Arial, sans-serif';
-      ctx.fillText('integrauth.com/academy', W / 2, 675);
+      ctx.beginPath(); ctx.arc(W / 2, 500, 36, 0, Math.PI * 2);
+      ctx.fillStyle = '#eef2ff'; ctx.fill();
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = '#4f46e5'; ctx.font = '700 28px Inter, Arial, sans-serif';
+      ctx.fillText('✓', W / 2, 510);
+
+      // brand line
+      ctx.fillStyle = '#4f46e5'; ctx.font = '600 17px Inter, Arial, sans-serif';
+      ctx.fillText('Identity & Security for Humans, Machines & AI Agents', W / 2, 570);
+
+      // divider + footer, both clear of the inner border (inner rule sits at y = H - 42 = 658)
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(W / 2 - 90, 600); ctx.lineTo(W / 2 + 90, 600); ctx.stroke();
+      ctx.fillStyle = '#94a3b8'; ctx.font = '400 15px Inter, Arial, sans-serif';
+      ctx.fillText('integrauth.com/academy', W / 2, 628);
     }
   }
 });

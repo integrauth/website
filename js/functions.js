@@ -522,6 +522,13 @@ function initAcademy() {
     const hubText = document.getElementById('acadHubProgressText');
     if (hubFill) hubFill.style.width = pct + '%';
     if (hubText) hubText.textContent = opened + '/' + lessons.length + ' lessons read · ' + pct + '%';
+    // Unlock the final-exam widget the moment every lesson is read (checked cheaply:
+    // only while it's still showing its locked state, so an unlocked exam in progress
+    // is never clobbered by a stray remount on later lesson views).
+    const examHost = document.querySelector('#acadExam .acad-lab[data-lab="lab-exam"]');
+    if (examHost && examHost.getAttribute('data-exam-locked') === '1' && opened === lessons.length && window.AcadLabs) {
+      AcadLabs.remountWithin(document.getElementById('acadExam'));
+    }
     // Hub: per-track counts + checkmarks
     document.querySelectorAll('.acad-track-toc a').forEach(function (a) {
       const id = (a.getAttribute('href') || '').slice(1);
