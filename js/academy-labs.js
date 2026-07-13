@@ -709,7 +709,7 @@ AcadLabs.register('lab-lifecycle', {
 
     function role() { return dept === 'Finance' ? 'finance-ledger' : 'support-desk'; }
 
-    var entBox = h.el('div', {});
+    var entBox = h.el('div', { class: 'acad-lab-stack' });
     var statusBox = h.el('div', { class: 'acad-lab-row' });
     var apiOut = h.el('div', {});
     var log = h.logPanel();
