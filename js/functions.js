@@ -513,10 +513,15 @@ function initAcademy() {
   function updateProgress() {
     const read = readSet();
     const opened = lessons.filter(function (s) { return read.has(s.id); }).length;
+    const pct = Math.round((opened / lessons.length) * 100);
     const fill = document.getElementById('acadProgressFill');
     const text = document.getElementById('acadProgressText');
-    if (fill) fill.style.width = Math.round((opened / lessons.length) * 100) + '%';
+    if (fill) fill.style.width = pct + '%';
     if (text) text.textContent = opened + '/' + lessons.length + ' lessons read';
+    const hubFill = document.getElementById('acadHubProgressFill');
+    const hubText = document.getElementById('acadHubProgressText');
+    if (hubFill) hubFill.style.width = pct + '%';
+    if (hubText) hubText.textContent = opened + '/' + lessons.length + ' lessons read · ' + pct + '%';
     // Hub: per-track counts + checkmarks
     document.querySelectorAll('.acad-track-toc a').forEach(function (a) {
       const id = (a.getAttribute('href') || '').slice(1);
@@ -581,7 +586,19 @@ function initAcademy() {
       b.type = 'button';
       b.className = 'acad-page-btn';
       b.setAttribute('data-goto', next.id);
-      b.textContent = next.getAttribute('data-title') + ' →';
+      const nextTrack = trackOf(next);
+      if (nextTrack !== trackOf(lesson)) {
+        const track = document.createElement('span');
+        track.className = 'acad-page-track';
+        track.textContent = TRACK_LABELS[nextTrack] || nextTrack;
+        const title = document.createElement('span');
+        title.className = 'acad-page-title';
+        title.textContent = next.getAttribute('data-title') + ' →';
+        b.appendChild(track);
+        b.appendChild(title);
+      } else {
+        b.textContent = next.getAttribute('data-title') + ' →';
+      }
       pager.appendChild(b);
     } else {
       const b = document.createElement('button');
@@ -676,7 +693,7 @@ function initAcademy() {
   const backBtn = document.getElementById('acadBack');
   if (backBtn) backBtn.addEventListener('click', showHub);
 
-  // Reset ONE track: its read marks + quiz reveals; other tracks untouched.
+  // Reset ONE track: its read marks + quiz reveals + in-lesson labs; other tracks untouched.
   function resetTrack(track) {
     const items = trackLessons(track);
     const read = readSet();
@@ -685,6 +702,9 @@ function initAcademy() {
       read.delete(s.id);
       delete store[s.id];
       s.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
+      if (window.AcadLabs && typeof window.AcadLabs.remountWithin === 'function') {
+        try { window.AcadLabs.remountWithin(s); } catch (e) {}
+      }
     });
     saveRead(read);
     saveQuizStore(store);
@@ -698,8 +718,7 @@ function initAcademy() {
     });
   });
 
-  const resetAllBtn = document.getElementById('acadResetAll');
-  if (resetAllBtn) resetAllBtn.addEventListener('click', function () {
+  function resetAllProgress() {
     if (!window.confirm('Reset ALL Academy progress? Every read mark and quiz answer will be cleared.')) return;
     try {
       localStorage.removeItem(KEY_POS);
@@ -713,6 +732,11 @@ function initAcademy() {
       try { window.AcadLabs.remountAll(); } catch (e) {}
     }
     updateProgress();
+  }
+
+  const resetAllBtn = document.getElementById('acadResetAll');
+  document.querySelectorAll('.acad-reset-all').forEach(function (btn) {
+    btn.addEventListener('click', resetAllProgress);
   });
 
   // Progress export / import — portability without accounts (all client-side).

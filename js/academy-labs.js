@@ -7,6 +7,18 @@
 
   var REG = {};
   var FLOWS = {};
+
+  function remountHosts(hosts) {
+    hosts.forEach(function (host) {
+      var def = REG[host.getAttribute('data-lab')];
+      if (!def) return;
+      if (host.__labCleanup) {
+        host.__labCleanup.forEach(function (fn) { try { fn(); } catch (e) { /* noop */ } });
+      }
+      mount(host, def);
+    });
+  }
+
   window.AcadLabs = {
     register: function (id, def) { REG[id] = def; },
     defineFlow: function (id, def) { FLOWS[id] = def; },
@@ -15,14 +27,12 @@
     // Tear down every mounted lab and render it fresh — used by "Reset all progress"
     // so on-screen widgets (Challenge, Final Exam, Flow Explorer) return to their start state.
     remountAll: function () {
-      document.querySelectorAll('.acad-lab[data-lab]').forEach(function (host) {
-        var def = REG[host.getAttribute('data-lab')];
-        if (!def) return;
-        if (host.__labCleanup) {
-          host.__labCleanup.forEach(function (fn) { try { fn(); } catch (e) { /* noop */ } });
-        }
-        mount(host, def);
-      });
+      remountHosts(Array.prototype.slice.call(document.querySelectorAll('.acad-lab[data-lab]')));
+    },
+    // Tear down + re-render only the labs found inside a given root — used by
+    // "Reset track" so its lessons' labs return to their start state too.
+    remountWithin: function (root) {
+      remountHosts(Array.prototype.slice.call(root.querySelectorAll('.acad-lab[data-lab]')));
     }
   };
 

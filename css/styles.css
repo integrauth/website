@@ -4476,6 +4476,11 @@ body.theme-contrast .acad-hero {
   margin-bottom: 0.45rem;
 }
 
+.acad-hub-progress {
+  max-width: 560px;
+  margin: 0 auto 1.75rem;
+}
+
 .acad-hub-foot {
   text-align: center;
   margin-top: 1.25rem;
@@ -4643,6 +4648,20 @@ body.theme-contrast .acad-hero {
   border-color: var(--primary-color);
   color: var(--primary-color);
   transform: translateY(-2px);
+}
+
+.acad-page-track {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--primary-color);
+  margin-bottom: 0.15rem;
+}
+
+.acad-page-title {
+  display: block;
 }
 
 /* --- Lesson content --- */
@@ -5321,8 +5340,14 @@ body.theme-cyber .acad-lab { --acad-warn: #fbbf24; }
 }
 .acad-lab-btn:hover { border-color: var(--acad-actor); }
 .acad-lab-btn:active { transform: scale(0.97); }
-.acad-lab-btn.primary { background: var(--acad-actor); border-color: var(--acad-actor); color: var(--acad-atext, #fff); }
+.acad-lab-btn.primary {
+  background: var(--acad-actor);
+  border-color: var(--acad-actor);
+  color: var(--acad-atext, #fff);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--acad-actor) 55%, black 35%);
+}
 .acad-lab-btn.primary:hover { filter: brightness(1.1); }
+.acad-lab-btn.primary:active { transform: translateY(2px) scale(0.99); box-shadow: 0 1px 0 color-mix(in srgb, var(--acad-actor) 55%, black 35%); }
 .acad-lab-btn.danger { border-color: var(--acad-bad); color: var(--acad-bad); }
 .acad-lab-btn.danger:hover { background: color-mix(in srgb, var(--acad-bad) 12%, transparent); }
 .acad-lab-btn.ghost { border-style: dashed; color: var(--acad-muted); }
@@ -5379,8 +5404,8 @@ textarea.acad-lab-input { font-family: ui-monospace, SFMono-Regular, Menlo, Cons
   transition: all 0.15s;
 }
 .acad-lab-chip[aria-pressed="true"] {
-  color: var(--acad-atext, #fff);
-  background: var(--acad-actor);
+  color: var(--acad-actor);
+  background: color-mix(in srgb, var(--acad-actor) 16%, transparent);
   border-color: var(--acad-actor);
 }
 
@@ -6041,7 +6066,7 @@ body.theme-cyber .back-to-top {
 /* --- Print: clean single-lesson output (great for cheat sheets) --- */
 @media print {
   .navbar, .acad-toolbar, #acadChips, .acad-pager, .acad-reader-foot,
-  .acad-progress, footer, .acad-hubtools, .acad-hub-foot, .acad-lab-reset,
+  .acad-progress, .acad-hub-progress, footer, .acad-hubtools, .acad-hub-foot, .acad-lab-reset,
   .acad-reset-track, #acadFlows, #acadExam, #acadChallenge, .acad-try {
     display: none !important;
   }
