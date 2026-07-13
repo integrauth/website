@@ -2709,6 +2709,7 @@ AcadLabs.register('lab-nhi', {
       meter.set(100, 'bad');
       remediate.innerHTML = '';
       remediate.appendChild(h.el('div', { class: 'acad-lab-panel-title' }, 'Remediate the risky NHIs'));
+      var remediateBtns = h.el('div', { class: 'acad-lab-row' });
       [
         ['Assign an owner + sponsor', 'Ownership assigned — no more orphans; quarterly attestation scheduled.'],
         ['Rotate the secrets', 'Static keys rotated; moving toward short-lived, just-in-time credentials.'],
@@ -2722,8 +2723,9 @@ AcadLabs.register('lab-nhi', {
           log.add('ok', r[1]);
           if (riskLeft === 0) log.add('ok', 'Fleet clean — every NHI is registered, scoped, rotating and owned.');
         });
-        remediate.appendChild(b);
+        remediateBtns.appendChild(b);
       });
+      remediate.appendChild(remediateBtns);
     }
 
     root.appendChild(h.panel('Non-human identity inventory', NHI.map(card).concat([
