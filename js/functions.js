@@ -1196,6 +1196,17 @@ function initAcademy() {
       } catch (e) {}
     }
   }
-  // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader.
-  document.documentElement.classList.remove('acad-hash-boot');
+  // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader,
+  // but keep it up for a minimum stretch so it reads as an intentional loading beat
+  // instead of a flicker on fast connections.
+  (function () {
+    const MIN_MS = 700;
+    const t0 = window.__acadBootT0;
+    const remove = function () { document.documentElement.classList.remove('acad-hash-boot'); };
+    if (typeof t0 === 'number') {
+      const remaining = MIN_MS - (Date.now() - t0);
+      if (remaining > 0) { setTimeout(remove, remaining); return; }
+    }
+    remove();
+  })();
 }
