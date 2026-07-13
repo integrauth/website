@@ -5943,6 +5943,10 @@ body.theme-cyber .back-to-top {
   margin-top: 0.6rem;
 }
 
+.acad-seq-controls-top {
+  margin-bottom: 0.5rem;
+}
+
 .acad-seq-count {
   margin-left: auto;
   color: var(--acad-muted);

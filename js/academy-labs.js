@@ -385,7 +385,7 @@
       if (cur >= steps.length) stopPlay();
     }
 
-    function mkControls() {
+    function mkControls(top) {
       var count = el('span', { 'class': 'acad-seq-count' });
       var restart = button('⟲ Restart', '', function () { stopPlay(); setStep(0); });
       var back = button('◀ Back', '', function () { stopPlay(); setStep(cur - 1); });
@@ -399,7 +399,7 @@
         }, 2600);
       });
       backs.push(back); nexts.push(next); playBtns.push(playBtn); counts.push(count);
-      return el('div', { 'class': 'acad-seq-controls' }, [restart, back, next, playBtn, count]);
+      return el('div', { 'class': 'acad-seq-controls' + (top ? ' acad-seq-controls-top' : '') }, [restart, back, next, playBtn, count]);
     }
 
     if (ctx) ctx.cleanup.push(stopPlay);
@@ -409,7 +409,7 @@
     if (flow.tag) headKids.push(el('span', { 'class': 'acad-seq-tag' }, flow.tag));
     var root = el('div', { 'class': 'acad-seq' }, [
       headKids.length ? el('div', { 'class': 'acad-seq-head' }, headKids) : null,
-      mkControls(),
+      mkControls(true),
       svg,
       noteBox,
       mkControls()
