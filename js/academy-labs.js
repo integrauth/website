@@ -1130,7 +1130,7 @@ AcadLabs.register('lab-breach', {
             if (e.suffix === suffix) hit = e;
           }
         });
-        for (var i = 0; i < 4; i++) {
+        for (var i = 0; i < 2; i++) {
           list.push({ suffix: h.rand(35).toUpperCase(), count: Math.floor(Math.random() * 9000) + 11 });
         }
 
