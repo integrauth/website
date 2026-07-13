@@ -4318,6 +4318,7 @@ text.ax-bad { fill: var(--acad-bad); stroke: none; }
 .ax-note { fill: var(--acad-ink); }
 .ax-note text { fill: var(--acad-ink); }
 .ax-em { fill: var(--acad-em); font-weight: 700; }
+.ax-em line, .ax-em path { stroke: var(--acad-em); fill: none; }
 .ax-arrowhead { fill: var(--acad-ink); stroke: none; }
 .ax-block { fill: var(--acad-block); stroke: var(--acad-actor); stroke-width: 1.5; }
 .ax-ring { fill: none; stroke: var(--acad-actor); stroke-width: 2; }
