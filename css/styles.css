@@ -5594,13 +5594,14 @@ body.theme-cyber .acad-lab { --acad-warn: #fbbf24; }
 
 .acad-lab-badge {
   display: inline-block;
+  max-width: 100%;
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.03em;
   border-radius: 999px;
   padding: 0.16rem 0.62rem;
   border: 1px solid currentColor;
-  white-space: nowrap;
+  white-space: normal;
 }
 .acad-lab-badge.ok { color: var(--acad-em); background: color-mix(in srgb, var(--acad-em) 12%, transparent); }
 .acad-lab-badge.bad { color: var(--acad-bad); background: color-mix(in srgb, var(--acad-bad) 12%, transparent); }
