@@ -1163,8 +1163,8 @@ function initAcademy() {
   // instead of a flicker on fast connections.
   (function () {
     const MIN_MS = 700;
-    const t0 = window.__acadBootT0;
-    const remove = function () { document.documentElement.classList.remove('acad-hash-boot'); };
+    const t0 = window.__siteBootT0;
+    const remove = function () { document.documentElement.classList.remove('site-boot'); };
     if (typeof t0 === 'number') {
       const remaining = MIN_MS - (Date.now() - t0);
       if (remaining > 0) { setTimeout(remove, remaining); return; }

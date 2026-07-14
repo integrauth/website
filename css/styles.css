@@ -4239,27 +4239,17 @@ body.theme-cyber .tools-cta a {
 }
 
 /* ==========================================================================
-   Academy boot loader — shown only when landing on a #hash deep link, to
-   bridge the gap between first paint (raw hub markup, for SEO/no-JS) and
-   initAcademy() resolving + hiding the hub. See the inline <script> in
-   academy.html's <head> that toggles html.acad-hash-boot before body paints.
+   Site boot loader — shown on every fresh load of index.html and academy.html
+   to bridge first paint and full JS init (theme applied, Academy hash routing
+   resolved), toggled by an inline <script> in each page's <head> (adds
+   html.site-boot + html[data-boot-theme] before body paints, so this file
+   being render-blocking is what keeps the loader from ever flashing unstyled).
+   data-boot-theme mirrors the saved theme (read from localStorage, same
+   default as applyTheme() in functions.js) so the loader itself renders in
+   the FINAL theme's colors immediately — no flash of the light-theme default
+   before JS swaps body's theme classes over.
    ========================================================================== */
-.acad-boot-loader {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  align-items: center;
-  justify-content: center;
-  background: var(--acad-fig-bg, #ffffff);
-}
-html.acad-hash-boot .acad-boot-loader { display: flex; }
-html.acad-hash-boot #acadHub,
-html.acad-hash-boot #acadReader { display: none !important; }
-
-/* Homepage boot loader — same card/shield markup, shown on every fresh load
-   (not gated on a #hash like the Academy one) via html.site-boot, toggled by
-   an inline <script> in index.html's <head> before body paints. */
+.acad-boot-loader,
 .boot-loader {
   display: none;
   position: fixed;
@@ -4269,8 +4259,20 @@ html.acad-hash-boot #acadReader { display: none !important; }
   justify-content: center;
   background: var(--acad-fig-bg, #ffffff);
 }
+html.site-boot .acad-boot-loader,
 html.site-boot .boot-loader { display: flex; }
+html.site-boot #acadHub,
+html.site-boot #acadReader { display: none !important; }
 html.site-boot { overflow: hidden; }
+
+html[data-boot-theme="light"] .acad-boot-loader,
+html[data-boot-theme="light"] .boot-loader { --acad-fig-bg: #ffffff; --acad-actor: #6366f1; }
+html[data-boot-theme="dark"] .acad-boot-loader,
+html[data-boot-theme="dark"] .boot-loader { --acad-fig-bg: #0f172a; --acad-actor: #4f46e5; }
+html[data-boot-theme="contrast"] .acad-boot-loader,
+html[data-boot-theme="contrast"] .boot-loader { --acad-fig-bg: #ffffff; --acad-actor: #000000; }
+html[data-boot-theme="cyber"] .acad-boot-loader,
+html[data-boot-theme="cyber"] .boot-loader { --acad-fig-bg: #0f172a; --acad-actor: #155e75; }
 
 .acad-boot-loader-card { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 2rem; }
 .acad-boot-shield {
