@@ -425,6 +425,33 @@ document.addEventListener('keydown', function(event) {
   }
 });
 
+// Cover outgoing same-site page navigations with the boot loader. Browsers
+// keep painting the OLD page until the next document's first paint (paint
+// holding), so without this the sequence reads "page → loader → page"; raising
+// the loader at click time makes it "loader → loader → page" instead.
+document.addEventListener('click', function(event) {
+  if (event.defaultPrevented || event.button !== 0 ||
+      event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.target.closest ? event.target.closest('a[href]') : null;
+  if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+  // Only pages that ship a loader element participate (index + academy)
+  if (!document.querySelector('.boot-loader, .acad-boot-loader')) return;
+  let url;
+  try { url = new URL(link.href, location.href); } catch (e) { return; }
+  if (url.origin !== location.origin || url.pathname === location.pathname) return;
+  const html = document.documentElement;
+  html.classList.add('site-boot');
+  // The navigation can still be canceled (Esc, slow server + second thoughts) —
+  // never leave the loader stranded over a page that stays alive.
+  setTimeout(function() { html.classList.remove('site-boot'); }, 5000);
+});
+
+// A bfcache restore resurrects the page exactly as it was hidden — possibly
+// with the outgoing-navigation loader still up. Drop it.
+window.addEventListener('pageshow', function(event) {
+  if (event.persisted) document.documentElement.classList.remove('site-boot');
+});
+
 // Export functions for global access
 window.expandAllTech = expandAllTech;
 window.collapseAllTech = collapseAllTech;
