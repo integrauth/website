@@ -362,19 +362,8 @@ $(function() {
   initBackToTop();
 
   // Homepage boot loader: bridge first paint to full init (theme applied, marquee
-  // wired up), held for a minimum stretch so it reads as an intentional loading
-  // beat instead of a flicker on fast connections — mirrors Academy's boot loader.
-  if (document.getElementById('siteBootLoader')) {
-    const MIN_MS = 700;
-    const t0 = window.__siteBootT0;
-    const removeBoot = function () { document.documentElement.classList.remove('site-boot'); };
-    if (typeof t0 === 'number') {
-      const remaining = MIN_MS - (Date.now() - t0);
-      if (remaining > 0) { setTimeout(removeBoot, remaining); } else { removeBoot(); }
-    } else {
-      removeBoot();
-    }
-  }
+  // wired up) — mirrors Academy's boot loader.
+  if (document.getElementById('siteBootLoader')) dismissBootLoader();
 
   // Attach scroll handler with passive listener for better performance
   $(window).on('scroll', handleScroll);
@@ -424,6 +413,32 @@ document.addEventListener('keydown', function(event) {
     }
   }
 });
+
+// Drop the boot loader once init is done. Held for a minimum stretch so it
+// reads as an intentional loading beat instead of a flicker, and — since the
+// CDN stylesheets load async — also until Bootstrap's CSS has actually been
+// applied, so the reveal never shows unstyled layout. The CSS wait is capped:
+// a down CDN degrades the layout, it must not strand the loader.
+function dismissBootLoader() {
+  const MIN_MS = 700;
+  const CSS_WAIT_CAP_MS = 4000;
+  const html = document.documentElement;
+  const t0 = typeof window.__siteBootT0 === 'number' ? window.__siteBootT0 : Date.now();
+  const started = Date.now();
+  const cssReady = function () {
+    try {
+      return Array.prototype.some.call(document.styleSheets, function (s) {
+        return s.href && s.href.indexOf('bootstrap') !== -1;
+      });
+    } catch (e) { return true; }
+  };
+  (function attempt() {
+    const heldFor = Date.now() - t0;
+    if (heldFor < MIN_MS) { setTimeout(attempt, MIN_MS - heldFor); return; }
+    if (!cssReady() && Date.now() - started < CSS_WAIT_CAP_MS) { setTimeout(attempt, 100); return; }
+    html.classList.remove('site-boot');
+  })();
+}
 
 // Cover outgoing same-site page navigations with the boot loader. Browsers
 // keep painting the OLD page until the next document's first paint (paint
@@ -1185,17 +1200,6 @@ function initAcademy() {
       } catch (e) {}
     }
   }
-  // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader,
-  // but keep it up for a minimum stretch so it reads as an intentional loading beat
-  // instead of a flicker on fast connections.
-  (function () {
-    const MIN_MS = 700;
-    const t0 = window.__siteBootT0;
-    const remove = function () { document.documentElement.classList.remove('site-boot'); };
-    if (typeof t0 === 'number') {
-      const remaining = MIN_MS - (Date.now() - t0);
-      if (remaining > 0) { setTimeout(remove, remaining); return; }
-    }
-    remove();
-  })();
+  // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader.
+  dismissBootLoader();
 }
