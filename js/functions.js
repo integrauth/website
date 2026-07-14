@@ -361,6 +361,21 @@ $(function() {
   initAcademy();
   initBackToTop();
 
+  // Homepage boot loader: bridge first paint to full init (theme applied, marquee
+  // wired up), held for a minimum stretch so it reads as an intentional loading
+  // beat instead of a flicker on fast connections — mirrors Academy's boot loader.
+  if (document.getElementById('siteBootLoader')) {
+    const MIN_MS = 700;
+    const t0 = window.__siteBootT0;
+    const removeBoot = function () { document.documentElement.classList.remove('site-boot'); };
+    if (typeof t0 === 'number') {
+      const remaining = MIN_MS - (Date.now() - t0);
+      if (remaining > 0) { setTimeout(removeBoot, remaining); } else { removeBoot(); }
+    } else {
+      removeBoot();
+    }
+  }
+
   // Attach scroll handler with passive listener for better performance
   $(window).on('scroll', handleScroll);
 

@@ -4257,6 +4257,21 @@ html.acad-hash-boot .acad-boot-loader { display: flex; }
 html.acad-hash-boot #acadHub,
 html.acad-hash-boot #acadReader { display: none !important; }
 
+/* Homepage boot loader — same card/shield markup, shown on every fresh load
+   (not gated on a #hash like the Academy one) via html.site-boot, toggled by
+   an inline <script> in index.html's <head> before body paints. */
+.boot-loader {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+  background: var(--acad-fig-bg, #ffffff);
+}
+html.site-boot .boot-loader { display: flex; }
+html.site-boot { overflow: hidden; }
+
 .acad-boot-loader-card { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 2rem; }
 .acad-boot-shield {
   position: relative;
