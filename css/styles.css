@@ -5454,7 +5454,9 @@ body.theme-contrast .acad-banner-tracks-toggle { color: #000; }
   line-height: 1.35;
 }
 
-body.theme-contrast .acad-banner-track { background: #000; border-color: #fff; }
+body.theme-contrast .acad-banner-track { background: #000; border-color: #fff; color: #fff; }
+body.theme-contrast .acad-banner-track:hover,
+body.theme-contrast .acad-banner-track:focus-visible { background: #ffd60a; border-color: #000; color: #000; }
 body.theme-contrast .acad-bt-num { background: #ffd60a; color: #000; }
 
 @media (max-width: 991px) {
