@@ -80,17 +80,6 @@ Both pages ship a full-screen boot loader (IntegrAuth-logo shield + pulse ring) 
 
 The 3 CDN stylesheets (Google Fonts, Bootstrap, Font Awesome) load **async** on these two pages (`rel="preload" as="style"` + `onload` rel-swap + `<noscript>` fallbacks) so first paint only blocks on same-origin styles.min.css — the loader paints in the right theme within ~100-300ms while the loader hides the un-Bootstrapped layout. Also in functions.js: a delegated click handler raises the loader over the OLD page on same-site cross-page link clicks (browser paint-holding otherwise shows the old page until the new one's first paint), with same-pathname/hash/new-tab/external clicks excluded and a `pageshow` handler dropping a stale loader on bfcache restores. Legal pages (privacy/terms/support/cancellation) have none of this — blocking CSS, no loader.
 
-### Boot loader & async CDN CSS (index.html + academy.html, 2026-07-14)
-
-Both pages ship a full-screen boot loader (IntegrAuth-logo shield + pulse ring) that covers first paint through JS init, killing every flash class (unthemed light content, wrong-theme loader, old page lingering on nav). Four cooperating pieces — **keep them in sync**:
-
-1. **Inline `<head>` script** (first thing in head, both pages): reads `localStorage.theme` (try/catch, defaults `cyber`), stamps `data-boot-theme` + `.site-boot` on `<html>` before body parses, sets `window.__siteBootT0`, and arms a 5s failsafe class-removal in case JS never loads
-2. **Inline `<head>` critical CSS** (right after the script): styles `.boot-loader`/`.acad-boot-loader` + shield/scan + per-`data-boot-theme` backgrounds WITHOUT needing styles.min.css, and hides all other body children via `html.site-boot body>:not(...) {visibility:hidden!important}` — so nothing can ever paint ahead of the loader
-3. **Inline post-`<body>` script**: rewrites `body.className` to the chosen theme's classes synchronously (applyTheme() re-does it at ready) — no unthemed frame even if the loader lifts early
-4. **`dismissBootLoader()` in functions.js**: removes `.site-boot` after ≥700ms AND once Bootstrap's stylesheet is in `document.styleSheets` (capped +4s so a dead CDN can't strand the loader); called from the DOM-ready handler (index, gated on `#siteBootLoader`) and the end of `initAcademy()` (academy)
-
-The 3 CDN stylesheets (Google Fonts, Bootstrap, Font Awesome) load **async** on these two pages (`rel="preload" as="style"` + `onload` rel-swap + `<noscript>` fallbacks) so first paint only blocks on same-origin styles.min.css — the loader paints in the right theme within ~100-300ms while the loader hides the un-Bootstrapped layout. Also in functions.js: a delegated click handler raises the loader over the OLD page on same-site cross-page link clicks (browser paint-holding otherwise shows the old page until the new one's first paint), with same-pathname/hash/new-tab/external clicks excluded and a `pageshow` handler dropping a stale loader on bfcache restores. Legal pages (privacy/terms/support/cancellation) have none of this — blocking CSS, no loader.
-
 ### Design System (css/styles.css)
 
 **Colors**: Primary `#6366f1`, Gradient `#667eea → #764ba2`, Dark mode `#0f172a`
