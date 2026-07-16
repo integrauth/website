@@ -482,6 +482,7 @@ function initAcademy() {
   if (!reader || !hub) return;
 
   const TRACK_LABELS = {
+    basics: 'Track 0 · The Absolute Basics',
     foundations: 'Track 1 · Foundations',
     authn: 'Track 2 · Modern Authentication',
     tokens: 'Track 3 · Token Security',
@@ -712,7 +713,7 @@ function initAcademy() {
 
   // Guided tour: teaches newcomers how to get from lesson 1 to the certificate.
   const ACAD_TOUR = [
-    { title: 'Welcome to the IntegrAuth Academy', text: '11 tracks, 111 byte-sized lessons and hands-on labs — all client-side, nothing to sign up for. Here’s how to get from your first lesson to your certificate.' },
+    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 121 byte-sized lessons and hands-on labs — all client-side, nothing to sign up for. Here’s how to get from your first lesson to your certificate.' },
     { selector: '.acad-track-card', title: '1. Pick a track', text: 'Click any track card — or a lesson link inside it — to start reading. Each lesson is a 3–5 minute read.' },
     { title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
     { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
@@ -993,13 +994,13 @@ function initAcademy() {
   // Persona learning paths — ordered cross-track playlists. Unknown ids are skipped.
   const PERSONA_PATHS = [
     { key: 'dev', icon: 'fa-code', name: 'Developer', blurb: 'Ship a login the right way, end to end.',
-      lessons: ['f1-identity', 'f3-tokens', 'p1-oidc', 't7-birth', 'a1-passkeys', 'a10-sessions', 'r1-bff', 't1-rotation', 'az4-scopes', 'c1-signup'] },
+      lessons: ['f1-identity', 'f3-tokens', 'b7-jwt', 'p1-oidc', 't7-birth', 'a1-passkeys', 'a10-sessions', 'r1-bff', 't1-rotation', 'az4-scopes', 'c1-signup'] },
     { key: 'arch', icon: 'fa-sitemap', name: 'Architect', blurb: 'Design the whole identity system with confidence.',
       lessons: ['f5-personas', 'f6-zerotrust', 'p5-exchange', 'r1-bff', 'r2-micro', 'r3-tenancy', 'r4-lifetimes', 'w2-wif', 'r5-buildbuy', 'r6-dr'] },
     { key: 'sec', icon: 'fa-shield-halved', name: 'Security analyst', blurb: 'Detect, defend and respond to identity attacks.',
-      lessons: ['f7-itdr', 'a3-adaptive', 'a6-breached', 'atk1-aitm', 'atk2-fatigue', 'atk5-cookies', 'atk7-detect', 'atk8-tabletop', 'o2-siem', 'c5-ato'] },
+      lessons: ['b5-encoding', 'f7-itdr', 'a3-adaptive', 'a6-breached', 'atk1-aitm', 'atk2-fatigue', 'atk5-cookies', 'atk7-detect', 'atk8-tabletop', 'o2-siem', 'c5-ato'] },
     { key: 'pm', icon: 'fa-lightbulb', name: 'Product manager', blurb: 'Balance trust, friction and compliance for users.',
-      lessons: ['f1-identity', 'f10-rules', 'c1-signup', 'c2-recovery', 'c4-profiling', 'a1-passkeys', 'o3-rtbf', 'c7-b2b', 'r5-buildbuy'] }
+      lessons: ['b1-web', 'b4-apis', 'f1-identity', 'f10-rules', 'c1-signup', 'c2-recovery', 'c4-profiling', 'a1-passkeys', 'o3-rtbf', 'c7-b2b', 'r5-buildbuy'] }
   ];
 
   function titleOf(id) {

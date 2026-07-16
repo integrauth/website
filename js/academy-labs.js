@@ -6782,6 +6782,11 @@ CERT_LOGO.onload = function () { CERT_LOGO_READY = true; };
 CERT_LOGO.src = '/IntegrAuth.svg';
 
 var ACAD_EXAM_POOL = [
+  // The basics
+  { t: 'The basics', q: 'A JWT\'s payload is Base64. What does that tell you about the data inside it?', o: ['It is encrypted, so only the server can read it', 'It is only encoded — anyone holding the token can decode and read it, so never put secrets there', 'It is hashed, so it can never be reversed', 'It is compressed and unreadable without a key'], a: 1 },
+  { t: 'The basics', q: 'An API returns 401 to one request and 403 to the next. What is the difference?', o: ['401 means the server crashed; 403 means it is busy', 'They mean the same thing — both just say "try again later"', '401 = not authenticated (we don\'t know who you are); 403 = authenticated but not authorised (we know you, but you may not)', '401 = page not found; 403 = wrong web address'], a: 2 },
+  { t: 'The basics', q: 'What does a JWT\'s signature actually prove?', o: ['That the token\'s contents are hidden from whoever holds it', 'That the token can never expire', 'That the user typed the correct password', 'That the claims came from the real issuer and have not been changed since'], a: 3 },
+  { t: 'The basics', q: 'Why do good sites add a random "salt" to each password before hashing it?', o: ['So two users with the same password get different stored fingerprints, defeating precomputed lookup tables', 'To make the password shorter and faster to check', 'To encrypt the password so it can be decrypted at login', 'To let the site email the password back to the user if they forget it'], a: 0 },
   // Foundations
   { t: 'Foundations', q: 'What is a digital "identity", most precisely?', o: ['The physical person, with no separate digital representation at all', 'A digital stand-in the business uses to recognise someone or something', 'A single login session that ends the moment the browser closes', 'The complete audit trail of everything a user has ever done'], a: 1 },
   { t: 'Foundations', q: 'In joiner–mover–leaver, which event is the most security-critical to automate?', o: ['Joiner — granting first access when someone starts', 'Mover — adjusting access when someone changes teams', 'Leaver — revoking access the moment someone departs', 'Onboarding — collecting the new hire\'s paperwork'], a: 2 },
@@ -10274,5 +10279,903 @@ AcadLabs.register('lab-challenge', {
     }
 
     render();
+  }
+});
+
+/* ============================================================
+ * Track 0 · The Absolute Basics — beginner labs (b1–b8)
+ * ============================================================ */
+
+/* lab-url | lesson: b1-web */
+AcadLabs.register('lab-url', {
+  title: 'Dissect a URL, then make the trip',
+  blurb: 'Pull a web address apart into its pieces, learn to read the REAL domain, then watch a browser look it up and fetch the page — step by step.',
+  render: function (root, h) {
+    var SAMPLES = [
+      { value: 'https://travel.example/flights?from=BLR&to=DXB', ip: '203.0.113.7', label: 'travel.example — flight search' },
+      { value: 'https://pay.example:8443/checkout', ip: '198.51.100.24', label: 'pay.example — checkout (custom port)' },
+      { value: 'https://travel-example.evil.example/login', ip: '192.0.2.66', warn: true, label: 'a sneaky look-alike login page' }
+    ];
+
+    function parseUrl(u) {
+      var scheme = '', rest = u;
+      var si = u.indexOf('://');
+      if (si >= 0) { scheme = u.slice(0, si); rest = u.slice(si + 3); }
+      var slash = rest.indexOf('/');
+      var authority = slash < 0 ? rest : rest.slice(0, slash);
+      var pathQuery = slash < 0 ? '' : rest.slice(slash);
+      var host = authority, port = '';
+      var ci = authority.indexOf(':');
+      if (ci >= 0) { host = authority.slice(0, ci); port = authority.slice(ci + 1); }
+      var path = pathQuery, query = '';
+      var qi = pathQuery.indexOf('?');
+      if (qi >= 0) { path = pathQuery.slice(0, qi); query = pathQuery.slice(qi); }
+      var labels = host.split('.');
+      var registrable = labels.slice(-2).join('.');
+      return { scheme: scheme, host: host, port: port, path: path || '/', query: query, registrable: registrable };
+    }
+
+    var current = SAMPLES[0];
+    var breakdown = h.el('div', {});
+    var tripOut = h.el('div', {});
+    var log = h.logPanel();
+
+    function part(name, value, kind) {
+      return h.el('div', { class: 'acad-lab-row', style: 'align-items:center;gap:10px;margin:2px 0' }, [
+        h.badge(name, kind || 'neutral'),
+        h.el('code', { class: 'acad-lab-token' }, value)
+      ]);
+    }
+
+    function renderBreakdown() {
+      breakdown.innerHTML = '';
+      tripOut.innerHTML = '';
+      var p = parseUrl(current.value);
+      var rows = [
+        part('scheme — how to talk', p.scheme + '://', 'ok'),
+        part('domain — whose site', p.host + (p.port ? ' (port ' + p.port + ')' : ''), 'neutral'),
+        part('path — which page', p.path, 'neutral'),
+        part('query — extra details', p.query || '(none)', 'neutral')
+      ];
+      breakdown.appendChild(h.panel('The pieces', rows));
+      var realRow = h.el('div', {}, [
+        h.note('The REAL domain is the last two labels before the first slash — that is who you are actually talking to:'),
+        h.el('div', { class: 'acad-lab-row', style: 'align-items:center;gap:10px' }, [
+          h.badge('real domain', current.warn ? 'bad' : 'ok'),
+          h.el('code', { class: 'acad-lab-token' }, p.registrable)
+        ])
+      ]);
+      if (current.warn) {
+        realRow.appendChild(h.badge('⚠ Careful! The name starts with "travel-example" to LOOK like travel.example — but the real domain is ' + p.registrable + '. This is not the real site.', 'bad'));
+      } else {
+        realRow.appendChild(h.badge('✔ The name you see and the real domain agree — this is genuinely ' + p.registrable + '.', 'ok'));
+      }
+      breakdown.appendChild(h.panel('Who are you really talking to?', [realRow]));
+    }
+
+    function visit() {
+      tripOut.innerHTML = '';
+      var p = parseUrl(current.value);
+      log.add('info', 'You typed "' + p.host + '". Your browser cannot use a name — it needs a number.');
+      h.timeout(function () {
+        log.add('info', 'Asking DNS (the internet phone book): where is ' + p.host + '?');
+        h.timeout(function () {
+          log.add('ok', 'DNS answered: ' + p.host + ' → ' + current.ip);
+          h.timeout(function () {
+            log.add('info', 'Sending GET ' + p.path + ' to ' + current.ip + ' …');
+            h.timeout(function () {
+              if (current.warn) {
+                log.add('bad', 'Connected — but to ' + p.registrable + ', NOT the real travel.example. Anything you type here goes to a stranger.');
+                tripOut.appendChild(h.httpCard({
+                  method: 'GET', path: p.path, status: 200,
+                  resBody: '<title>Sign in</title><h1>Welcome back — enter your password</h1>',
+                  note: 'It answers like a real site… because the padlock only protects the LINE, never proves the shop is honest.'
+                }));
+                tripOut.appendChild(h.badge('✗ Lesson learned: always read the real domain (the last two labels) before you trust a page — a padlock and a familiar-looking name are not enough.', 'bad'));
+              } else {
+                log.add('ok', 'The server replied: 200 OK — here is the page.');
+                tripOut.appendChild(h.httpCard({
+                  method: 'GET', path: p.path, status: 200,
+                  resBody: '<title>' + p.host + '</title><h1>Here is your page from ' + p.host + '</h1>',
+                  note: 'Name looked up → request sent → page returned. That is one full visit.'
+                }));
+                tripOut.appendChild(h.badge('✔ A name became a number, a request became a page. That round-trip happens on every site you open.', 'ok'));
+              }
+            }, 600);
+          }, 600);
+        }, 600);
+      }, 400);
+    }
+
+    var picker = h.select(SAMPLES.map(function (s, i) {
+      return { value: String(i), label: s.label, selected: i === 0 };
+    }), function (v) { current = SAMPLES[+v]; renderBreakdown(); });
+
+    root.appendChild(h.panel('1 · Pick a web address', [
+      h.field('Sample URLs', picker),
+      breakdown
+    ]));
+    root.appendChild(h.panel('2 · Make the trip', [
+      h.button('Visit it ▶', 'primary', visit),
+      tripOut
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderBreakdown();
+    log.add('info', 'Every web address is several pieces. Read the last two labels of the domain to know who you are really talking to.');
+  }
+});
+
+/* lab-http | lesson: b2-http */
+AcadLabs.register('lab-http', {
+  title: 'Be the browser',
+  blurb: 'Choose a verb and a page, send the request yourself, and collect all five famous status codes: 200, 201, 401, 403 and 404.',
+  render: function (root, h) {
+    var WANTED = ['200', '201', '401', '403', '404'];
+    var collected = {};
+
+    var chipRow = h.el('div', { class: 'acad-lab-row', style: 'flex-wrap:wrap;gap:6px' });
+    var out = h.el('div', {});
+    var log = h.logPanel();
+    var bodyField;
+
+    function renderChips() {
+      chipRow.innerHTML = '';
+      chipRow.appendChild(h.el('span', { class: 'acad-lab-field-label' }, 'Status codes collected:'));
+      WANTED.forEach(function (code) {
+        chipRow.appendChild(h.badge(code, collected[code] ? 'ok' : 'neutral'));
+      });
+      if (WANTED.every(function (c) { return collected[c]; })) {
+        chipRow.appendChild(h.badge('🏆 collected all five — you now read HTTP like a browser does', 'ok'));
+      }
+    }
+
+    function card(status, body, story) {
+      collected[String(status)] = true;
+      renderChips();
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({ method: methodSel.value, path: pathSel.value, status: status, resBody: body, note: story }));
+    }
+
+    function send() {
+      var m = methodSel.value, p = pathSel.value;
+      log.add('info', 'You sent ' + m + ' ' + p + ' — let us see what the server says.');
+      if (p === '/admin') {
+        log.add('bad', '401 — the server does not know who you are (you sent no proof). We learn how to prove it in lesson 3.');
+        return card(401, { error: 'unauthorized', detail: 'You sent nothing that says who you are.' }, '401 Unauthorized = "and you are…?" Nothing here identifies you yet.');
+      }
+      if (p === '/nonsense') {
+        log.add('bad', '404 — there is simply no such page. Same answer for ANY verb, even POST.');
+        return card(404, { error: 'not_found' }, '404 Not Found = the thing you asked for is not here.');
+      }
+      if (p === '/flights') {
+        if (m === 'GET') { log.add('ok', '200 — a public list, anyone may read it.'); return card(200, { flights: [{ id: 42, from: 'BLR', to: 'DXB' }, { id: 43, from: 'BLR', to: 'SIN' }] }, '200 OK = "yes, here it is." Reading public data needs no permission.'); }
+        log.add('warn', '403 — you are allowed to look, but not to change the flight list.');
+        return card(403, { error: 'forbidden', detail: 'only staff may add or change flights' }, '403 Forbidden = we may know who you are, but you are not allowed to do this.');
+      }
+      if (p === '/flights/42') {
+        if (m === 'GET') { log.add('ok', '200 — here is that one flight.'); return card(200, { id: 42, from: 'BLR', to: 'DXB', seatsLeft: 9 }, '200 OK = here is the specific thing you asked for.'); }
+        log.add('warn', '403 — removing or replacing a flight is a staff-only job.');
+        return card(403, { error: 'forbidden', detail: 'only staff may remove flights' }, '403 Forbidden = not allowed, even though the flight exists.');
+      }
+      if (p === '/bookings') {
+        if (m === 'POST') { log.add('ok', '201 — you created a brand-new booking!'); return card(201, { id: 'bk_' + h.rand(6), status: 'confirmed', flight: 42 }, '201 Created = "made it!" POST creates something new, and the body is the details you sent.'); }
+        if (m === 'GET') { log.add('ok', '200 — here is the bookings list.'); return card(200, { bookings: [] }, '200 OK = here is the list (empty for now).'); }
+        log.add('warn', '403 — you cannot delete the whole bookings collection.');
+        return card(403, { error: 'forbidden' }, '403 Forbidden = not allowed.');
+      }
+      log.add('bad', '404 — no such page.');
+      return card(404, { error: 'not_found' }, '404 Not Found.');
+    }
+
+    var methodSel = h.select([
+      { value: 'GET', label: 'GET — read', selected: true },
+      { value: 'POST', label: 'POST — create' },
+      { value: 'DELETE', label: 'DELETE — remove' }
+    ], function (v) { bodyField.style.display = v === 'POST' ? '' : 'none'; });
+
+    var pathSel = h.select([
+      { value: '/flights', label: '/flights — the public flight list', selected: true },
+      { value: '/flights/42', label: '/flights/42 — one specific flight' },
+      { value: '/bookings', label: '/bookings — your bookings' },
+      { value: '/admin', label: '/admin — a private staff page' },
+      { value: '/nonsense', label: '/nonsense — a page that does not exist' }
+    ]);
+
+    var bodyTa = h.el('textarea', { class: 'acad-lab-input', rows: '3', spellcheck: 'false' }, '{\n  "flight": 42\n}');
+    bodyField = h.field('Request body (sent only with POST)', bodyTa);
+    bodyField.style.display = 'none';
+
+    root.appendChild(h.panel('Build a request', [
+      h.row([
+        h.field('Method (the verb)', methodSel),
+        h.field('Path (which page)', pathSel)
+      ]),
+      bodyField,
+      h.button('Send request ▶', 'primary', send)
+    ]));
+    root.appendChild(h.panel('The server answers', [out]));
+    root.appendChild(h.panel('Collect them all', [chipRow]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderChips();
+    log.add('info', 'You are the browser now. Try each verb on each page — hunt down all five status codes.');
+  }
+});
+
+/* lab-cookiejar | lesson: b3-state */
+AcadLabs.register('lab-cookiejar', {
+  title: 'The cookie jar',
+  blurb: 'Log Maya in, watch the server staple a cookie to her browser, then browse with no password — and see why a stolen cookie is game over.',
+  render: function (root, h) {
+    var cookie = null;          // your browser's cookie jar
+    var attackerCookie = null;  // what the attacker managed to copy
+
+    var jarBox = h.el('div', {});
+    var attBox = h.el('div', {});
+    var out = h.el('div', {});
+    var log = h.logPanel();
+
+    function renderJar() {
+      jarBox.innerHTML = '';
+      if (cookie) {
+        jarBox.appendChild(h.codeCopy('session=' + cookie));
+        jarBox.appendChild(h.badge('1 cookie in your jar — you look logged in', 'ok'));
+      } else {
+        jarBox.appendChild(h.note('Your cookie jar is empty — as far as the server knows, you are a stranger.'));
+      }
+      attBox.innerHTML = '';
+      if (attackerCookie) {
+        attBox.appendChild(h.codeCopy('session=' + attackerCookie));
+        attBox.appendChild(h.button('Visit /account as the attacker', 'danger', attackerVisit));
+      } else {
+        attBox.appendChild(h.note('The attacker has nothing to work with — yet.'));
+      }
+    }
+
+    function login() {
+      cookie = h.rand(8);
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'POST', path: '/login', status: 200,
+        reqBody: { user: 'maya', password: '********' },
+        resBody: { ok: true },
+        note: 'Set-Cookie: session=' + cookie + ' — the server stapled a name-tag to your browser and wrote a matching entry in its guest-list. Your browser will now re-send this automatically.'
+      }));
+      renderJar();
+      log.add('ok', 'Logged in as Maya. Server replied Set-Cookie: session=' + cookie + '.');
+    }
+
+    function visit() {
+      out.innerHTML = '';
+      if (!cookie) {
+        out.appendChild(h.httpCard({
+          method: 'GET', path: '/account', status: 401,
+          resBody: { error: 'not_logged_in' },
+          note: 'Your browser had no cookie to attach, so the server has no idea who you are. Log in first.'
+        }));
+        log.add('bad', 'GET /account with no cookie -> 401.');
+        return;
+      }
+      out.appendChild(h.httpCard({
+        method: 'GET', path: '/account', status: 200,
+        resBody: { welcome: 'Maya', balance: '$4,120.00' },
+        note: 'Cookie: session=' + cookie + ' rode along automatically. The server matched it to its guest-list and knew it was Maya — no password re-typed.'
+      }));
+      log.add('ok', 'GET /account (Cookie: session=' + cookie + ') -> 200 welcome Maya.');
+    }
+
+    function logout() {
+      cookie = null;
+      out.innerHTML = '';
+      renderJar();
+      log.add('info', 'Cleared the jar (logged out / fresh browser). The next /account visit will 401.');
+    }
+
+    function steal() {
+      if (!cookie) { log.add('bad', 'Nothing to steal yet — log Maya in first.'); return; }
+      attackerCookie = cookie;
+      renderJar();
+      log.add('warn', 'An attacker copied your cookie value (' + cookie + ') — via a shared computer, a leak, or malware.');
+    }
+
+    function attackerVisit() {
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'GET', path: '/account', status: 200,
+        resBody: { welcome: 'Maya', balance: '$4,120.00' },
+        note: 'This request came from the ATTACKER, carrying Cookie: session=' + attackerCookie + ' — but the server cannot tell the difference.'
+      }));
+      out.appendChild(h.badge('The server cannot tell. Whoever holds the cookie IS Maya to it — which is why stolen cookies are a real attack (see lesson atk5-cookies).', 'bad'));
+      log.add('bad', "Attacker's GET /account with your cookie -> 200 welcome Maya. The cookie IS the identity.");
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('Your browser', [
+          h.button('Log in as Maya', 'primary', login),
+          h.button('Visit /account', '', visit),
+          h.button('Clear the jar (log out / new browser)', 'ghost', logout)
+        ]),
+        h.panel('🍪 Your cookie jar', [jarBox])
+      ]),
+      h.col([
+        h.panel('😈 Attacker', [
+          h.button('Attacker copies your cookie', 'danger', steal),
+          attBox
+        ]),
+        h.panel('Response', [out])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    renderJar();
+    log.add('info', 'HTTP forgets you between requests. A cookie is the little note that reminds the server who you are — and whoever holds it looks exactly like you.');
+  }
+});
+
+/* lab-api | lesson: b4-apis */
+AcadLabs.register('lab-api', {
+  title: 'Order from the API menu',
+  blurb: 'Send real requests to a toy flight API, read the JSON that comes back, and see why an API with no key refuses to serve you.',
+  render: function (root, h) {
+    var hasKey = false;
+    var successCount = 0;
+    var out = h.el('div', {});
+    var takeaway = h.el('div', {});
+    var log = h.logPanel();
+
+    function refreshTakeaway() {
+      takeaway.innerHTML = '';
+      if (successCount >= 3) {
+        takeaway.appendChild(h.badge('You just did what every app on your phone does thousands of times a day — quietly call APIs and read the JSON back.', 'ok'));
+      }
+    }
+
+    function needKey(path) {
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'GET', path: path, status: 401,
+        resBody: { error: 'unauthorized' },
+        note: 'No API key on the request, so the API answers "who are you?" and refuses. Turn the API key ON, then try again. (Keys vs tokens: lesson az5-apikeys.)'
+      }));
+      log.add('bad', 'GET ' + path + ' with no key -> 401 unauthorized.');
+    }
+
+    function getFlights() {
+      if (!hasKey) { needKey('/flights'); return; }
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'GET', path: '/flights', status: 200,
+        resBody: [{ id: 42, to: 'Cairo' }, { id: 77, to: 'Tokyo' }]
+      }));
+      log.add('ok', 'GET /flights -> 200. The answer is a JSON list [ ... ] of two flights — data, not a web page.');
+      successCount++; refreshTakeaway();
+    }
+
+    function getFlight42() {
+      if (!hasKey) { needKey('/flights/42'); return; }
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'GET', path: '/flights/42', status: 200,
+        resBody: { id: 42, to: 'Cairo', gate: 'B12', seatsLeft: 9 }
+      }));
+      log.add('ok', 'GET /flights/42 -> 200. One flight object in JSON: curly braces wrapping "key": value pairs.');
+      successCount++; refreshTakeaway();
+    }
+
+    function getFlight999() {
+      if (!hasKey) { needKey('/flights/999'); return; }
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'GET', path: '/flights/999', status: 404,
+        resBody: { error: 'not_found' },
+        note: 'Your key was fine, but there is no flight 999. 404 is the web\'s "no such thing" code.'
+      }));
+      log.add('warn', 'GET /flights/999 -> 404 not_found (that flight does not exist).');
+    }
+
+    function book() {
+      if (!hasKey) { needKey('/bookings'); return; }
+      out.innerHTML = '';
+      out.appendChild(h.httpCard({
+        method: 'POST', path: '/bookings', status: 201,
+        reqBody: { flight: 42, seat: '12A' },
+        resBody: { booking: 'B-771', seat: '12A' }
+      }));
+      log.add('ok', 'POST /bookings -> 201 Created. You asked the API to make something new, and it did.');
+      successCount++; refreshTakeaway();
+    }
+
+    var keyChip = h.chip('API key: OFF', false, function (on) {
+      hasKey = on;
+      keyChip.textContent = 'API key: ' + (on ? 'ON' : 'OFF');
+      log.add(on ? 'ok' : 'warn', on
+        ? 'API key turned ON — the API now believes a known caller is asking.'
+        : 'API key turned OFF — the API will refuse every request.');
+    });
+
+    root.appendChild(h.panel('The API menu (its endpoints)', [
+      h.row([
+        h.button('GET /flights', '', getFlights),
+        h.button('GET /flights/42', '', getFlight42),
+        h.button('GET /flights/999', '', getFlight999),
+        h.button('POST /bookings', 'primary', book)
+      ]),
+      h.row([keyChip]),
+      h.note('An endpoint is one item on the menu — a thing you can ask this API for. GET reads; POST creates. Toggle the key to see the difference.')
+    ]));
+    root.appendChild(h.panel('Response', [out, takeaway]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'An API is a menu of things one program lets another ask for — same HTTP as a web page, but the reply is data (JSON) for programs, not a page for eyes.');
+  }
+});
+
+/* lab-encoding | lesson: b5-encoding */
+AcadLabs.register('lab-encoding', {
+  title: 'One string, three machines',
+  blurb: 'Feed the same message into encoding, hashing and encryption side by side — and feel in your fingers how differently each one behaves.',
+  render: function (root, h) {
+    var input = h.input({ value: 'meet me at noon', spellcheck: 'false' });
+
+    function b64(s) { return btoa(unescape(encodeURIComponent(s))); }
+    function b64dec(s) { return decodeURIComponent(escape(atob(s))); }
+
+    function toHex(buf) {
+      var b = new Uint8Array(buf), s = '', i;
+      for (i = 0; i < b.length; i++) { s += ('0' + b[i].toString(16)).slice(-2); }
+      return s;
+    }
+    function sha256(str, cb) {
+      var bytes = new TextEncoder().encode(str);
+      crypto.subtle.digest('SHA-256', bytes).then(function (buf) { cb(toHex(buf)); });
+    }
+
+    // Simulated encryption: a reversible byte scramble keyed by a number.
+    function scramble(str, keyNum) {
+      var bytes = new TextEncoder().encode(str), out = '', i, x;
+      for (i = 0; i < bytes.length; i++) {
+        x = bytes[i] ^ ((keyNum * 7 + i * 13) & 0xff);
+        out += ('0' + x.toString(16)).slice(-2);
+      }
+      return out;
+    }
+    function unscramble(hex, keyNum) {
+      var bytes = [], i, x;
+      for (i = 0; i < hex.length; i += 2) {
+        x = parseInt(hex.substr(i, 2), 16);
+        bytes.push(x ^ ((keyNum * 7 + (i / 2) * 13) & 0xff));
+      }
+      try { return new TextDecoder().decode(new Uint8Array(bytes)); }
+      catch (e) { return '??? garbage ???'; }
+    }
+
+    /* ----- Encode panel ----- */
+    var b64Out = h.el('div', {});
+    function doEncode() {
+      b64Out.innerHTML = '';
+      var enc = b64(input.value);
+      b64Out.appendChild(h.codeCopy(enc));
+      b64Out.appendChild(h.button('Decode it back', 'ghost', function () {
+        b64Out.appendChild(h.note('decoded: ' + b64dec(enc)));
+        b64Out.appendChild(h.badge('Round-tripped with NO key. Anyone can undo this — it is not secret.', 'warn'));
+      }));
+    }
+    var encodePanel = h.panel('① Encode — Base64', [
+      h.button('Encode', 'primary', doEncode), b64Out
+    ]);
+
+    /* ----- Hash panel ----- */
+    var hashOut = h.el('div', {});
+    var prevHash = null;
+    function doHash() {
+      var val = input.value;
+      sha256(val, function (hex) {
+        hashOut.innerHTML = '';
+        if (prevHash) { hashOut.appendChild(h.note('previous: ' + prevHash)); }
+        hashOut.appendChild(h.codeCopy(hex));
+        if (prevHash && prevHash !== hex) {
+          hashOut.appendChild(h.badge('One tiny change flipped the ENTIRE fingerprint — that is hashing working as designed.', 'warn'));
+        }
+        hashOut.appendChild(h.badge('One-way. No key, and no road back to the original.', 'ok'));
+        prevHash = hex;
+      });
+    }
+    var hashPanel = h.panel('② Hash — SHA-256 (real)', [
+      h.button('Hash', 'primary', doHash),
+      h.note('Hash it, then change one character above and hash again — watch the whole fingerprint change.'),
+      hashOut
+    ]);
+
+    /* ----- Encrypt panel ----- */
+    var curKey = '11';
+    var lockedHex = null, lockedKey = null;
+    var encOut = h.el('div', {});
+    var keySel = h.select([
+      { value: '11', label: '🔑 brass key', selected: true },
+      { value: '23', label: '🗝️ silver key' },
+      { value: '37', label: '🔐 gold key' }
+    ], function (v) { curKey = v; });
+    function doEncrypt() {
+      lockedKey = curKey;
+      lockedHex = scramble(input.value, parseInt(curKey, 10));
+      encOut.innerHTML = '';
+      encOut.appendChild(h.codeCopy(lockedHex));
+      encOut.appendChild(h.badge('Locked with the selected key. Useless gibberish without it.', 'ok'));
+    }
+    function doDecrypt() {
+      if (lockedHex == null) { encOut.appendChild(h.note('Encrypt something first.')); return; }
+      var res = unscramble(lockedHex, parseInt(curKey, 10));
+      if (curKey === lockedKey) {
+        encOut.appendChild(h.note('decrypted: ' + res));
+        encOut.appendChild(h.badge('Correct key — the message came back perfectly. Reversible, but ONLY with the key.', 'ok'));
+      } else {
+        encOut.appendChild(h.note('decrypted: ' + res));
+        encOut.appendChild(h.badge('Wrong key -> nonsense. Encryption reverses only for the matching key.', 'bad'));
+      }
+    }
+    var encryptPanel = h.panel('③ Encrypt — key required', [
+      h.field('Pick a key', keySel),
+      h.row([
+        h.button('Encrypt', 'primary', doEncrypt),
+        h.button('Decrypt', '', doDecrypt)
+      ]),
+      h.note('Encrypt with one key, then switch the key and decrypt — the wrong key gives you garbage.'),
+      encOut
+    ]);
+
+    /* ----- Quick check ----- */
+    var quiz = h.el('div', {});
+    function answer(which) {
+      quiz.innerHTML = '';
+      if (which === 'hash') {
+        quiz.appendChild(h.badge('✔ Hashing. Passwords are hashed (one-way) so a stolen database still cannot reveal them. More in lesson b8-passwords.', 'ok'));
+      } else if (which === 'encode') {
+        quiz.appendChild(h.badge('✗ No — encoding (Base64) hides nothing; anyone decodes it in a second.', 'bad'));
+      } else {
+        quiz.appendChild(h.badge('✗ No — encryption is reversible with the key, and the database should never be able to turn a stored password back into plain text.', 'bad'));
+      }
+    }
+    var quizPanel = h.panel('Quick check — which one protects a password stored in a database?', [
+      h.row([
+        h.button('Encode it', '', function () { answer('encode'); }),
+        h.button('Encrypt it', '', function () { answer('encrypt'); }),
+        h.button('Hash it', '', function () { answer('hash'); })
+      ]),
+      quiz
+    ]);
+
+    root.appendChild(h.field('One string, three machines', input));
+    root.appendChild(h.row([encodePanel, hashPanel, encryptPanel]));
+    root.appendChild(quizPanel);
+  }
+});
+
+/* lab-sign | lesson: b6-keys */
+AcadLabs.register('lab-sign', {
+  title: 'Press your own wax seal',
+  blurb: 'Make a real key pair in your browser, sign a message with the private key, then verify — and tamper — with the public one.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var subtle = (window.crypto && window.crypto.subtle) ? window.crypto.subtle : null;
+    var keyPair = null;
+    var lastSig = null; // ArrayBuffer of the last signature
+
+    var keyBox = h.el('div', {});
+    var sigBox = h.el('div', {});
+    var verifyBox = h.el('div', { class: 'acad-lab-row' });
+    var msgTa = h.el('textarea', { class: 'acad-lab-input', rows: '2', spellcheck: 'false' });
+    msgTa.value = 'Pay Sam ₹500';
+
+    function enc(s) { return new TextEncoder().encode(s); }
+    function toHex(buf) {
+      var b = new Uint8Array(buf), out = '';
+      for (var i = 0; i < b.length; i++) out += ('0' + b[i].toString(16)).slice(-2);
+      return out;
+    }
+
+    function gen() {
+      keyBox.innerHTML = ''; sigBox.innerHTML = ''; verifyBox.innerHTML = '';
+      lastSig = null;
+      subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify'])
+        .then(function (kp) {
+          keyPair = kp;
+          keyBox.appendChild(h.badge('🔓 public key — hand out freely', 'ok'));
+          keyBox.appendChild(h.badge('🔐 private key — never leaves this browser', 'warn'));
+          h.flash(keyBox);
+          log.add('ok', 'Generated a real ECDSA P-256 key pair. The private key can sign; the public key can only check.');
+        }, function () { log.add('bad', 'Key generation failed in this browser.'); });
+    }
+
+    function sign() {
+      if (!keyPair) { log.add('bad', 'Generate a key pair first.'); return; }
+      sigBox.innerHTML = ''; verifyBox.innerHTML = '';
+      subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keyPair.privateKey, enc(msgTa.value))
+        .then(function (sig) {
+          lastSig = sig;
+          sigBox.appendChild(h.codeCopy(toHex(sig).slice(0, 64) + '…'));
+          h.flash(sigBox);
+          log.add('ok', 'Signed with the PRIVATE key. This seal belongs to this exact text.');
+        }, function () { log.add('bad', 'Signing failed.'); });
+    }
+
+    function verify() {
+      if (!lastSig) { log.add('bad', 'Sign something first.'); return; }
+      verifyBox.innerHTML = '';
+      subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, keyPair.publicKey, lastSig, enc(msgTa.value))
+        .then(function (ok) {
+          if (ok) {
+            verifyBox.appendChild(h.badge('✔ seal matches — this exact text, signed by that private key', 'ok'));
+            log.add('ok', 'Verified with the PUBLIC key: genuine and untouched.');
+          } else {
+            verifyBox.appendChild(h.badge('✘ one character changed — seal shattered', 'bad'));
+            log.add('bad', 'Verification failed: the text no longer matches the seal.');
+          }
+          h.flash(verifyBox);
+        }, function () { log.add('bad', 'Verify failed.'); });
+    }
+
+    function tamper() {
+      msgTa.value = 'Pay Sam ₹5000';
+      h.flash(msgTa);
+      log.add('warn', 'Tampered: ₹500 → ₹5000. Now verifying again with the same seal…');
+      verify();
+    }
+
+    if (!subtle) {
+      root.appendChild(h.note('Your browser doesn’t expose WebCrypto here, so this lab can’t run its real signing. The idea: sign with a private key, then verify (or catch tampering) with the matching public key.'));
+      return;
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Keys', [ h.button('1 · Generate Priya’s key pair', 'primary', gen), keyBox ]),
+        h.panel('2 · Message', [
+          h.field('Message to sign', msgTa),
+          h.row([
+            h.button('2 · Sign with the private key', '', sign),
+            h.button('3 · Verify with the public key', '', verify),
+            h.button('😈 tamper: ₹500 → ₹5000', 'danger', tamper)
+          ])
+        ])
+      ]),
+      h.col([
+        h.panel('Signature (hex, truncated)', [sigBox]),
+        h.panel('Verdict', [verifyBox])
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    log.add('info', 'A signature is the reverse of the mailbox trick: the private key presses a seal only it can make, and anyone with the public key can recognise it.');
+  }
+});
+
+/* lab-jwtanatomy | lesson: b7-jwt */
+AcadLabs.register('lab-jwtanatomy', {
+  title: 'Crack open a JWT (no tools, no key)',
+  blurb: 'Mint a token, then pop open each of its three parts with nothing but Base64 — proving anyone can read the middle.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var token = null;
+    var tokenBox = h.el('div', {});
+    var partBox = h.el('div', {});
+    var tamperVal = h.input({ value: '1A' });
+
+    function b64url(s) {
+      return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function freshPayload() {
+      return {
+        sub: 'maya-8271', iss: 'https://idp.example.com', aud: 'travel.example',
+        exp: Math.floor(Date.now() / 1000) + 900, seat: '12A'
+      };
+    }
+
+    function showToken() {
+      tokenBox.innerHTML = ''; partBox.innerHTML = '';
+      if (!token) { tokenBox.appendChild(h.note('No token yet — mint one.')); return; }
+      tokenBox.appendChild(h.tokenView(token));
+    }
+
+    function mint() {
+      token = h.fakeJwt(freshPayload());
+      showToken(); h.flash(tokenBox);
+      log.add('ok', 'The login server minted a fresh token and handed it to your app.');
+    }
+
+    function part(n) {
+      if (!token) { log.add('bad', 'Mint a token first.'); return; }
+      partBox.innerHTML = '';
+      var dec = h.decodeJwt(token);
+      if (n === 1) {
+        partBox.appendChild(h.panel('Part 1 · Header — what kind & how it’s sealed', [ h.jsonView(dec.header) ]));
+        log.add('info', 'Part 1 is the header: the type (JWT) and which algorithm sealed it.');
+      } else if (n === 2) {
+        var p = dec.payload;
+        var rows = h.el('div', {});
+        function glossRow(k, v, gloss) { rows.appendChild(h.row([ h.badge(k + ': ' + v, 'neutral'), h.note(gloss) ])); }
+        glossRow('sub', p.sub, 'who: the subject this token is about');
+        glossRow('iss', p.iss, 'issued by: the login server that made it');
+        glossRow('aud', p.aud, 'meant for: which app may use it');
+        var expNote = h.note('until: expires in …');
+        rows.appendChild(h.row([ h.badge('exp: ' + p.exp, 'neutral'), expNote ]));
+        glossRow('seat', p.seat, 'any app data — remember, ANYONE can read this');
+        partBox.appendChild(h.panel('Part 2 · Payload — the claims, readable by everyone', [ rows ]));
+        h.interval(function () {
+          var left = p.exp - Math.floor(Date.now() / 1000);
+          expNote.textContent = 'until: expires in ' + (left > 0 ? left + 's' : 'EXPIRED');
+        }, 1000);
+        log.add('warn', 'Part 2 is the payload. We decoded it with plain Base64 — no key, no permission. It is NOT a secret.');
+      } else {
+        partBox.appendChild(h.panel('Part 3 · Signature — the wax seal', [ h.codeCopy(dec.sig) ]));
+        log.add('info', 'Part 3 is the signature. You can copy it, but you can’t forge it without the server’s private key.');
+      }
+      h.flash(partBox);
+    }
+
+    function secretTest() {
+      var pay = freshPayload();
+      pay.creditCard = '4111 1111 1111 1111';
+      var t = h.fakeJwt(pay);
+      partBox.innerHTML = '';
+      partBox.appendChild(h.panel('Decoded payload of a token that tried to hide a secret', [
+        h.jsonView(h.decodeJwt(t).payload),
+        h.badge('you just leaked it — payloads are readable by everyone (Base64 ≠ encryption)', 'bad')
+      ]));
+      h.flash(partBox);
+      log.add('bad', 'A card number was placed in the payload and decoded instantly, no key needed. Never put secrets in a JWT.');
+    }
+
+    function tamper() {
+      if (!token) { log.add('bad', 'Mint a token first.'); return; }
+      var dec = h.decodeJwt(token);
+      dec.payload.seat = tamperVal.value || '1A';
+      var parts = token.split('.');
+      // Rebuild header.payload with the edited claim but KEEP the original signature.
+      var forged = parts[0] + '.' + b64url(JSON.stringify(dec.payload)) + '.' + parts[2];
+      var v = h.verifyJwt(forged);
+      partBox.innerHTML = '';
+      partBox.appendChild(h.panel('You changed the seat and reused the old seal', [
+        h.tokenView(forged),
+        h.badge(v.ok ? '✔ (unexpected)' : '✘ the seal noticed. Reading is free; forging is not.', v.ok ? 'ok' : 'bad'),
+        h.badge('the grown-up validation checklist lives in lesson t8-validation', 'neutral')
+      ]));
+      h.flash(partBox);
+      log.add('bad', 'Rewrote seat → ' + (tamperVal.value || '1A') + ' but reused the old signature. Verification fails: forging needs the private key.');
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('1 · Get a token', [ h.button('Hand me a fresh token', 'primary', mint), tokenBox ]),
+        h.panel('2 · Open a part (no key needed)', [
+          h.row([
+            h.button('What’s part 1?', '', function () { part(1); }),
+            h.button('What’s part 2?', '', function () { part(2); }),
+            h.button('What’s part 3?', '', function () { part(3); })
+          ]),
+          h.row([ h.button('🙈 secret test', 'danger', secretTest) ])
+        ]),
+        h.panel('3 · Try to forge it', [
+          h.field('Change seat to', tamperVal),
+          h.button('Rebuild with the old seal', 'danger', tamper)
+        ])
+      ]),
+      h.col([ partBox ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    showToken();
+    log.add('info', 'A JWT is three Base64 chunks joined by dots: header . payload . signature. Let’s open each one.');
+  }
+});
+
+/* lab-pwstore | lesson: b8-passwords */
+AcadLabs.register('lab-pwstore', {
+  title: 'Run the users table',
+  blurb: 'Register two users, watch how salt changes everything, then try to log in — and try to steal the database.',
+  render: function (root, h) {
+    var log = h.logPanel();
+    var subtle = (window.crypto && window.crypto.subtle) ? window.crypto.subtle : null;
+    var saltOn = false;
+    var users = {}; // name -> { salt, hash }
+
+    var tableBox = h.el('div', {});
+    var verdictBox = h.el('div', { class: 'acad-lab-row' });
+    var loginBox = h.el('div', {});
+    var stealBox = h.el('div', {});
+    var mayaPw = h.input({ value: 'hunter2' });
+    var priyaPw = h.input({ value: 'hunter2' });
+    var loginPw = h.input({ value: 'hunter2' });
+
+    function enc(s) { return new TextEncoder().encode(s); }
+    function toHex(buf) {
+      var b = new Uint8Array(buf), o = '';
+      for (var i = 0; i < b.length; i++) o += ('0' + b[i].toString(16)).slice(-2);
+      return o;
+    }
+    function sha(str) { return subtle.digest('SHA-256', enc(str)).then(function (buf) { return toHex(buf); }); }
+
+    function drawTable() {
+      tableBox.innerHTML = '';
+      var names = Object.keys(users);
+      if (!names.length) { tableBox.appendChild(h.note('No users yet — register some.')); return; }
+      names.forEach(function (n) {
+        var u = users[n];
+        tableBox.appendChild(h.el('div', { class: 'acad-lab-row' }, [
+          h.badge(n, 'neutral'),
+          h.badge('salt: ' + (u.salt || '—'), 'neutral'),
+          h.codeCopy(u.hash.slice(0, 24) + '…')
+        ]));
+      });
+    }
+
+    function register() {
+      verdictBox.innerHTML = ''; loginBox.innerHTML = ''; stealBox.innerHTML = '';
+      var mSalt = saltOn ? h.rand(6) : '';
+      var pSalt = saltOn ? h.rand(6) : '';
+      sha(mSalt + mayaPw.value).then(function (mh) {
+        sha(pSalt + priyaPw.value).then(function (ph) {
+          users = { Maya: { salt: mSalt, hash: mh }, Priya: { salt: pSalt, hash: ph } };
+          drawTable();
+          if (mh === ph) {
+            verdictBox.appendChild(h.badge('two users, one fingerprint — a cracker breaks both at once', 'bad'));
+            log.add('bad', 'Salt is OFF and both chose the same password, so the stored fingerprints are identical.');
+          } else {
+            verdictBox.appendChild(h.badge('different fingerprints — same password, unique salt', 'ok'));
+            log.add('ok', 'Each user got a random pinch of salt, so identical passwords store as different fingerprints.');
+          }
+          h.flash(tableBox);
+        });
+      });
+    }
+
+    function login() {
+      if (!users.Maya) { log.add('bad', 'Register first.'); return; }
+      loginBox.innerHTML = '';
+      sha((users.Maya.salt || '') + loginPw.value).then(function (hx) {
+        var ok = hx === users.Maya.hash;
+        loginBox.appendChild(h.httpCard({
+          method: 'POST', path: '/login', reqBody: { user: 'Maya', password: '••••••' },
+          status: ok ? 200 : 401,
+          resBody: ok ? { ok: true } : { error: 'invalid_credentials' },
+          note: ok ? 'Re-hashed what you typed (with Maya’s salt) and it matched the stored fingerprint.'
+                   : 'Re-hashed what you typed and it did NOT match. The server never stored the real password to compare against.'
+        }));
+        log.add(ok ? 'ok' : 'warn', 'POST /login for Maya → ' + (ok ? '200 OK' : '401 Unauthorized'));
+      });
+    }
+
+    function steal() {
+      if (!users.Maya) { log.add('bad', 'Register first.'); return; }
+      stealBox.innerHTML = '';
+      var dump = {};
+      Object.keys(users).forEach(function (n) {
+        dump[n] = { salt: users[n].salt || null, hash: users[n].hash.slice(0, 24) + '…' };
+      });
+      stealBox.appendChild(h.jsonView(dump));
+      stealBox.appendChild(h.badge('the thief got fingerprints, not passwords', 'ok'));
+      stealBox.appendChild(h.note('And with a deliberately slow recipe (bcrypt/scrypt/Argon2), guessing is painful: at ~10 guesses/sec, this password would take about 3 years to crack.'));
+      log.add('warn', 'Database stolen. No plaintext passwords in it — only salted fingerprints that a slow hash makes expensive to reverse.');
+    }
+
+    if (!subtle) {
+      root.appendChild(h.note('Your browser doesn’t expose WebCrypto here, so this lab can’t run its real SHA-256. The idea: sites store a salted, slow HASH of your password — never the password itself.'));
+      return;
+    }
+
+    root.appendChild(h.row([
+      h.col([
+        h.panel('Register', [
+          h.field('Maya’s password', mayaPw),
+          h.field('Priya’s password', priyaPw),
+          h.row([ h.chip('🧂 add salt', false, function (on) { saltOn = on; }) ]),
+          h.button('Register both users', 'primary', register)
+        ]),
+        h.panel('Log in as Maya', [ h.field('Password', loginPw), h.button('Log in', '', login), loginBox ]),
+        h.panel('Attack', [ h.button('😈 Steal the database', 'danger', steal), stealBox ])
+      ]),
+      h.col([
+        h.panel('users table (what the server actually stores)', [tableBox]),
+        verdictBox
+      ])
+    ]));
+    root.appendChild(h.panel('Event log', [log.root]));
+    drawTable();
+    log.add('info', 'A good site stores only a salted, slow HASH. At login it re-hashes what you typed and compares fingerprints — it never keeps the real password.');
   }
 });
