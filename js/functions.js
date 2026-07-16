@@ -713,7 +713,7 @@ function initAcademy() {
 
   // Guided tour: teaches newcomers how to get from lesson 1 to the certificate.
   const ACAD_TOUR = [
-    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 121 byte-sized lessons and hands-on labs — all client-side, nothing to sign up for. Here’s how to get from your first lesson to your certificate.' },
+    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 133 byte-sized lessons and hands-on labs — all client-side, nothing to sign up for. Here’s how to get from your first lesson to your certificate.' },
     { selector: '.acad-track-card', title: '1. Pick a track', text: 'Click any track card — or a lesson link inside it — to start reading. Each lesson is a 3–5 minute read.' },
     { title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
     { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
