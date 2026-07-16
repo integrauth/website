@@ -46,3 +46,4 @@ product-plans/
 
 # Personal dev notes / test commands (never deploy to public site)
 dev-notes/
+.env
