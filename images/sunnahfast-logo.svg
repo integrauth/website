@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600" role="img" aria-label="sunnahfast icon">
+  <defs>
+    <style>
+      .night { fill:#1E1B4B; }
+      .moon { fill:#FBBF24; }
+      .moon-rim { fill:#F59E0B; }
+      .date { fill:#B45309; }
+      .date-rim { fill:#7C2D12; }
+      .date-shine { fill:#FCD34D; }
+      .stem { fill:none; stroke:#4D7C0F; stroke-width:14; stroke-linecap:round; }
+      .star { fill:#FDE68A; }
+      .star-sm { fill:#FCD34D; }
+    </style>
+  </defs>
+
+  <!-- night-sky rounded tile -->
+  <rect class="night" x="40" y="40" width="520" height="520" rx="120"/>
+
+  <!-- scattered stars -->
+  <path class="star" d="M150 150 l10 26 26 10 -26 10 -10 26 -10 -26 -26 -10 26 -10 Z"/>
+  <path class="star-sm" d="M470 180 l7 18 18 7 -18 7 -7 18 -7 -18 -18 -7 18 -7 Z"/>
+  <circle class="star-sm" cx="130" cy="330" r="7"/>
+  <circle class="star" cx="480" cy="430" r="9"/>
+  <circle class="star-sm" cx="420" cy="120" r="6"/>
+
+  <!-- crescent moon (outer amber disc carved by a night disc) cradling the date -->
+  <circle class="moon-rim" cx="268" cy="308" r="178"/>
+  <circle class="moon" cx="268" cy="308" r="162"/>
+  <circle class="night" cx="352" cy="272" r="150"/>
+
+  <!-- date fruit nestled in the crescent's cup -->
+  <g transform="translate(372,330)">
+    <path class="stem" d="M0 -78 q10 -22 30 -30"/>
+    <ellipse class="date-rim" cx="0" cy="0" rx="74" ry="98"/>
+    <ellipse class="date" cx="0" cy="4" rx="60" ry="84"/>
+    <ellipse class="date-shine" cx="-22" cy="-30" rx="16" ry="30"/>
+  </g>
+</svg>
