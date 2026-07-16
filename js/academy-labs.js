@@ -6982,66 +6982,73 @@ AcadLabs.register('lab-exam', {
       root.appendChild(box);
     }
 
-    var DL_MAX = 2, DL_KEY = 'acad_cert_dl';
+    var CERT_SALT = 'integrauth-academy-cert-v1';
 
-    function dlUsed() {
-      try { return Math.max(0, parseInt(localStorage.getItem(DL_KEY), 10) || 0); } catch (e) { return 0; }
+    function certCanonName(name) {
+      return name.replace(/\s+/g, ' ').trim().toUpperCase();
+    }
+
+    // ID format: IA-YYYYMMDD-<score>-<8 hex> — the hex is the first 4 bytes of
+    // SHA-256(salt|canonical name|date|score), recomputable on /verify.
+    function certId(name, ymd, pct) {
+      var input = CERT_SALT + '|' + certCanonName(name) + '|' + ymd + '|' + pct;
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(input)).then(function (buf) {
+        var b = new Uint8Array(buf), hex = '';
+        for (var i = 0; i < 4; i++) hex += ('0' + b[i].toString(16)).slice(-2);
+        return 'IA-' + ymd + '-' + pct + '-' + hex.toUpperCase();
+      });
     }
 
     function certPanel(pct) {
+      try { localStorage.removeItem('acad_cert_dl'); } catch (e) {} // retired download-limit counter
+      var d = new Date();
+      var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+      var ymd = iso.replace(/-/g, '');
       var nameInput = h.input({ placeholder: 'Your name', maxlength: '40' });
       var canvas = h.el('canvas', { width: '1000', height: '700', 'class': 'acad-cert-canvas' });
+      var idLine = h.el('p', { 'class': 'acad-lab-blurb' });
+      var drawSeq = 0;
       function draw() {
         var name = (nameInput.value || 'Identity Learner').slice(0, 40);
-        drawCertificate(canvas, name, pct);
+        var seq = ++drawSeq;
+        return certId(name, ymd, pct).then(function (id) {
+          if (seq !== drawSeq) return; // superseded by a newer keystroke
+          drawCertificate(canvas, name, pct, id, iso);
+          idLine.innerHTML = '';
+          idLine.appendChild(document.createTextNode('Certificate ID: '));
+          idLine.appendChild(h.el('strong', null, id));
+          idLine.appendChild(document.createTextNode(' — anyone can check it at '));
+          idLine.appendChild(h.el('a', { href: '/verify', target: '_blank', rel: 'noopener' }, 'integrauth.com/verify'));
+          idLine.appendChild(document.createTextNode('.'));
+        });
       }
       nameInput.addEventListener('input', draw);
-      var dlNote = h.el('p', { 'class': 'acad-lab-blurb' });
-      function refreshDl() {
-        var left = DL_MAX - dlUsed();
-        if (left <= 0) {
-          dl.disabled = true;
-          dl.textContent = 'Download limit reached (' + DL_MAX + ' of ' + DL_MAX + ' used)';
-          dlNote.textContent = 'Both downloads are used, but nothing is lost — your certificate keeps rendering right here every time you pass the exam.';
-        } else {
-          dl.disabled = false;
-          dl.textContent = '⬇ Download certificate (PNG)';
-          dlNote.textContent = left === DL_MAX
-            ? 'You can download the PNG ' + DL_MAX + ' times, so type your name exactly as you want it printed before downloading.'
-            : 'You have 1 download left — double-check the name is exactly right.';
-        }
-      }
       var dl = h.button('⬇ Download certificate (PNG)', 'primary', function () {
-        var used = dlUsed();
-        if (used >= DL_MAX) { refreshDl(); return; }
         var name = (nameInput.value || 'Identity Learner').slice(0, 40);
         var ok = window.confirm(
           'Your certificate will be issued to:\n\n        ' + name + '\n\n' +
           (nameInput.value.trim() ? '' : '(The name field is empty, so it defaults to "Identity Learner".)\n\n') +
-          'Check the spelling carefully — this is download ' + (used + 1) + ' of ' + DL_MAX +
-          (used + 1 === DL_MAX ? ', your last one' : '') + '. Download now?');
+          'Check the spelling carefully — the name and its certificate ID are printed into the PNG. Download now?');
         if (!ok) return;
-        draw();
-        var a = document.createElement('a');
-        a.download = 'IntegrAuth-Academy-Certificate.png';
-        a.href = canvas.toDataURL('image/png');
-        a.click();
-        try { localStorage.setItem(DL_KEY, String(used + 1)); } catch (e) {}
-        refreshDl();
+        draw().then(function () {
+          var a = document.createElement('a');
+          a.download = 'IntegrAuth-Academy-Certificate.png';
+          a.href = canvas.toDataURL('image/png');
+          a.click();
+        });
       });
       draw();
-      refreshDl();
       if (!CERT_LOGO_READY) CERT_LOGO.addEventListener('load', draw, { once: true });
       return h.panel('Your certificate', [
         h.field('Name on the certificate', nameInput),
         canvas,
         h.el('div', { 'class': 'acad-lab-row' }, [dl]),
-        dlNote,
-        h.note('The certificate is generated entirely in your browser — your name is never sent anywhere.')
+        idLine,
+        h.note('The certificate is generated entirely in your browser — your name is never sent anywhere. Its certificate ID encodes the name, date and score, so anyone can confirm it at integrauth.com/verify.')
       ]);
     }
 
-    function drawCertificate(canvas, name, pct) {
+    function drawCertificate(canvas, name, pct, certIdStr, issuedIso) {
       // Render at 2x for a crisp PNG download; CSS scales the on-page canvas back down.
       var SCALE = 2, W = 1000, H = 700;
       if (canvas.width !== W * SCALE) { canvas.width = W * SCALE; canvas.height = H * SCALE; }
@@ -7109,8 +7116,9 @@ AcadLabs.register('lab-exam', {
       // divider + footer, both clear of the inner border (inner rule sits at y = H - 42 = 658)
       ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(W / 2 - 90, 600); ctx.lineTo(W / 2 + 90, 600); ctx.stroke();
-      ctx.fillStyle = '#94a3b8'; ctx.font = '400 15px Inter, Arial, sans-serif';
-      ctx.fillText('integrauth.com/academy', W / 2, 628);
+      ctx.fillStyle = '#94a3b8'; ctx.font = '400 14px Inter, Arial, sans-serif';
+      ctx.fillText('Certificate ID: ' + (certIdStr || '—') + '  ·  Issued ' + (issuedIso || ''), W / 2, 622);
+      ctx.fillText('Verify authenticity at integrauth.com/verify', W / 2, 645);
     }
   }
 });
