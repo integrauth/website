@@ -6982,6 +6982,12 @@ AcadLabs.register('lab-exam', {
       root.appendChild(box);
     }
 
+    var DL_MAX = 2, DL_KEY = 'acad_cert_dl';
+
+    function dlUsed() {
+      try { return Math.max(0, parseInt(localStorage.getItem(DL_KEY), 10) || 0); } catch (e) { return 0; }
+    }
+
     function certPanel(pct) {
       var nameInput = h.input({ placeholder: 'Your name', maxlength: '40' });
       var canvas = h.el('canvas', { width: '1000', height: '700', 'class': 'acad-cert-canvas' });
@@ -6990,19 +6996,47 @@ AcadLabs.register('lab-exam', {
         drawCertificate(canvas, name, pct);
       }
       nameInput.addEventListener('input', draw);
+      var dlNote = h.el('p', { 'class': 'acad-lab-blurb' });
+      function refreshDl() {
+        var left = DL_MAX - dlUsed();
+        if (left <= 0) {
+          dl.disabled = true;
+          dl.textContent = 'Download limit reached (' + DL_MAX + ' of ' + DL_MAX + ' used)';
+          dlNote.textContent = 'Both downloads are used, but nothing is lost — your certificate keeps rendering right here every time you pass the exam.';
+        } else {
+          dl.disabled = false;
+          dl.textContent = '⬇ Download certificate (PNG)';
+          dlNote.textContent = left === DL_MAX
+            ? 'You can download the PNG ' + DL_MAX + ' times, so type your name exactly as you want it printed before downloading.'
+            : 'You have 1 download left — double-check the name is exactly right.';
+        }
+      }
       var dl = h.button('⬇ Download certificate (PNG)', 'primary', function () {
+        var used = dlUsed();
+        if (used >= DL_MAX) { refreshDl(); return; }
+        var name = (nameInput.value || 'Identity Learner').slice(0, 40);
+        var ok = window.confirm(
+          'Your certificate will be issued to:\n\n        ' + name + '\n\n' +
+          (nameInput.value.trim() ? '' : '(The name field is empty, so it defaults to "Identity Learner".)\n\n') +
+          'Check the spelling carefully — this is download ' + (used + 1) + ' of ' + DL_MAX +
+          (used + 1 === DL_MAX ? ', your last one' : '') + '. Download now?');
+        if (!ok) return;
         draw();
         var a = document.createElement('a');
         a.download = 'IntegrAuth-Academy-Certificate.png';
         a.href = canvas.toDataURL('image/png');
         a.click();
+        try { localStorage.setItem(DL_KEY, String(used + 1)); } catch (e) {}
+        refreshDl();
       });
       draw();
+      refreshDl();
       if (!CERT_LOGO_READY) CERT_LOGO.addEventListener('load', draw, { once: true });
       return h.panel('Your certificate', [
         h.field('Name on the certificate', nameInput),
         canvas,
         h.el('div', { 'class': 'acad-lab-row' }, [dl]),
+        dlNote,
         h.note('The certificate is generated entirely in your browser — your name is never sent anywhere.')
       ]);
     }
