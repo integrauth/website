@@ -6848,7 +6848,7 @@ var ACAD_EXAM_POOL = [
 
 AcadLabs.register('lab-exam', {
   title: 'Final exam — earn your certificate',
-  blurb: '25 questions drawn at random from all 11 tracks. Score 80% or higher to unlock a personalised certificate. Everything runs in your browser; nothing is submitted anywhere.',
+  blurb: '25 questions drawn at random from all 12 tracks. Score 80% or higher to unlock a personalised certificate. Everything runs in your browser; nothing is submitted anywhere.',
   onReset: function () { try { localStorage.removeItem('acad_exam'); } catch (e) { /* noop */ } },
   render: function (root, h) {
     var PASS = 0.8, N = 25;
@@ -6865,7 +6865,7 @@ AcadLabs.register('lab-exam', {
       var lockMeter = h.meter(lockPct, 'warn');
       root.appendChild(h.panel(null, [
         h.el('h4', { 'class': 'acad-lab-title' }, '🔒 Finish every lesson to unlock the final exam'),
-        h.el('p', { 'class': 'acad-lab-blurb' }, 'You have read ' + readCount + '/' + totalLessons + ' lessons (' + lockPct + '%). The final exam — and the certificate it unlocks — opens once every lesson across all 11 tracks is marked read.'),
+        h.el('p', { 'class': 'acad-lab-blurb' }, 'You have read ' + readCount + '/' + totalLessons + ' lessons (' + lockPct + '%). The final exam — and the certificate it unlocks — opens once every lesson across all 12 tracks is marked read.'),
         lockMeter.root,
         h.el('div', { 'class': 'acad-lab-row' }, [
           h.button('Go to lessons', 'primary', function () {
@@ -6882,7 +6882,7 @@ AcadLabs.register('lab-exam', {
 
     var intro = h.el('div');
     var kids = [
-      h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning Foundations through Identity Architecture. Pick the best answer for each, then submit to see your score.')
+      h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning The Absolute Basics through Identity Architecture. Pick the best answer for each, then submit to see your score.')
     ];
     if (saved && saved.best != null) {
       kids.push(h.note('Your best so far: ' + saved.best + '/' + N + (saved.passed ? ' — passed ✓' : '')));

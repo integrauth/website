@@ -562,6 +562,32 @@ function initAcademy() {
     return done;
   }
 
+  // Lessons with a hands-on lab only count as read once the lab has been
+  // interacted with (labs are open-ended sims, so "touched" is the completion
+  // signal — same spirit as the quiz-reveal gate above). Lessons without a lab
+  // (intros, summaries, glossary) still mark read on open.
+  function labOf(lesson) {
+    return lesson ? lesson.querySelector('.acad-lab') : null;
+  }
+
+  // Paint the gate line above the lab; reuses the quiz-progress styling.
+  function syncLabGate(lesson) {
+    const lab = labOf(lesson);
+    if (!lab) return;
+    let bar = lesson.querySelector('.acad-lab-gate');
+    if (!bar) {
+      bar = document.createElement('p');
+      bar.className = 'acad-quiz-progress acad-lab-gate';
+      bar.setAttribute('aria-live', 'polite');
+      lab.parentNode.insertBefore(bar, lab);
+    }
+    const done = readSet().has(lesson.id);
+    bar.textContent = done
+      ? '✓ Lesson marked read.'
+      : 'Try the hands-on lab below to mark this lesson read.';
+    bar.classList.toggle('done', done);
+  }
+
   function trackOf(lesson) { return lesson.getAttribute('data-track'); }
 
   function trackLessons(track) {
@@ -842,10 +868,11 @@ function initAcademy() {
     const read = readSet();
     if (isQuizLesson(lesson)) {
       if (syncQuizProgress(lesson)) read.add(id);
-    } else {
+    } else if (!labOf(lesson)) {
       read.add(id);
     }
     saveRead(read);
+    syncLabGate(lesson);
     try { localStorage.setItem(KEY_POS, id); } catch (e) {}
     buildChips(track, id);
     buildPager(lesson);
@@ -903,6 +930,25 @@ function initAcademy() {
     }
   });
 
+  // Any interaction inside a lesson's lab (click/tap or typing) marks it read.
+  // Hub-level labs (Flow Explorer, Challenge, Exam) sit outside .acad-lesson
+  // sections, so closest() skips them.
+  function onLabTouch(e) {
+    const lab = e.target.closest ? e.target.closest('.acad-lab') : null;
+    if (!lab) return;
+    const lesson = lab.closest('.acad-lesson');
+    if (!lesson) return;
+    const read = readSet();
+    if (read.has(lesson.id)) return;
+    read.add(lesson.id);
+    saveRead(read);
+    syncLabGate(lesson);
+    buildChips(trackOf(lesson), lesson.id);
+    updateProgress();
+  }
+  document.addEventListener('pointerdown', onLabTouch);
+  document.addEventListener('keydown', onLabTouch);
+
   const backBtn = document.getElementById('acadBack');
   if (backBtn) backBtn.addEventListener('click', showHub);
 
@@ -914,7 +960,7 @@ function initAcademy() {
     items.forEach(function (s) {
       read.delete(s.id);
       delete store[s.id];
-      s.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
+      s.querySelectorAll('.acad-quiz-check, .acad-quiz-progress, .acad-lab-gate').forEach(function (el) { el.remove(); });
       if (window.AcadLabs && typeof window.AcadLabs.remountWithin === 'function') {
         try { window.AcadLabs.remountWithin(s); } catch (e) {}
       }
@@ -939,7 +985,7 @@ function initAcademy() {
       localStorage.removeItem(KEY_QUIZ);
       localStorage.removeItem('acad_exam');
     } catch (e) {}
-    document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress').forEach(function (el) { el.remove(); });
+    document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress, .acad-lab-gate').forEach(function (el) { el.remove(); });
     // Re-render on-screen labs (Challenge, Final Exam, Flow Explorer) back to their start state.
     if (window.AcadLabs && typeof window.AcadLabs.remountAll === 'function') {
       try { window.AcadLabs.remountAll(); } catch (e) {}
