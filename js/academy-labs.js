@@ -7111,14 +7111,14 @@ AcadLabs.register('lab-exam', {
 
       // brand line
       ctx.fillStyle = '#4f46e5'; ctx.font = '600 17px Inter, Arial, sans-serif';
-      ctx.fillText('Identity & Security for Humans, Machines & AI Agents', W / 2, 570);
+      ctx.fillText('Identity & Security for Humans, Machines & AI Agents', W / 2, 562);
 
-      // divider + footer, both clear of the inner border (inner rule sits at y = H - 42 = 658)
+      // divider + footer, kept well clear of the inner border (inner rule sits at y = H - 42 = 658)
       ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(W / 2 - 90, 600); ctx.lineTo(W / 2 + 90, 600); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(W / 2 - 90, 590); ctx.lineTo(W / 2 + 90, 590); ctx.stroke();
       ctx.fillStyle = '#94a3b8'; ctx.font = '400 14px Inter, Arial, sans-serif';
-      ctx.fillText('Certificate ID: ' + (certIdStr || '—') + '  ·  Issued ' + (issuedIso || ''), W / 2, 622);
-      ctx.fillText('Verify authenticity at integrauth.com/verify', W / 2, 645);
+      ctx.fillText('Certificate ID: ' + (certIdStr || '—') + '  ·  Issued ' + (issuedIso || ''), W / 2, 612);
+      ctx.fillText('Verify authenticity at integrauth.com/verify', W / 2, 634);
     }
   }
 });
