@@ -6750,6 +6750,35 @@ body.theme-cyber .back-to-top {
   margin: 0;
 }
 
+/* Step 5 (retainers) spans the full row: the four project phases end at
+   hand-over; the ongoing relationship reads as its own band beneath them */
+.process-step-wide {
+  grid-column: 1 / -1;
+}
+
+.process-step-wide .process-desc {
+  max-width: 62ch;
+}
+
+.process-optional {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--primary-color);
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+body.theme-contrast .process-optional {
+  color: #000 !important;
+  border-color: #000 !important;
+}
+
 body.bg-dark .process-step {
   background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.7));
   border-color: rgba(255, 255, 255, 0.2);
