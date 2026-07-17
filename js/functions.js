@@ -63,7 +63,12 @@ function handleScroll() {
       const scrollDistance = scroll + 100;
       $('section[id]').each(function() {
         if ($(this).position().top <= scrollDistance) {
-          const $link = $('.navbar-nav .nav-link[href="#' + this.id + '"]');
+          let $link = $('.navbar-nav .nav-link[href="#' + this.id + '"]');
+          if (!$link.length) {
+            // Section only appears inside a nav dropdown — highlight its toggle
+            const $item = $('.navbar-nav .nav-dd .dropdown-item[href="#' + this.id + '"]');
+            if ($item.length) $link = $item.closest('.dropdown').find('.nav-link.dropdown-toggle');
+          }
           if ($link.length) {
             $('.navbar-nav .nav-link.active').removeClass('active');
             $link.addClass('active');

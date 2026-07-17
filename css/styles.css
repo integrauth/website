@@ -6840,3 +6840,211 @@ body.theme-contrast .err-code {
   -webkit-background-clip: initial;
   background-clip: initial;
 }
+
+/* --- Navbar dropdowns (Services / Learn), themed like .theme-menu --- */
+/* The navbar's backdrop-filter and the hero's will-change:transform each create
+   level-0 stacking contexts; the hero comes later in the DOM and would paint over
+   open dropdowns. Lift the navbar's whole context above content layers. */
+.navbar {
+  z-index: 1030;
+}
+
+.navbar .nav-item.dropdown > .nav-link.dropdown-toggle {
+  background: none;
+  border: 0;
+}
+
+.nav-dd {
+  z-index: 1100;
+  min-width: 220px;
+  padding: 0.5rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.98);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-xl);
+}
+
+.nav-dd .dropdown-item {
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-dd .dropdown-item:hover,
+.nav-dd .dropdown-item:focus,
+.nav-dd .dropdown-item.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: inherit;
+}
+
+.nav-dd .dropdown-divider {
+  border-color: rgba(255, 255, 255, 0.15);
+  opacity: 1;
+}
+
+body.bg-light .nav-dd {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+body.bg-light .nav-dd .dropdown-item {
+  color: #212529;
+}
+
+body.bg-light .nav-dd .dropdown-divider {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-contrast .nav-dd {
+  background: #fff !important;
+  border: 2px solid #000 !important;
+  backdrop-filter: none !important;
+  box-shadow: 4px 4px 0 #000;
+}
+
+body.theme-contrast .nav-dd .dropdown-item {
+  color: #000 !important;
+}
+
+body.theme-contrast .nav-dd .dropdown-item:hover,
+body.theme-contrast .nav-dd .dropdown-item:focus {
+  background: #000 !important;
+  color: #fff !important;
+}
+
+body.theme-contrast .nav-dd .dropdown-divider {
+  border-color: #000;
+}
+
+body.theme-cyber .nav-dd {
+  background: rgba(2, 6, 23, 0.98) !important;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.15);
+}
+
+body.theme-cyber .nav-dd .dropdown-item {
+  color: #cbd5e1 !important;
+}
+
+body.theme-cyber .nav-dd .dropdown-item:hover,
+body.theme-cyber .nav-dd .dropdown-item:focus {
+  background: rgba(34, 211, 238, 0.15) !important;
+  color: #22d3ee !important;
+}
+
+body.theme-cyber .nav-dd .dropdown-divider {
+  border-color: rgba(34, 211, 238, 0.3);
+}
+
+/* --- Site-wide sitemap footer --- */
+.site-footer {
+  padding: 3rem 0 1.25rem;
+}
+
+.site-footer-tag {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  max-width: 320px;
+  margin-bottom: 1rem;
+}
+
+.site-footer-social {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.site-footer-social a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 1.05rem;
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.site-footer-social a:hover,
+.site-footer-social a:focus-visible {
+  background: rgba(99, 102, 241, 0.35);
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.site-footer-head {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 0.9rem;
+}
+
+.site-footer-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-footer-links li {
+  margin-bottom: 0.45rem;
+}
+
+.site-footer-links a {
+  color: rgba(255, 255, 255, 0.78);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color 0.15s ease;
+}
+
+.site-footer-links a:hover,
+.site-footer-links a:focus-visible {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.site-footer-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85rem;
+}
+
+body.theme-cyber .site-footer-social a:hover,
+body.theme-cyber .site-footer-social a:focus-visible {
+  background: rgba(34, 211, 238, 0.2);
+  color: #67e8f9;
+}
+
+body.theme-cyber .site-footer-links a:hover,
+body.theme-cyber .site-footer-links a:focus-visible {
+  color: #67e8f9;
+}
+
+body.theme-contrast .site-footer {
+  background: #000 !important;
+  border-top: 2px solid #000;
+}
+
+body.theme-contrast .site-footer-tag,
+body.theme-contrast .site-footer-head,
+body.theme-contrast .site-footer-bottom,
+body.theme-contrast .site-footer-links a,
+body.theme-contrast .site-footer-social a {
+  color: #fff !important;
+}
