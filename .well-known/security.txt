@@ -1,0 +1,10 @@
+# IntegrAuth security contact (RFC 9116)
+# We appreciate responsible disclosure. If you believe you have found a
+# vulnerability in integrauth.com or any *.integrauth.com service, please
+# get in touch — we read every report.
+
+Contact: mailto:akhil@integrauth.com
+Expires: 2027-07-17T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://integrauth.com/.well-known/security.txt
+Policy: https://integrauth.com/terms

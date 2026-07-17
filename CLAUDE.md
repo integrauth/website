@@ -28,6 +28,9 @@ Enterprise-grade IAM, API Security, and AI Security company website. Static sing
 ```
 website/
 ├── index.html, academy.html, privacy.html, terms.html, support.html, cancellation.html, verify.html
+├── mcp-security.html, ai-agent-security.html, api-security.html (service landing pages, added 2026-07-17)
+├── 404.html (custom GitHub Pages 404 — noindex, ABSOLUTE asset paths since it serves at any depth)
+├── .well-known/security.txt (RFC 9116; expiry 2027-07-17 — renew yearly) + .nojekyll (required so Pages serves dot-dirs)
 ├── css/styles.css (~126KB, 5550 lines)
 ├── js/functions.js (~27KB, 735 lines)
 ├── js/academy-labs.js (~400KB — labs framework + flow-player engine (12 canonical flow definitions) + final-exam/certificate engine + 96 simulated labs; loaded ONLY by academy.html)
@@ -51,8 +54,14 @@ website/
 6. **Products** - 6 products (Smartable, Wrenchub, oidcscan, hallbook, waterflow, sunnahfast — the last four live at `<name>.integrauth.com`, logos `images/<name>-logo.svg`; sunnahfast is free Islamic sunnah-fasting reminder emails + a weekly Jumuah email + Hijri↔Gregorian converter & subscribable .ics Islamic-dates feed, no accounts, sales-free CTA straight to sunnahfast.integrauth.com) as an auto-scrolling marquee (reuses the `.services-marquee` framework, `data-direction="rtl"`, slides are `.service-slide.product-slide`) with a detail modal per product (`openProductModal(id)` → `#<id>-modal`); the marquee captures the pointer only after a 6px drag so card clicks still open modals, and the post-drag click is swallowed. hallbook/waterflow modals carry a sales-led "contact us" onboarding CTA (their public signups are disabled behind `PUBLIC_SIGNUPS_ENABLED`, off by default, in their own repos). Followed by a "We Also Build Websites" sub-block (inside `#products` so the scroll-spy section↔nav-link index mapping stays intact): 3 demo cards reusing `.tool-card` styling (with `.demo-icon` accent) linking to restaurant-demo / hospitals-demo / schools-demo `.integrauth.com` — each demo showcases switchable design variants (24 / 15 / 12) — plus a `.tools-cta` line linking to `#contact`
 7. **Tech Stack** - 17 collapsible categories, all collapsed by default (headers ship `aria-expanded="false"` + `collapsed-card` class, grids without `.show`), incl. Authorization & Policy (OpenFGA, OPA), Agent Identity & NHI (OAuth 2.1, Token Exchange, mTLS, service accounts, JWT), AI Tools, AI Agent Frameworks, AI Model Providers, AI Security & Guardrails (MCP Gateways, Enkrypt AI Guardrails, LiteLLM)
 8. **Clients** - Enkrypt AI, Cequence AI, I'Curity Solutions
-9. **Contact** - Email and social links, plus closing hero
-10. **Footer** - Legal pages links
+9. **How We Engage** (`#process`, added 2026-07-17) - 4-step `.process-grid` of `.process-step` cards (num pill + icon title + desc): Assess → Architect → Build & Integrate → Enable & Hand Over; not in the navbar (scroll-spy skips sections with no matching nav link — the previous link just stays active)
+10. **FAQ** (`#faq`, added 2026-07-17) - 10 `.faq-item`s (`.faq-q` collapse button + `.faq-a` panel, Bootstrap collapse, chevron rotates via `:not(.collapsed)` like tools-group-header); mirrored 1:1 by a FAQPage JSON-LD block in `<head>` next to the Organization schema — KEEP THE TWO IN SYNC when editing questions
+11. **Contact** - Email and social links, plus closing hero
+12. **Footer** - Legal pages links + the 3 service landing pages; solutions section also carries a "Deep dives" `.tools-cta` line linking them
+
+### Service landing pages (mcp-security / ai-agent-security / api-security, added 2026-07-17)
+
+SEO deep-dive pages for the three highest-intent services, in sitemap.xml (priority 0.8). Template = support.html chrome (blocking CSS, no boot loader, jQuery+functions.min.js in head, navbar with Home / other-two-services / Academy / /#contact + theme picker, skip-link, index-style footer) + shared section skeleton: `.svc-hero` (gradient band: `.svc-crumb` breadcrumb, `.svc-kicker`, h1, lead, `.svc-chip` standards pills, mailto CTA + anchor to the page's tools grid) → "why it breaks" `.svc-list` (6 icon items) → "What We Deliver" 6 non-anchor `.tool-card`s → "Learn It Free First" 4 `.tool-card` links to `/academy#<lesson-id>` → "Scan … — Free" 6 `.tool-card` links to the relevant `*.integrauth.com` tools + related-deep-dives `.tools-cta` → `bg-primary` CTA band. Each page ships Service + BreadcrumbList JSON-LD, extensionless canonical/og:url, and never nav-links itself. `.svc-*` CSS lives at the end of styles.css, themed for all 4 themes; everything else reuses existing components (`.tools-grid`/`.tool-card` theme globally, not just inside #tools). mcp-security.html is the canonical exemplar — clone it for any new service page, then add the page to sitemap.xml, both footers' service links, and the FAQ if relevant.
 
 ### IntegrAuth Academy (academy.html, added 2026-07-11)
 
@@ -171,7 +180,7 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
   --collapse-whitespace --remove-comments --minify-css --minify-js
 ```
 
-**After Minification**: Update cache version in index.html (e.g., `?v=1.7` → `?v=1.8`) for both CSS and JS references to ensure browsers load the new versions. And also update other html files like cancellation, privacy, support, terms and verify.
+**After Minification**: Update cache version in index.html (e.g., `?v=1.7` → `?v=1.8`) for both CSS and JS references to ensure browsers load the new versions. And also update other html files like cancellation, privacy, support, terms, verify, mcp-security, ai-agent-security, api-security and 404 (404 references assets with absolute paths).
 
 **Cache Busting**: Increment version number in:
 - `<link rel="stylesheet" href="css/styles.min.css?v=X.X">`
@@ -190,7 +199,7 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
 
 **Key Functions**: `toggleAndSaveTheme()`, `initSmoothScrolling()`, `initBootstrapComponents()`
 
-**Sections**: #navbar, #home, #solutions, #tools, #academy-promo, #products, #technologies, #clients, #contact; academy.html: #acadHub, #acadReader
+**Sections**: #navbar, #home, #solutions, #tools, #academy-promo, #products, #technologies, #clients, #process, #faq, #contact; academy.html: #acadHub, #acadReader; landing pages: /mcp-security, /ai-agent-security, /api-security
 
 **Verification**: See [.claude/skills/verify/SKILL.md](.claude/skills/verify/SKILL.md) — serve locally + Playwright across all 4 themes and 3 viewports; check FA glyphs render (CDN is FA 6.4.0) and no 404s
 
@@ -200,15 +209,21 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
 
 ---
 
-## Future Improvements
+## Future Improvements / TODO
 
-**Performance**: Image lazy-loading, CSS/JS minification, compress tech logos
+**Parked 2026-07-17 — needs Akhil's input before building**:
+- **Blog / "Field notes"** — only when Akhil commits to feeding it with content; seed with 2–3 vendor-neutral articles distilled from Academy material
+- **About page** — needs founder story / mission input from Akhil
+- **Client testimonials / mini case studies** — Akhil is collecting real quotes from Enkrypt AI / Cequence / I'Curity; never fabricate quotes or outcomes
+- **Social-share OG image** — og:image is currently IntegrAuth.svg on all pages; most platforms (WhatsApp/LinkedIn/X) won't render SVG previews, so shared links show no image. Create a 1200×630 `images/og-banner.png` and swap og:image/twitter:image on index, academy and the 3 service pages
 
-**Features**: SEO meta tags, analytics, contact form, blog section, case studies
+**Performance**: Image lazy-loading below the fold; optimize terms.html size (226KB)
 
-**Accessibility**: ARIA labels, keyboard navigation, prefers-reduced-motion
+**Features**: Analytics; contact form (needs a backend — Cloudflare Worker + Turnstile is the natural fit)
 
-**Technical Debt**: Modularize CSS, optimize terms.html size (226KB)
+**Accessibility**: Focus-state audit across the 4 themes
+
+**Recurring**: Bump the `Expires:` date in `.well-known/security.txt` once a year (currently 2027-07-17 — RFC 9116 treats the file as stale past that date)
 
 ---
 

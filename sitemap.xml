@@ -7,7 +7,7 @@
   <!-- Homepage -->
   <url>
     <loc>https://integrauth.com/</loc>
-    <lastmod>2026-07-11</lastmod>
+    <lastmod>2026-07-17</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
@@ -18,6 +18,30 @@
     <lastmod>2026-07-12</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
+  </url>
+
+  <!-- MCP Security service page -->
+  <url>
+    <loc>https://integrauth.com/mcp-security</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- AI Agent Security service page -->
+  <url>
+    <loc>https://integrauth.com/ai-agent-security</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- API Security service page -->
+  <url>
+    <loc>https://integrauth.com/api-security</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
   </url>
 
   <!-- Certificate verification -->
