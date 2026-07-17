@@ -223,7 +223,7 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
 
 **Accessibility**: Focus-state audit across the 4 themes
 
-**Recurring**: Bump the `Expires:` date in `.well-known/security.txt` once a year (currently 2027-07-17 — RFC 9116 treats the file as stale past that date)
+**Recurring**: `Expires:` in `.well-known/security.txt` is auto-renewed by `.github/workflows/security-txt-renew.yml` (monthly check, bumps +1 year when <60 days remain, commits directly). No manual action unless the repo goes dormant >60 days and GitHub disables the schedule.
 
 ---
 

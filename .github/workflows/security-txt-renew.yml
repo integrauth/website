@@ -1,0 +1,54 @@
+# Keeps .well-known/security.txt fresh (RFC 9116 treats it as stale past its Expires date).
+# Runs monthly; when Expires is within 60 days it bumps it exactly one year forward and pushes,
+# which GitHub Pages redeploys automatically. Replaces the old Claude-scheduled yearly reminder
+# so renewal never depends on any external subscription.
+#
+# Caveat: GitHub disables scheduled workflows after 60 days without repo activity. This repo gets
+# regular commits (and the bump itself is a commit), so in practice the schedule stays alive — but
+# if the repo ever goes fully dormant, re-enable it under Actions → this workflow → "Enable".
+name: Renew security.txt expiry
+
+on:
+  schedule:
+    - cron: '17 4 3 * *' # 04:17 UTC on the 3rd of every month (odd minute avoids peak-load skips)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump Expires if within 60 days
+        id: bump
+        run: |
+          set -euo pipefail
+          FILE=.well-known/security.txt
+          CURRENT=$(grep -oP '^Expires: \K.*' "$FILE")
+          NOW_S=$(date -u +%s)
+          EXP_S=$(date -u -d "$CURRENT" +%s)
+          DAYS_LEFT=$(( (EXP_S - NOW_S) / 86400 ))
+          echo "Expires: $CURRENT ($DAYS_LEFT days left)"
+          if [ "$DAYS_LEFT" -gt 60 ]; then
+            echo "Fresh enough — nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          NEW=$(date -u -d "$CURRENT + 1 year" +%Y-%m-%dT00:00:00.000Z)
+          sed -i "s|^Expires: .*|Expires: $NEW|" "$FILE"
+          echo "Bumped to $NEW"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .well-known/security.txt
+          git commit -m "chore: renew security.txt Expires to ${{ steps.bump.outputs.new }} (RFC 9116 yearly renewal)"
+          git push
