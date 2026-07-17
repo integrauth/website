@@ -35,8 +35,9 @@ website/
 ├── js/functions.js (~27KB, 735 lines)
 ├── js/academy-labs.js (~400KB — labs framework + flow-player engine (12 canonical flow definitions) + final-exam/certificate engine + 96 simulated labs; loaded ONLY by academy.html)
 ├── images/
+│   ├── og-banner.png (1200×630 social-share card, og:image/twitter:image on index+academy+3 service pages; the Organization JSON-LD logo stays IntegrAuth.svg — regenerate the banner from an HTML mock via Playwright screenshot if the brand changes)
 │   ├── social-icons/ (11 icons)
-│   └── websites/ (43 tech logos, 568KB)
+│   └── websites/ (43 tech logos, ~700KB after 2026-07-17 sharp recompression)
 └── IntegrAuth.svg, site.webmanifest, CNAME
 ```
 
@@ -215,7 +216,6 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
 - **Blog / "Field notes"** — only when Akhil commits to feeding it with content; seed with 2–3 vendor-neutral articles distilled from Academy material
 - **About page** — needs founder story / mission input from Akhil
 - **Client testimonials / mini case studies** — Akhil is collecting real quotes from Enkrypt AI / Cequence / I'Curity; never fabricate quotes or outcomes
-- **Social-share OG image** — og:image is currently IntegrAuth.svg on all pages; most platforms (WhatsApp/LinkedIn/X) won't render SVG previews, so shared links show no image. Create a 1200×630 `images/og-banner.png` and swap og:image/twitter:image on index, academy and the 3 service pages
 
 **Performance**: Image lazy-loading below the fold; optimize terms.html size (226KB)
 
