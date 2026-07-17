@@ -5484,6 +5484,246 @@ body.theme-contrast .acad-bt-num { background: #ffd60a; color: #000; }
   .acad-banner-tracks { grid-template-columns: 1fr; }
 }
 
+/* ===== The Lab showcase (homepage — companion to the Academy banner) ===== */
+.lab-showcase-wrap {
+  margin-bottom: 3rem;
+  position: relative;
+  z-index: 5;
+}
+
+.lab-showcase {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem 2rem;
+  flex-wrap: wrap;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
+  border: 2px solid rgba(99, 102, 241, 0.25);
+  border-left: 5px solid var(--primary-color);
+  border-radius: var(--radius-2xl);
+  color: var(--dark-color);
+  padding: 1.75rem 2rem;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.lab-showcase-main {
+  flex: 1 1 34rem;
+  min-width: 0;
+}
+
+.lab-showcase-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 999px;
+  padding: 0.28rem 0.8rem;
+  margin-bottom: 0.7rem;
+}
+
+.lab-showcase h3 {
+  font-weight: 800;
+  font-size: clamp(1.3rem, 2.5vw, 1.7rem);
+  margin-bottom: 0.4rem;
+  color: var(--dark-color);
+}
+
+.lab-showcase p {
+  color: #475569;
+  max-width: 46rem;
+  margin: 0 0 0.7rem;
+}
+
+.lab-showcase-teams {
+  font-size: 0.92rem;
+  opacity: 0.9;
+}
+
+.lab-showcase-teams strong { color: var(--primary-color); }
+
+.lab-showcase-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0 0;
+}
+
+.lab-showcase-points li {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+}
+
+.lab-showcase-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--primary-gradient);
+  color: #fff;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.75rem 1.7rem;
+  border: 0;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: var(--shadow-lg);
+  transition: var(--transition);
+}
+
+.lab-showcase-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-xl);
+  color: #fff;
+}
+
+.lab-showcase-cta i { font-size: 0.8em; opacity: 0.9; }
+
+/* Dark theme */
+body.bg-dark .lab-showcase {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.7));
+  border-color: rgba(255, 255, 255, 0.2);
+  border-left-color: #a5b4fc;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+body.bg-dark .lab-showcase h3 { color: var(--light-color); }
+body.bg-dark .lab-showcase p { color: #cbd5e1; }
+body.bg-dark .lab-showcase-eyebrow,
+body.bg-dark .lab-showcase-teams strong,
+body.bg-dark .lab-showcase-points li { color: #a5b4fc; }
+
+/* Midnight Cyber theme */
+body.theme-cyber .lab-showcase {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.7));
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-left: 5px solid #22d3ee;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.08), 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+body.theme-cyber .lab-showcase h3 { color: #e0f2fe; }
+body.theme-cyber .lab-showcase p { color: #cbd5e1; }
+body.theme-cyber .lab-showcase-eyebrow {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.1);
+  border-color: rgba(34, 211, 238, 0.35);
+}
+body.theme-cyber .lab-showcase-teams strong { color: #22d3ee; }
+body.theme-cyber .lab-showcase-points li {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.08);
+  border-color: rgba(34, 211, 238, 0.25);
+}
+body.theme-cyber .lab-showcase-cta {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa);
+  color: #020617;
+}
+body.theme-cyber .lab-showcase-cta:hover { color: #020617; }
+
+/* High-Contrast theme */
+body.theme-contrast .lab-showcase {
+  background: #fff;
+  border: 2px solid #000;
+  border-left: 8px solid #000;
+  box-shadow: none;
+}
+body.theme-contrast .lab-showcase h3,
+body.theme-contrast .lab-showcase p,
+body.theme-contrast .lab-showcase-teams strong { color: #000; }
+body.theme-contrast .lab-showcase-eyebrow {
+  color: #000;
+  background: #ffd60a;
+  border-color: #000;
+}
+body.theme-contrast .lab-showcase-points li {
+  color: #000;
+  background: #fff;
+  border: 1px solid #000;
+}
+body.theme-contrast .lab-showcase-cta,
+body.theme-contrast .lab-showcase-cta:hover {
+  background: #000;
+  color: #ffd60a;
+  box-shadow: none;
+}
+
+@media (max-width: 576px) {
+  .lab-showcase { padding: 1.5rem 1.4rem; }
+  .lab-showcase-cta { width: 100%; justify-content: center; }
+}
+
+/* ===== "Practice for real" callout (academy hub) ===== */
+.acad-box.acad-lab-cta {
+  background: rgba(99, 102, 241, 0.09);
+  border-color: var(--primary-color);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1.5rem;
+}
+.acad-box.acad-lab-cta .acad-tag {
+  color: var(--primary-color);
+  flex-basis: 100%;
+}
+.acad-lab-cta p { flex: 1 1 24rem; }
+.acad-lab-cta p a { color: var(--primary-color); font-weight: 600; }
+.acad-lab-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--primary-gradient);
+  color: #fff;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.6rem 1.45rem;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  transition: var(--transition);
+}
+.acad-lab-cta-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); color: #fff; }
+.acad-lab-cta-btn i { font-size: 0.8em; opacity: 0.9; }
+
+body.theme-cyber .acad-box.acad-lab-cta {
+  background: rgba(34, 211, 238, 0.08);
+  border-color: #22d3ee;
+}
+body.theme-cyber .acad-box.acad-lab-cta .acad-tag,
+body.theme-cyber .acad-lab-cta p a { color: #22d3ee; }
+body.theme-cyber .acad-lab-cta-btn {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa);
+  color: #020617;
+}
+body.theme-cyber .acad-lab-cta-btn:hover { color: #020617; }
+
+body.theme-contrast .acad-box.acad-lab-cta { background: #fff; }
+body.theme-contrast .acad-box.acad-lab-cta .acad-tag,
+body.theme-contrast .acad-lab-cta p a { color: #000; }
+body.theme-contrast .acad-lab-cta-btn,
+body.theme-contrast .acad-lab-cta-btn:hover {
+  background: #000;
+  color: #ffd60a;
+  box-shadow: none;
+}
+
+/* External-link hint in the Learn nav dropdown */
+.nav-dd-ext {
+  font-size: 0.7em;
+  opacity: 0.6;
+  margin-left: 0.3rem;
+  vertical-align: baseline;
+}
+
 /* Track-intro roadmap list ("Start here" lessons) */
 .acad-arc {
   list-style: none;
