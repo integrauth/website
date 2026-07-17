@@ -360,6 +360,19 @@ $(function() {
     $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
   });
 
+  // Services/Learn nav dropdowns open on hover via CSS (desktop/pointer devices
+  // only — see styles.css). Bootstrap's own click-to-open state (`.show`) is
+  // otherwise dismissed only by an outside click/Escape/selection, so a dropdown
+  // that got click-opened would stay "stuck" open instead of auto-closing when
+  // the pointer leaves, unlike the hover-opened case. Force-close it on
+  // mouseleave so both paths close equally fast.
+  $(document).on('mouseleave', '.navbar-nav .nav-item.dropdown', function() {
+    if (!window.matchMedia('(hover: hover) and (pointer: fine) and (min-width: 992px)').matches) return;
+    const toggleEl = this.querySelector(':scope > .dropdown-toggle');
+    const inst = toggleEl && window.bootstrap && bootstrap.Dropdown.getInstance(toggleEl);
+    if (inst) inst.hide();
+  });
+
   // Initialize components
   fixWhatsAppLinks();
   initServicesMarquee();

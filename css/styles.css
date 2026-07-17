@@ -7180,6 +7180,23 @@ body.theme-cyber .nav-dd .dropdown-divider {
   border-color: rgba(34, 211, 238, 0.3);
 }
 
+/* --- Services/Learn nav dropdowns: open on hover, fast close on leave ---
+   Desktop/pointer-device only (hover-capable + fine pointer) and only at/above
+   the navbar-expand-lg collapse breakpoint (992px), so touch devices and the
+   collapsed hamburger menu keep Bootstrap's default tap-to-open untouched. */
+@media (hover: hover) and (pointer: fine) and (min-width: 992px) {
+  .navbar .nav-item.dropdown > .dropdown-menu.nav-dd {
+    /* Zero gap between toggle and menu so the pointer never crosses empty
+       space (which would drop :hover on the parent and close the menu
+       mid-transit) moving from the toggle into the menu. */
+    margin-top: 0;
+  }
+
+  .navbar .nav-item.dropdown:hover > .dropdown-menu.nav-dd {
+    display: block;
+  }
+}
+
 /* --- Site-wide sitemap footer --- */
 .site-footer {
   padding: 3rem 0 1.25rem;
