@@ -455,6 +455,28 @@ body.bg-dark .section-subtitle {
   }
 }
 
+/* Clients marquee — reuses the .services-marquee framework; slides wrap the card's outer <a> */
+.client-slide {
+  flex-basis: 400px;
+  width: 400px;
+}
+
+.client-slide > a {
+  display: flex;
+  width: 100%;
+}
+
+.client-slide .client-card {
+  width: 100%;
+}
+
+@media (max-width: 575.98px) {
+  .client-slide {
+    flex-basis: 300px;
+    width: 300px;
+  }
+}
+
 /* Per-column color variants (scoped to light themes; dark/cyber/contrast override below) */
 body.bg-light .solutions-section .services-track > :nth-child(5n+1) .solution-card {
   background: linear-gradient(145deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.08));
@@ -970,16 +992,16 @@ body.bg-dark .client-card .text-muted {
   color: #e9ecef !important;
 }
 
-/* Partner Logo (MTN) */
+/* Partner Logo (MTN) — the sunshine mark is solid #FFCB05, so it needs a dark chip in every theme */
 .partner-logo {
   padding: 8px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: #0f172a;
   transition: var(--transition);
 }
 
 body.bg-dark .partner-logo {
-  background: rgba(255, 255, 255, 0.95);
+  background: #0f172a;
   box-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
 }
 
@@ -3659,9 +3681,13 @@ body.theme-cyber .client-card .text-muted {
   color: #cbd5e1 !important;
 }
 
-body.theme-cyber .client-icon,
-body.theme-cyber .partner-logo {
+body.theme-cyber .client-icon {
   background: rgba(224, 242, 254, 0.95);
+}
+
+body.theme-cyber .partner-logo {
+  background: #0f172a;
+  border: 1px solid rgba(224, 242, 254, 0.35);
 }
 
 body.theme-cyber #contact {
