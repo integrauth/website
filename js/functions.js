@@ -217,6 +217,18 @@ function initServicesMarquee() {
     marquee.addEventListener('pointerup', endDrag);
     marquee.addEventListener('pointercancel', endDrag);
 
+    // Mouse wheel over the marquee drives it horizontally instead of scrolling
+    // the page (move off the marquee to scroll the page). Touch is unaffected —
+    // wheel events don't fire for touch, so mobile keeps native swipe.
+    marquee.addEventListener('wheel', function (e) {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!delta) return;
+      e.preventDefault();
+      pause(); // hover already pauses; this also clears any pending resume
+      const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? marquee.clientWidth : 1;
+      marquee.scrollLeft += delta * unit;
+    }, { passive: false });
+
     // Card widths change at the mobile breakpoint
     window.addEventListener('resize', function () {
       setWidth = track.children[setCount].offsetLeft - track.children[0].offsetLeft;
