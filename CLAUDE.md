@@ -19,6 +19,8 @@ Enterprise-grade IAM, API Security, and AI Security company website. Static sing
 
 **Deployment**: GitHub Pages (no build process, static files only)
 
+**Analytics** (2026-07-18): Cloudflare Web Analytics beacon (`static.cloudflareinsights.com/beacon.min.js`, zone-wide token `fa2d8aba…36b2` — the same token sunnahfast already used) appended before `</body>` on all 11 pages (support/privacy/cancellation have NO closing `</body>` tag — minifier stripped it — so the snippet sits at EOF there). Same token rolled out to all product/tool/demo repos. Pageviews/referrers/Core Web Vitals only — NO custom events by deliberate choice (Akhil, 2026-07-18; academy progress/cert/click stats would need a first-party Worker, parked). View in CF dashboard → Analytics & Logs → Web Analytics, filter by hostname. Academy is hash-routed, so lesson navigation = one pageview.
+
 **URL style**: ALL internal links are extensionless (`/academy`, `/privacy`, `/#contact`, `/` for home) — GitHub Pages resolves `/academy` → `academy.html`. Never link `*.html` directly; canonicals and sitemap.xml are extensionless too.
 
 ---
@@ -219,7 +221,7 @@ npx html-minifier-terser --input-dir . --output-dir . --file-ext html \
 
 **Performance**: Image lazy-loading below the fold; optimize terms.html size (226KB)
 
-**Features**: Analytics; contact form (needs a backend — Cloudflare Worker + Turnstile is the natural fit)
+**Features**: contact form (needs a backend — Cloudflare Worker + Turnstile is the natural fit); custom-event analytics (academy funnel, cert generations, verify attempts, card/outbound clicks — first-party Worker + Workers Analytics Engine; pageview-only CF Web Analytics shipped 2026-07-18)
 
 **Accessibility**: Focus-state audit across the 4 themes
 
