@@ -7149,7 +7149,11 @@ body.theme-contrast .err-code {
   border: 0;
 }
 
-.nav-dd {
+/* Two-class selector on purpose: Bootstrap's stylesheet loads ASYNC on index/academy, so it can
+   land after this file in document order — at equal specificity its white .dropdown-menu
+   background would then beat this base (dark-theme) rule. bg-light/contrast/cyber survive via
+   their body-scoped overrides below; dark relies on this rule, so it must outrank Bootstrap. */
+.dropdown-menu.nav-dd {
   z-index: 1100;
   min-width: 220px;
   padding: 0.5rem;
