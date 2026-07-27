@@ -5001,7 +5001,12 @@ body.theme-contrast .acad-hero {
   backdrop-filter: blur(10px);
   padding: 1.35rem 1.4rem;
   color: var(--acad-ink);
-  animation: acadToastIn 0.25s ease;
+  animation: acadConfirmIn 0.2s ease;
+}
+
+@keyframes acadConfirmIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
 }
 
 .acad-confirm-title {
