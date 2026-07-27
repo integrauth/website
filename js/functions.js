@@ -982,6 +982,57 @@ function initAcademy() {
   const backBtn = document.getElementById('acadBack');
   if (backBtn) backBtn.addEventListener('click', showHub);
 
+  // Themed stand-in for window.confirm(), styled to match the Academy (acad-*
+  // tokens, all 4 themes) instead of a native OS dialog. Returns a Promise<boolean>.
+  function acadConfirm(opts) {
+    return new Promise(function (resolve) {
+      const prevFocus = document.activeElement;
+      const overlay = document.createElement('div');
+      overlay.className = 'acad-confirm-overlay';
+      overlay.innerHTML =
+        '<div class="acad-confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="acadConfirmTitle" aria-describedby="acadConfirmMsg">' +
+          '<h3 class="acad-confirm-title" id="acadConfirmTitle"></h3>' +
+          '<p class="acad-confirm-msg" id="acadConfirmMsg"></p>' +
+          '<div class="acad-confirm-btns">' +
+            '<button type="button" class="acad-confirm-cancel"></button>' +
+            '<button type="button" class="acad-confirm-ok"></button>' +
+          '</div>' +
+        '</div>';
+      overlay.querySelector('.acad-confirm-title').textContent = opts.title || 'Are you sure?';
+      overlay.querySelector('.acad-confirm-msg').textContent = opts.message || '';
+      const cancelBtn = overlay.querySelector('.acad-confirm-cancel');
+      const okBtn = overlay.querySelector('.acad-confirm-ok');
+      cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+      okBtn.textContent = opts.confirmLabel || 'OK';
+      if (opts.danger) okBtn.classList.add('acad-confirm-ok-danger');
+
+      function close(result) {
+        document.removeEventListener('keydown', onKeydown);
+        overlay.remove();
+        if (prevFocus && typeof prevFocus.focus === 'function') prevFocus.focus();
+        resolve(result);
+      }
+
+      function onKeydown(e) {
+        if (e.key === 'Escape') { close(false); return; }
+        if (e.key === 'Tab') {
+          const order = [cancelBtn, okBtn];
+          const idx = order.indexOf(document.activeElement);
+          e.preventDefault();
+          const step = e.shiftKey ? -1 : 1;
+          order[(idx + step + order.length) % order.length].focus();
+        }
+      }
+
+      overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) close(false); });
+      cancelBtn.addEventListener('click', function () { close(false); });
+      okBtn.addEventListener('click', function () { close(true); });
+      document.addEventListener('keydown', onKeydown);
+      document.body.appendChild(overlay);
+      cancelBtn.focus();
+    });
+  }
+
   // Reset ONE track: its read marks + quiz reveals + in-lesson labs; other tracks untouched.
   function resetTrack(track) {
     const items = trackLessons(track);
@@ -1006,25 +1057,36 @@ function initAcademy() {
       if (!active) return;
       const track = trackOf(active);
       const label = (TRACK_LABELS[track] || track).replace(/^Track \d+ · /, '');
-      if (!window.confirm('Reset progress for "' + label + '"? Every read mark and quiz answer in this track will be cleared.')) return;
-      resetTrack(track);
+      acadConfirm({
+        title: 'Reset "' + label + '"?',
+        message: 'Every read mark and quiz answer in this track will be cleared. This can’t be undone.',
+        confirmLabel: 'Reset track',
+        danger: true
+      }).then(function (ok) { if (ok) resetTrack(track); });
     });
   });
 
   function resetAllProgress() {
-    if (!window.confirm('Reset ALL Academy progress? Every read mark and quiz answer will be cleared.')) return;
-    try {
-      localStorage.removeItem(KEY_POS);
-      localStorage.removeItem(KEY_READ);
-      localStorage.removeItem(KEY_QUIZ);
-      localStorage.removeItem('acad_exam');
-    } catch (e) {}
-    document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress, .acad-lab-gate').forEach(function (el) { el.remove(); });
-    // Re-render on-screen labs (Challenge, Final Exam, Flow Explorer) back to their start state.
-    if (window.AcadLabs && typeof window.AcadLabs.remountAll === 'function') {
-      try { window.AcadLabs.remountAll(); } catch (e) {}
-    }
-    updateProgress();
+    acadConfirm({
+      title: 'Reset ALL Academy progress?',
+      message: 'Every read mark and quiz answer across every track will be cleared. This can’t be undone.',
+      confirmLabel: 'Reset everything',
+      danger: true
+    }).then(function (ok) {
+      if (!ok) return;
+      try {
+        localStorage.removeItem(KEY_POS);
+        localStorage.removeItem(KEY_READ);
+        localStorage.removeItem(KEY_QUIZ);
+        localStorage.removeItem('acad_exam');
+      } catch (e) {}
+      document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress, .acad-lab-gate').forEach(function (el) { el.remove(); });
+      // Re-render on-screen labs (Challenge, Final Exam, Flow Explorer) back to their start state.
+      if (window.AcadLabs && typeof window.AcadLabs.remountAll === 'function') {
+        try { window.AcadLabs.remountAll(); } catch (e) {}
+      }
+      updateProgress();
+    });
   }
 
   document.querySelectorAll('.acad-reset-all').forEach(function (btn) {
