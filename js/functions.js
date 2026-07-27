@@ -1003,7 +1003,11 @@ function initAcademy() {
   document.querySelectorAll('.acad-reset-track').forEach(function (btn) {
     btn.addEventListener('click', function () {
       const active = document.querySelector('.acad-lesson.is-active');
-      if (active) resetTrack(trackOf(active));
+      if (!active) return;
+      const track = trackOf(active);
+      const label = (TRACK_LABELS[track] || track).replace(/^Track \d+ · /, '');
+      if (!window.confirm('Reset progress for "' + label + '"? Every read mark and quiz answer in this track will be cleared.')) return;
+      resetTrack(track);
     });
   });
 
