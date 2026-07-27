@@ -4978,6 +4978,96 @@ body.theme-contrast .acad-hero {
   .acad-update-toast { left: 1rem; right: 1rem; bottom: 1rem; transform: none; max-width: none; }
 }
 
+/* --- Themed confirm dialog (stands in for window.confirm) --- */
+.acad-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10010;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+  animation: acadFadeIn 0.2s ease;
+}
+
+.acad-confirm-card {
+  width: min(400px, 100%);
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-top: 3px solid var(--acad-bad);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  padding: 1.35rem 1.4rem;
+  color: var(--acad-ink);
+  animation: acadToastIn 0.25s ease;
+}
+
+.acad-confirm-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin: 0 0 0.5rem;
+}
+
+.acad-confirm-msg {
+  font-size: 0.88rem;
+  color: var(--acad-muted);
+  line-height: 1.55;
+  margin: 0 0 1.1rem;
+}
+
+.acad-confirm-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.acad-confirm-cancel,
+.acad-confirm-ok {
+  appearance: none;
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.acad-confirm-cancel {
+  background: transparent;
+  border: 1px solid var(--acad-panel-border);
+  color: var(--acad-ink);
+}
+
+.acad-confirm-cancel:hover {
+  background: color-mix(in srgb, var(--acad-ink) 8%, transparent);
+}
+
+.acad-confirm-ok {
+  background: var(--acad-actor);
+  border: 1px solid transparent;
+  color: var(--acad-atext, #fff);
+}
+
+.acad-confirm-ok:hover {
+  filter: brightness(1.1);
+}
+
+.acad-confirm-ok-danger {
+  background: var(--acad-bad);
+}
+
+.acad-confirm-cancel:focus-visible,
+.acad-confirm-ok:focus-visible {
+  outline: 2px solid var(--acad-actor);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acad-confirm-overlay, .acad-confirm-card { animation: none; }
+}
+
 /* --- Lesson content --- */
 .acad-lesson {
   display: none;
