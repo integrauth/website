@@ -847,8 +847,8 @@ function initAcademy() {
   // Live-update check: GitHub Pages is static (no push channel), so poll a
   // tiny version marker and offer a reload. Progress lives in localStorage,
   // so a reload never loses anything — safe to prompt at any point. Kept
-  // light on the server: checked once a day, on tab refocus, and whenever
-  // the learner crosses into a new track (not on every lesson turn).
+  // light on the server: checked only on tab refocus and whenever the
+  // learner crosses into a new track (not on every lesson turn, no interval).
   const acadBuildMeta = document.querySelector('meta[name="acad-build"]');
   const acadCurrentBuild = acadBuildMeta ? acadBuildMeta.content : null;
   let acadUpdateSettled = false; // stop polling once a toast has been shown or dismissed
@@ -878,7 +878,6 @@ function initAcademy() {
   }
 
   if (acadCurrentBuild) {
-    setInterval(checkForUpdate, 24 * 60 * 60 * 1000); // once a day
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') checkForUpdate();
     });
