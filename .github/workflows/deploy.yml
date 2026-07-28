@@ -1,0 +1,118 @@
+# CI + production deploy for the integrauth.com Cloudflare Worker (static site + /api/academy/*).
+#
+# PRs:            typecheck the Worker source only (no deploy).
+# Push to main:   same check, then deploy via `wrangler deploy`.
+#
+# This Worker is intentionally NOT yet routed at integrauth.com (see wrangler.toml's `workers_dev`
+# comment) — it deploys to its *.workers.dev URL only, so this workflow can run safely without
+# touching the live GitHub-Pages-served site. Adding the production `routes` block in wrangler.toml
+# is a deliberate, separate, manual step the product owner takes when ready to cut over.
+#
+# Required repo SECRET (Settings -> Secrets and variables -> Actions -> Secrets):
+#   CF_TOKEN   Cloudflare API token. Needs Workers Scripts:Edit + D1:Read (this Worker only READS
+#              the shared D1 binding's existence, never runs migrations against it) for now; add
+#              Workers Routes:Edit + DNS:Edit + Zone:Read on the integrauth.com zone ONLY when
+#              you're ready to add the production `routes` block to wrangler.toml. Can be the same
+#              token already used by the `integrauth/lab` repo, or a separate one scoped just to
+#              this Worker — either works, since `account_id`/`database_id` are already pinned in
+#              wrangler.toml (committed, non-secret).
+#
+# NOT required: RESEND_APIKEY (this Worker never sends email — all OTP email goes out through the
+# Lab's own Resend integration; this site only calls the Lab's API cross-origin for that).
+#
+# Provisioned automatically by this workflow (not a GitHub input): the ACADEMY_PRIVATE_JWK Worker
+# secret (an ES256 P-256 private key, JWK JSON, used to sign Academy certificates) is generated
+# in the "Sync Worker secrets" step below IF ABSENT, and never rotated afterwards (rotating it
+# would invalidate every previously-issued certificate's embedded signature — see
+# src/lib/server/certs.ts's file header). This mirrors the same generate-if-absent/never-rotate
+# convention the `integrauth/lab` repo uses for its own LAB_PRIVATE_JWK / LAB_ENC_KEY.
+#
+# Dependency: the shared D1 database (`lab-db`) must already carry migrations 0045-0050 (profiles +
+# academy_* tables) and the SSO session-cookie changes from the `integrauth/lab` repo before this
+# Worker is exercised for real — this workflow does not apply those migrations (schema ownership
+# stays entirely in the lab repo, see wrangler.toml's D1 section for why).
+
+name: ci-deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run worker:typecheck
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Deploy Worker
+        id: deploy
+        run: |
+          set -euo pipefail
+          npx wrangler deploy | tee /tmp/deploy.log
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy.log | head -n1 || true)
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+      # Generate-if-absent, NEVER rotate: ACADEMY_PRIVATE_JWK (ES256 P-256 private key, JWK JSON) —
+      # rotating it would invalidate the signature embedded in every certificate already issued.
+      # Needs the Worker to already exist (first deploy above), same ordering as the lab repo's own
+      # provision-cf.sh (`secrets` phase runs after `wrangler deploy`, not before).
+      - name: Sync Worker secrets
+        run: |
+          set -euo pipefail
+          EXISTING=$(npx wrangler secret list --format json 2>/dev/null | jq -r '.[].name' || true)
+          if printf '%s\n' "$EXISTING" | grep -qxF 'ACADEMY_PRIVATE_JWK'; then
+            echo "ACADEMY_PRIVATE_JWK already set — leaving it (never rotated)."
+          else
+            JWK=$(node -e '
+              const { generateKeyPairSync } = require("crypto");
+              const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+              process.stdout.write(JSON.stringify(privateKey.export({ format: "jwk" })));
+            ')
+            echo "::add-mask::${JWK}"
+            printf '%s' "$JWK" | npx wrangler secret put ACADEMY_PRIVATE_JWK
+            echo "  set ACADEMY_PRIVATE_JWK"
+          fi
+
+      # Best-effort smoke probe against the *.workers.dev URL this run just deployed to. Not
+      # security-critical (unlike the lab repo's live-production probes) since this Worker isn't
+      # serving real traffic yet — failures here are a warning, not a blocking failure.
+      - name: Smoke probe
+        if: steps.deploy.outputs.url != ''
+        run: |
+          set -uo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          sleep 5
+          body=$(curl -sS -m 20 "$URL/api/academy/certificates/verify/does-not-exist" || true)
+          if printf '%s' "$body" | grep -q '"valid":false'; then
+            echo "OK: $URL/api/academy/certificates/verify/does-not-exist -> valid:false"
+          else
+            echo "::warning::Smoke probe against $URL didn't return the expected valid:false shape (got: $body)"
+          fi
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' "$URL/" || echo 000)
+          if [ "$code" = "200" ]; then
+            echo "OK: $URL/ -> 200"
+          else
+            echo "::warning::$URL/ returned $code, expected 200"
+          fi

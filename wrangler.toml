@@ -1,4 +1,7 @@
 name = "integrauth-website"
+# The IntegrAuth Cloudflare account — same account as the sister `integrauth/lab` repo.
+# Committed (account ids are not secrets) so wrangler works from any checkout without discovery.
+account_id = "caf8f7aaecfdec65f1b9f5ac8185f750"
 main = "src/worker.ts"
 compatibility_date = "2025-06-20"
 compatibility_flags = ["nodejs_compat"]
@@ -46,9 +49,12 @@ database_name = "lab-db"
 database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 
 [vars]
-# Same Turnstile site key the Lab uses — both apps share one Turnstile widget.
-# Placeholder only; the real value is provisioned by the CI/provisioning task, not here.
-PUBLIC_TURNSTILE_SITE_KEY = "REPLACE_ME_TURNSTILE_SITE_KEY"
+# Same Turnstile site key the Lab uses (committed there too — a Turnstile SITE key is the public
+# half of the widget, safe to commit; only TURNSTILE_SECRET is sensitive). Both apps share one
+# widget — scripts/provision-cf.sh in the lab repo keeps integrauth.com/www.integrauth.com in that
+# widget's allowed-domains list. If the widget is ever re-created, update this value AND the lab
+# repo's wrangler.toml together (both must carry the same site key).
+PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAD3VSnt3hqHZSCXw"
 
 [observability]
 enabled = true
