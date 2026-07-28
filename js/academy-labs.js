@@ -6906,7 +6906,7 @@ var ACAD_EXAM_POOL = [
 
 AcadLabs.register('lab-exam', {
   title: 'Final exam — earn your certificate',
-  blurb: '50 questions drawn at random from a larger pool — at least 4 from every one of the 12 tracks. Score 80% or higher to unlock a personalised certificate. Everything runs in your browser; nothing is submitted anywhere.',
+  blurb: '50 questions drawn at random from a larger pool — at least 4 from every one of the 12 tracks. Score 80% or higher to unlock a personalised, permanently-saved certificate. Sign-in is required for this widget only — everything else in the Academy stays free and public.',
   onReset: function () { try { localStorage.removeItem('acad_exam'); } catch (e) { /* noop */ } },
   render: function (root, h) {
     var PASS = 0.8, N = 50, GUAR = 4; // GUAR = questions guaranteed per track
@@ -6935,6 +6935,37 @@ AcadLabs.register('lab-exam', {
       return;
     }
 
+    // Sign-in gate: the exam + certificate are the ONE place in the Academy that requires
+    // an account (progress, labs, Flow Explorer and Challenge mode all stay public) — a
+    // certificate needs to be durably tied to somebody so it can be verified later.
+    var authApi = window.AcademyAuth;
+    var session = authApi ? authApi.getSession() : { loggedIn: false };
+    if (!session.loggedIn) {
+      root.appendChild(h.panel(null, [
+        h.el('h4', { 'class': 'acad-lab-title' }, '🔐 Sign in to take the final exam'),
+        h.el('p', { 'class': 'acad-lab-blurb' }, 'Everything else in the Academy is free without an account. The final exam and certificate need a sign-in so your result and certificate are saved permanently to your account and can be independently verified later at integrauth.com/verify.'),
+        h.el('div', { 'class': 'acad-lab-row' }, [
+          h.button('Sign in to continue', 'primary', function () {
+            if (!authApi) return;
+            authApi.openLoginOverlay({
+              reason: 'Sign in to take the final exam and get your certificate.',
+              onSuccess: function () {
+                if (window.AcadLabs) window.AcadLabs.remountWithin(document.getElementById('acadExam'));
+              }
+            });
+          })
+        ])
+      ]));
+      return;
+    }
+
+    function describeErr(err) {
+      return (window.AcademyAuth && window.AcademyAuth.describeApiError) ? window.AcademyAuth.describeApiError(err) : 'something went wrong';
+    }
+    function formatIssued(iso) {
+      return iso ? iso.slice(0, 10) : '—';
+    }
+
     var saved;
     try { saved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { saved = null; }
 
@@ -6943,11 +6974,51 @@ AcadLabs.register('lab-exam', {
       h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning The Absolute Basics through Identity Architecture — at least ' + GUAR + ' from every track. Pick the best answer for each, then submit to see your score.')
     ];
     if (saved && saved.best != null) {
-      kids.push(h.note('Your best so far: ' + saved.best + '/' + N + (saved.passed ? ' — passed ✓' : '')));
+      kids.push(h.note('Your best local attempt: ' + saved.best + '/' + N + (saved.passed ? ' — passed ✓' : '')));
     }
     kids.push(h.el('div', { 'class': 'acad-lab-row' }, [h.button('Start the exam', 'primary', start)]));
     intro.appendChild(h.panel(null, kids));
     root.appendChild(intro);
+
+    // Certificate history: every certificate this account has ever earned, with a
+    // view/re-download action per row. Quietly empty (no panel at all) until the first pass.
+    var certHistoryHost = h.el('div', { 'class': 'acad-cert-history' });
+    root.appendChild(certHistoryHost);
+    renderCertHistory(certHistoryHost);
+
+    function renderCertHistory(hostEl) {
+      hostEl.innerHTML = '';
+      authApi.listCertificates().then(function (certs) {
+        hostEl.innerHTML = '';
+        if (!certs || !certs.length) return;
+        var panelKids = [h.el('div', { 'class': 'acad-lab-panel-title' }, 'Your certificates')];
+        certs.forEach(function (cert) {
+          panelKids.push(h.el('div', { 'class': 'acad-cert-row' }, [
+            h.el('span', { 'class': 'acad-cert-row-text' }, cert.score + '% · issued ' + formatIssued(cert.issuedAt) + ' · ' + cert.serial),
+            cert.isBest ? h.badge('current best', 'ok') : null,
+            h.button('View / download', '', function () { viewCert(cert); })
+          ]));
+        });
+        hostEl.appendChild(h.panel(null, panelKids));
+      }).catch(function () { hostEl.innerHTML = ''; });
+    }
+
+    function viewCert(cert) {
+      var existing = root.querySelector('.acad-cert-view');
+      if (existing) existing.parentNode.removeChild(existing);
+      var canvas = h.el('canvas', { width: '1000', height: '700', 'class': 'acad-cert-canvas' });
+      drawCertificate(canvas, cert.holderName, cert.score, cert.serial, formatIssued(cert.issuedAt));
+      var dl = h.button('⬇ Download certificate (PNG)', 'primary', function () {
+        var a = document.createElement('a');
+        a.download = 'IntegrAuth-Academy-Certificate.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+      });
+      var wrap = h.panel('Certificate — ' + cert.serial, [canvas, h.el('div', { 'class': 'acad-lab-row' }, [dl])]);
+      wrap.classList.add('acad-cert-view');
+      root.appendChild(wrap);
+      wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 
     function shuffle(arr) {
       for (var i = arr.length - 1; i > 0; i--) {
@@ -6958,9 +7029,11 @@ AcadLabs.register('lab-exam', {
     }
 
     function pick() {
-      // stratified draw: GUAR questions guaranteed per track, then random fill to N
+      // stratified draw: GUAR questions guaranteed per track, then random fill to N.
+      // Each drawn question also carries a stable id ('q' + its fixed position in
+      // ACAD_EXAM_POOL) so a passing attempt can report exactly which questions it drew.
       var byTrack = {};
-      ACAD_EXAM_POOL.forEach(function (q) { (byTrack[q.t] = byTrack[q.t] || []).push(q); });
+      ACAD_EXAM_POOL.forEach(function (q, i) { q.__idx = i; (byTrack[q.t] = byTrack[q.t] || []).push(q); });
       var arr = [], rest = [];
       Object.keys(byTrack).forEach(function (t) {
         var qs = shuffle(byTrack[t].slice());
@@ -6971,7 +7044,7 @@ AcadLabs.register('lab-exam', {
       return arr.slice(0, Math.min(N, arr.length)).map(function (item) {
         // shuffle options, track new correct index
         var opts = shuffle(item.o.map(function (text, idx) { return { text: text, correct: idx === item.a }; }));
-        return { t: item.t, q: item.q, opts: opts };
+        return { id: 'q' + item.__idx, t: item.t, q: item.q, opts: opts };
       });
     }
 
@@ -7008,21 +7081,21 @@ AcadLabs.register('lab-exam', {
       var unanswered = 0;
       for (var i = 0; i < quiz.length; i++) if (chosen[i] == null) unanswered++;
       if (unanswered) { msg.innerHTML = ''; msg.appendChild(h.badge(unanswered + ' question(s) still unanswered', 'warn')); return; }
-      var score = 0;
-      quiz.forEach(function (item, qi) { if (item.opts[chosen[qi]] && item.opts[chosen[qi]].correct) score++; });
-      var passed = score / quiz.length >= PASS;
-      // persist best
-      var prev = null; try { prev = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) {}
-      var best = prev && prev.best != null ? Math.max(prev.best, score) : score;
-      try { localStorage.setItem('acad_exam', JSON.stringify({ best: best, passed: (prev && prev.passed) || passed })); } catch (e) {}
-      showResult(quiz, chosen, score, passed);
+      var rawScore = 0;
+      quiz.forEach(function (item, qi) { if (item.opts[chosen[qi]] && item.opts[chosen[qi]].correct) rawScore++; });
+      var pct = Math.round(rawScore / quiz.length * 100);
+      var passed = rawScore / quiz.length >= PASS;
+      // persist best (local-only hint shown before starting; the server holds the real history)
+      var prevSaved = null; try { prevSaved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) {}
+      var best = prevSaved && prevSaved.best != null ? Math.max(prevSaved.best, rawScore) : rawScore;
+      try { localStorage.setItem('acad_exam', JSON.stringify({ best: best, passed: (prevSaved && prevSaved.passed) || passed })); } catch (e) {}
+      showResult(quiz, chosen, rawScore, pct, passed);
     }
 
-    function showResult(quiz, chosen, score, passed) {
+    function showResult(quiz, chosen, rawScore, pct, passed) {
       root.innerHTML = '';
-      var pct = Math.round(score / quiz.length * 100);
       var head = h.panel(null, [
-        h.el('h4', { 'class': 'acad-lab-title' }, passed ? 'Passed — ' + score + '/' + quiz.length + ' (' + pct + '%)' : 'Not yet — ' + score + '/' + quiz.length + ' (' + pct + '%)'),
+        h.el('h4', { 'class': 'acad-lab-title' }, passed ? 'Passed — ' + rawScore + '/' + quiz.length + ' (' + pct + '%)' : 'Not yet — ' + rawScore + '/' + quiz.length + ' (' + pct + '%)'),
         h.badge(passed ? 'You earned your certificate' : 'You need ' + Math.ceil(quiz.length * PASS) + '/' + quiz.length + ' to pass', passed ? 'ok' : 'warn'),
         h.el('div', { 'class': 'acad-lab-row' }, [
           h.button('Review answers', '', function () { review(quiz, chosen); }),
@@ -7030,7 +7103,11 @@ AcadLabs.register('lab-exam', {
         ])
       ]);
       root.appendChild(head);
-      if (passed) root.appendChild(certPanel(pct));
+      if (passed) {
+        var certHost = h.el('div', { 'class': 'acad-cert-flow' });
+        root.appendChild(certHost);
+        startAttemptFlow(certHost, quiz, pct);
+      }
     }
 
     function review(quiz, chosen) {
@@ -7048,70 +7125,129 @@ AcadLabs.register('lab-exam', {
       root.appendChild(box);
     }
 
-    var CERT_SALT = 'integrauth-academy-cert-v1';
+    // --- Server-backed certificate flow: record the attempt, confirm/collect the
+    // certificate name (server enforces "no empty/placeholder name", locks it after
+    // the first certificate), then mint. Replaces the old client-side name+confirm()+
+    // locally-hashed-id flow entirely — the server is now the source of truth for the
+    // holder name, serial and issued date printed on the certificate. ---
 
-    function certCanonName(name) {
-      return name.replace(/\s+/g, ' ').trim().toUpperCase();
+    function startAttemptFlow(host, quiz, pct) {
+      host.innerHTML = '';
+      host.appendChild(h.note('Recording your result…'));
+      var questionIds = quiz.map(function (item) { return item.id; });
+      authApi.recordExamAttempt({ score: pct, passed: true, questionIds: questionIds })
+        .then(function (attempt) { profileStep(host, attempt); })
+        .catch(function (err) {
+          host.innerHTML = '';
+          host.appendChild(h.note('Couldn’t record your result right now (' + describeErr(err) + ').'));
+          host.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [
+            h.button('Try again', 'primary', function () { startAttemptFlow(host, quiz, pct); })
+          ]));
+        });
     }
 
-    // ID format: IA-YYYYMMDD-<score>-<8 hex> — the hex is the first 4 bytes of
-    // SHA-256(salt|canonical name|date|score), recomputable on /verify.
-    function certId(name, ymd, pct) {
-      var input = CERT_SALT + '|' + certCanonName(name) + '|' + ymd + '|' + pct;
-      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(input)).then(function (buf) {
-        var b = new Uint8Array(buf), hex = '';
-        for (var i = 0; i < 4; i++) hex += ('0' + b[i].toString(16)).slice(-2);
-        return 'IA-' + ymd + '-' + pct + '-' + hex.toUpperCase();
+    function profileStep(host, attempt) {
+      host.innerHTML = '';
+      host.appendChild(h.note('Loading your profile…'));
+      authApi.getProfile().then(function (profile) {
+        host.innerHTML = '';
+        if (!profile.firstName || !profile.lastName) {
+          renderNameForm(host, attempt, null);
+        } else if (!profile.nameLocked) {
+          renderConfirmName(host, attempt, profile);
+        } else {
+          renderLockedName(host, attempt, profile);
+        }
+      }).catch(function (err) {
+        host.innerHTML = '';
+        host.appendChild(h.note('Couldn’t load your profile (' + describeErr(err) + ').'));
+        host.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [
+          h.button('Try again', 'primary', function () { profileStep(host, attempt); })
+        ]));
       });
     }
 
-    function certPanel(pct) {
-      try { localStorage.removeItem('acad_cert_dl'); } catch (e) {} // retired download-limit counter
-      var d = new Date();
-      var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
-      var ymd = iso.replace(/-/g, '');
-      var nameInput = h.input({ placeholder: 'Your name', maxlength: '40' });
+    function renderNameForm(host, attempt, prefill) {
+      host.innerHTML = '';
+      var first = h.input({ placeholder: 'First name', maxlength: '80', value: (prefill && prefill.firstName) || '' });
+      var last = h.input({ placeholder: 'Last name', maxlength: '80', value: (prefill && prefill.lastName) || '' });
+      var msg = h.el('div', { 'class': 'acad-auth-msg' });
+      var saveBtn = h.button('Save', 'primary', function () {
+        var f = first.value.trim(), l = last.value.trim();
+        if (!f || !l) { msg.textContent = 'Enter both a first and last name.'; msg.className = 'acad-auth-msg is-error'; return; }
+        saveBtn.disabled = true;
+        authApi.saveProfile({ firstName: f, lastName: l }).then(function (profile) {
+          renderConfirmName(host, attempt, profile);
+        }).catch(function (err) {
+          msg.textContent = describeErr(err); msg.className = 'acad-auth-msg is-error'; saveBtn.disabled = false;
+        });
+      });
+      host.appendChild(h.panel('What name should your certificate carry?', [
+        h.field('First name', first),
+        h.field('Last name', last),
+        msg,
+        h.el('div', { 'class': 'acad-lab-row' }, [saveBtn])
+      ]));
+    }
+
+    function renderConfirmName(host, attempt, profile) {
+      host.innerHTML = '';
+      host.appendChild(h.panel(null, [
+        h.el('p', null, ['Your certificate will say: ', h.el('strong', null, profile.firstName + ' ' + profile.lastName)]),
+        h.el('div', { 'class': 'acad-lab-row' }, [
+          h.button('Looks good — get my certificate', 'primary', function () { doIssue(host, attempt); }),
+          h.button('Edit', '', function () { renderNameForm(host, attempt, profile); })
+        ])
+      ]));
+    }
+
+    function renderLockedName(host, attempt, profile) {
+      host.innerHTML = '';
+      host.appendChild(h.panel(null, [
+        h.el('p', null, ['Your certificate name: ', h.el('strong', null, profile.firstName + ' ' + profile.lastName)]),
+        h.note('Your certificate name is locked after your first certificate, so it can never change once it’s printed on one.'),
+        h.el('div', { 'class': 'acad-lab-row' }, [
+          h.button('Get my certificate', 'primary', function () { doIssue(host, attempt); })
+        ])
+      ]));
+    }
+
+    function doIssue(host, attempt) {
+      host.innerHTML = '';
+      host.appendChild(h.note('Issuing your certificate…'));
+      authApi.issueCertificate(attempt.id).then(function (cert) {
+        renderCertResult(host, cert);
+        renderCertHistory(certHistoryHost);
+      }).catch(function (err) {
+        host.innerHTML = '';
+        host.appendChild(h.note('Couldn’t issue your certificate (' + describeErr(err) + ').'));
+        host.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [
+          h.button('Try again', 'primary', function () { profileStep(host, attempt); })
+        ]));
+      });
+    }
+
+    function renderCertResult(host, cert) {
+      host.innerHTML = '';
       var canvas = h.el('canvas', { width: '1000', height: '700', 'class': 'acad-cert-canvas' });
-      var idLine = h.el('p', { 'class': 'acad-lab-blurb' });
-      var drawSeq = 0;
-      function draw() {
-        var name = (nameInput.value || 'Identity Learner').slice(0, 40);
-        var seq = ++drawSeq;
-        return certId(name, ymd, pct).then(function (id) {
-          if (seq !== drawSeq) return; // superseded by a newer keystroke
-          drawCertificate(canvas, name, pct, id, iso);
-          idLine.innerHTML = '';
-          idLine.appendChild(document.createTextNode('Certificate ID: '));
-          idLine.appendChild(h.el('strong', null, id));
-          idLine.appendChild(document.createTextNode(' — anyone can check it at '));
-          idLine.appendChild(h.el('a', { href: '/verify', target: '_blank', rel: 'noopener' }, 'integrauth.com/verify'));
-          idLine.appendChild(document.createTextNode('.'));
-        });
-      }
-      nameInput.addEventListener('input', draw);
+      drawCertificate(canvas, cert.holderName, cert.score, cert.serial, formatIssued(cert.issuedAt));
       var dl = h.button('⬇ Download certificate (PNG)', 'primary', function () {
-        var name = (nameInput.value || 'Identity Learner').slice(0, 40);
-        var ok = window.confirm(
-          'Your certificate will be issued to:\n\n        ' + name + '\n\n' +
-          (nameInput.value.trim() ? '' : '(The name field is empty, so it defaults to "Identity Learner".)\n\n') +
-          'Check the spelling carefully — the name and its certificate ID are printed into the PNG. Download now?');
-        if (!ok) return;
-        draw().then(function () {
-          var a = document.createElement('a');
-          a.download = 'IntegrAuth-Academy-Certificate.png';
-          a.href = canvas.toDataURL('image/png');
-          a.click();
-        });
+        var a = document.createElement('a');
+        a.download = 'IntegrAuth-Academy-Certificate.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
       });
-      draw();
-      if (!CERT_LOGO_READY) CERT_LOGO.addEventListener('load', draw, { once: true });
-      return h.panel('Your certificate', [
-        h.field('Name on the certificate', nameInput),
+      host.appendChild(h.panel('Your certificate', [
         canvas,
         h.el('div', { 'class': 'acad-lab-row' }, [dl]),
-        idLine,
-        h.note('The certificate is generated entirely in your browser — your name is never sent anywhere. Its certificate ID encodes the name, date and score, so anyone can confirm it at integrauth.com/verify.')
-      ]);
+        h.el('p', { 'class': 'acad-lab-blurb' }, [
+          'Certificate ID: ', h.el('strong', null, cert.serial),
+          ' — anyone can check it at ',
+          h.el('a', { href: '/verify', target: '_blank', rel: 'noopener' }, 'integrauth.com/verify'),
+          '.'
+        ]),
+        h.note('Saved to your account — come back anytime and download it again from your certificate history above.')
+      ]));
     }
 
     function drawCertificate(canvas, name, pct, certIdStr, issuedIso) {
@@ -7177,7 +7313,7 @@ AcadLabs.register('lab-exam', {
 
       // brand line
       ctx.fillStyle = '#4f46e5'; ctx.font = '600 17px Inter, Arial, sans-serif';
-      ctx.fillText('Identity & Security for Humans, Machines & AI Agents', W / 2, 562);
+      ctx.fillText('Identity & Security for All — Humans, Machines, RPA bots & AI Agents', W / 2, 562);
 
       // divider + footer, kept well clear of the inner border (inner rule sits at y = H - 42 = 658)
       ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;

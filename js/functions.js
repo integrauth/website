@@ -879,7 +879,40 @@ function initAcademy() {
 
   if (acadCurrentBuild) {
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible') checkForUpdate();
+      if (document.visibilityState === 'visible') { checkForUpdate(); maybeShowProfileNudge(); }
+    });
+  }
+
+  // Progressive-profiling nudge: logged-in learners with no certificate name yet get a
+  // small dismissible banner (same shape as the live-update toast above) suggesting they
+  // add one now, so it's ready when they earn a certificate. Never shown logged-out — the
+  // login/profile checks themselves live in AcademyAuth (js/academy-auth.js); this is just
+  // the academy.html-only UI on top, reusing .acad-update-toast styling per convention.
+  function showProfileNudge() {
+    if (document.querySelector('.acad-profile-nudge')) return;
+    const toast = document.createElement('div');
+    toast.className = 'acad-update-toast acad-profile-nudge';
+    toast.setAttribute('role', 'status');
+    toast.innerHTML =
+      '<span>Add your name so it’s ready when you earn a certificate.</span>' +
+      '<button type="button" class="acad-update-reload acad-nudge-add">Add name</button>' +
+      '<button type="button" class="acad-update-dismiss" aria-label="Dismiss">&times;</button>';
+    toast.querySelector('.acad-nudge-add').addEventListener('click', function () {
+      toast.remove();
+      window.AcademyAuth.dismissProfileNudge();
+      showHub('acadAccount');
+    });
+    toast.querySelector('.acad-update-dismiss').addEventListener('click', function () {
+      toast.remove();
+      window.AcademyAuth.dismissProfileNudge();
+    });
+    document.body.appendChild(toast);
+  }
+
+  function maybeShowProfileNudge() {
+    if (!window.AcademyAuth || typeof window.AcademyAuth.shouldShowProfileNudge !== 'function') return;
+    window.AcademyAuth.shouldShowProfileNudge().then(function (show) {
+      if (show) showProfileNudge();
     });
   }
 
@@ -891,7 +924,7 @@ function initAcademy() {
     reader.hidden = false;
     lessons.forEach(function (s) { s.classList.toggle('is-active', s === lesson); });
     const track = trackOf(lesson);
-    if (track !== acadLastCheckedTrack) { acadLastCheckedTrack = track; checkForUpdate(); }
+    if (track !== acadLastCheckedTrack) { acadLastCheckedTrack = track; checkForUpdate(); maybeShowProfileNudge(); }
     const label = document.getElementById('acadTrackLabel');
     if (label) label.textContent = TRACK_LABELS[track] || track;
     const read = readSet();
@@ -1092,9 +1125,18 @@ function initAcademy() {
     btn.addEventListener('click', resetAllProgress);
   });
 
+  // Hub-level widgets/sections (Flow Explorer, Challenge mode, Final Exam, Account) aren't
+  // lessons, so they aren't in byId — but they ARE valid deep-link targets from other pages
+  // (e.g. the navbar's "Certificates"/"Profile" links point at /academy#acadExam /
+  // #acadAccount). Route those through showHub's existing focusId scroll+pulse instead of
+  // falling through to the plain "clear hash, go to hub top" branch below.
+  const HUB_ANCHORS = { acadFlows: 1, acadChallenge: 1, acadExam: 1, acadAccount: 1 };
+
   window.addEventListener('hashchange', function () {
     const id = location.hash.slice(1);
-    if (byId[id]) showLesson(id); else if (!id) showHub();
+    if (byId[id]) showLesson(id);
+    else if (HUB_ANCHORS[id]) showHub(id);
+    else if (!id) showHub();
   });
 
   // Glossary live filter (input injected here so no-JS pages stay clean)
@@ -1323,6 +1365,8 @@ function initAcademy() {
   const initial = location.hash.slice(1);
   if (initial && byId[initial]) {
     showLesson(initial, true);
+  } else if (initial && HUB_ANCHORS[initial]) {
+    showHub(initial);
   } else {
     let saved = null;
     try { saved = localStorage.getItem(KEY_POS); } catch (e) {}
@@ -1342,6 +1386,10 @@ function initAcademy() {
       } catch (e) {}
     }
   }
+  // A learner who's already signed in when they land straight in a lesson (deep link,
+  // resumed position) would otherwise never see the profile nudge until they change
+  // tracks or refocus the tab — check once at boot too.
+  maybeShowProfileNudge();
   // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader.
   dismissBootLoader();
 }

@@ -7470,3 +7470,235 @@ body.theme-contrast .site-footer-links a,
 body.theme-contrast .site-footer-social a {
   color: #fff !important;
 }
+
+/* ============================================================
+   Academy account/auth layer (js/academy-auth.js) — site-wide
+   navbar Sign-in control + login overlay + Academy account panel.
+   Built entirely on the global --acad-* tokens (defined on body /
+   body.bg-dark / body.theme-contrast / body.theme-cyber above) and
+   reuses .acad-lab-panel/.acad-lab-field/.acad-lab-input/.acad-lab-btn/
+   .acad-lab-badge/.acad-lab-row/.acad-lab-note (all theme-safe outside
+   .acad-lab too — their var() dependencies are all body-scoped) plus
+   .acad-confirm-overlay/.acad-confirm-card for confirm dialogs. No new
+   per-theme selectors are needed below beyond the few genuinely new
+   components (overlay chrome, navbar avatar, info icon, cert history).
+   ============================================================ */
+
+/* --- Navbar Sign-in control --- */
+.acad-auth-item {
+  display: flex;
+  align-items: center;
+}
+
+.acad-auth-signin {
+  cursor: pointer;
+}
+
+.acad-auth-account {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: 0;
+}
+
+.acad-auth-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  background: var(--primary-color, #6366f1);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.acad-auth-email-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.acad-auth-danger,
+body.bg-light .nav-dd .dropdown-item.acad-auth-danger,
+body.theme-contrast .nav-dd .dropdown-item.acad-auth-danger,
+body.theme-cyber .nav-dd .dropdown-item.acad-auth-danger {
+  color: #ef4444 !important;
+}
+
+@media (max-width: 991.98px) {
+  .acad-auth-email-label { max-width: 220px; }
+}
+
+/* --- Login overlay --- */
+.acad-auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.6);
+  animation: acadFadeIn 0.2s ease;
+}
+
+.acad-auth-card {
+  position: relative;
+  width: min(420px, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-top: 3px solid var(--acad-actor);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  padding: 1.5rem 1.5rem 1.6rem;
+  color: var(--acad-ink);
+  animation: acadConfirmIn 0.2s ease;
+}
+
+.acad-auth-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.9rem;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--acad-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+.acad-auth-close:hover { color: var(--acad-ink); }
+
+.acad-auth-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  margin: 0 0 0.5rem;
+  padding-right: 1.5rem;
+}
+
+.acad-auth-reason {
+  font-size: 0.88rem;
+  color: var(--acad-muted);
+  margin: 0 0 1rem;
+}
+
+.acad-auth-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+
+.acad-auth-turnstile-wrap {
+  margin-bottom: 0.9rem;
+}
+
+.acad-auth-msg {
+  font-size: 0.84rem;
+  min-height: 1.1em;
+}
+.acad-auth-msg.is-error { color: var(--acad-bad); }
+.acad-auth-msg.is-ok { color: var(--acad-em); }
+
+.acad-auth-code-hint {
+  font-size: 0.88rem;
+  color: var(--acad-muted);
+  margin: 0;
+}
+
+.acad-auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.acad-auth-link {
+  appearance: none;
+  background: none;
+  border: none;
+  color: var(--acad-actor);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.acad-auth-link:hover { text-decoration: underline; }
+.acad-auth-link:disabled { color: var(--acad-muted); cursor: not-allowed; text-decoration: none; }
+
+.acad-auth-card :focus-visible {
+  outline: 2px solid var(--acad-actor);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acad-auth-overlay, .acad-auth-card { animation: none; }
+}
+
+/* --- Progressive-profiling nudge (reuses .acad-update-toast's shape) --- */
+.acad-profile-nudge { border-left-color: var(--acad-actor); }
+.acad-profile-nudge .acad-update-reload { background: var(--acad-actor); color: var(--acad-atext, #fff); }
+
+/* --- Benefits info icon (next to the Academy hub heading) --- */
+.acad-info-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0.25rem 0 1rem;
+}
+
+.acad-info-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  appearance: none;
+  background: var(--acad-block);
+  border: 1px solid var(--acad-panel-border);
+  color: var(--acad-actor);
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.acad-info-icon:hover { filter: brightness(1.08); }
+
+/* --- Account panel (#acadAccount) --- */
+.acad-account { margin: 2rem 0; }
+.acad-account .acad-lab-panel { margin-bottom: 0.9rem; }
+.acad-account .acad-lab-panel:last-child { margin-bottom: 0; }
+
+/* --- Device list rows (per-session "sign out this device") --- */
+.acad-auth-device-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed var(--acad-line);
+}
+.acad-auth-device-row:last-child { border-bottom: none; }
+.acad-auth-device-row .acad-lab-note { margin: 0; flex: 1 1 auto; min-width: 0; }
+.acad-auth-device-revoke { flex: 0 0 auto; }
+
+/* --- Certificate history (inside the Final Exam widget) --- */
+.acad-cert-history { display: flex; flex-direction: column; gap: 0.6rem; }
+.acad-cert-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px dashed var(--acad-line);
+}
+.acad-cert-row:last-child { border-bottom: none; }
+.acad-cert-row-text { font-size: 0.86rem; flex: 1 1 auto; min-width: 0; }
