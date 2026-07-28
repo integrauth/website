@@ -541,6 +541,7 @@ function initAcademy() {
 
   function saveRead(set) {
     try { localStorage.setItem(KEY_READ, JSON.stringify(Array.from(set))); } catch (e) {}
+    scheduleSync();
   }
 
   // Cheat-sheet & pop-quiz lessons (*-quiz) only count as read once every
@@ -552,7 +553,118 @@ function initAcademy() {
 
   function saveQuizStore(s) {
     try { localStorage.setItem(KEY_QUIZ, JSON.stringify(s)); } catch (e) {}
+    scheduleSync();
   }
+
+  // --- Cross-device progress sync (logged-in learners only) ---------------
+  // acad_read/acad_quiz/acad_pos are this DEVICE's local cache; when signed in, this
+  // device's state is unioned with the server's (never a destructive overwrite — see
+  // /api/academy/progress/sync's own merge semantics) and the merged, canonical result
+  // is written back locally. quizStore() is keyed by QUIZ LESSON id (e.g. "b9-quiz");
+  // the server's schema is keyed by TRACK id with a revealed-question bitmask, so the
+  // two helpers below translate between them via each quiz lesson's own data-track.
+  const KEY_POS_AT = 'acad_pos_at';
+
+  function quizLessonIdForTrack(track) {
+    for (let i = 0; i < lessons.length; i++) {
+      if (trackOf(lessons[i]) === track && isQuizLesson(lessons[i])) return lessons[i].id;
+    }
+    return null;
+  }
+
+  function maskFromIndices(indices) {
+    let mask = 0;
+    (indices || []).forEach(function (i) { if (i >= 0 && i < 31) mask |= (1 << i); });
+    return mask;
+  }
+
+  function indicesFromMask(mask) {
+    const out = [];
+    for (let i = 0; i < 31; i++) if (mask & (1 << i)) out.push(i);
+    return out;
+  }
+
+  function localSyncSnapshot() {
+    const qStore = quizStore();
+    const quizMasks = {};
+    Object.keys(qStore).forEach(function (lessonId) {
+      const lesson = byId[lessonId];
+      const track = lesson && trackOf(lesson);
+      if (track) quizMasks[track] = maskFromIndices(qStore[lessonId]);
+    });
+    let lastPosition = null;
+    try {
+      const posId = localStorage.getItem(KEY_POS);
+      if (posId) lastPosition = { lessonId: posId, updatedAt: localStorage.getItem(KEY_POS_AT) || new Date(0).toISOString() };
+    } catch (e) {}
+    return { readLessons: Array.from(readSet()), quizMasks: quizMasks, lastPosition: lastPosition };
+  }
+
+  let acadApplyingServerProgress = false;
+
+  // Merges the server's canonical progress DOWN into local storage — a pure union for
+  // read lessons and quiz-reveal masks (never removes/overwrites an already-marked
+  // item), and a last-write-wins-by-timestamp replace for "where was I last reading."
+  function applyServerProgress(server) {
+    if (!server) return;
+    acadApplyingServerProgress = true;
+    try {
+      if (Array.isArray(server.readLessons) && server.readLessons.length) {
+        const merged = readSet();
+        server.readLessons.forEach(function (id) { merged.add(id); });
+        saveRead(merged);
+      }
+      if (server.quizMasks && typeof server.quizMasks === 'object') {
+        const qStore = quizStore();
+        Object.keys(server.quizMasks).forEach(function (track) {
+          const lessonId = quizLessonIdForTrack(track);
+          if (!lessonId) return;
+          const mergedMask = maskFromIndices(qStore[lessonId]) | (server.quizMasks[track] | 0);
+          qStore[lessonId] = indicesFromMask(mergedMask);
+        });
+        saveQuizStore(qStore);
+      }
+      if (server.lastPosition && server.lastPosition.lessonId) {
+        let localAt = null;
+        try { localAt = localStorage.getItem(KEY_POS_AT); } catch (e) {}
+        const serverAt = server.lastPosition.updatedAt || null;
+        if (!localAt || (serverAt && Date.parse(serverAt) > Date.parse(localAt))) {
+          try {
+            localStorage.setItem(KEY_POS, server.lastPosition.lessonId);
+            localStorage.setItem(KEY_POS_AT, serverAt || new Date().toISOString());
+          } catch (e) {}
+        }
+      }
+    } finally {
+      acadApplyingServerProgress = false;
+    }
+    updateProgress();
+    const activeLesson = lessons.filter(function (s) { return s.classList.contains('is-active'); })[0];
+    if (activeLesson) {
+      if (isQuizLesson(activeLesson)) syncQuizProgress(activeLesson);
+      buildChips(trackOf(activeLesson), activeLesson.id);
+    }
+  }
+
+  let acadSyncTimer = null;
+  // Debounced (not per-keystroke-chatty) — fires on every read-mark/quiz-reveal via the
+  // patched saveRead/saveQuizStore above, on login (academy-auth-changed), and once at
+  // boot if a session is already cached. No-ops silently when logged out.
+  function scheduleSync() {
+    if (acadApplyingServerProgress) return;
+    if (!window.AcademyAuth || !window.AcademyAuth.getSession().loggedIn) return;
+    if (acadSyncTimer) clearTimeout(acadSyncTimer);
+    acadSyncTimer = setTimeout(function () {
+      acadSyncTimer = null;
+      window.AcademyAuth.syncProgress(localSyncSnapshot())
+        .then(applyServerProgress)
+        .catch(function () { /* best-effort — this device's local state remains authoritative for itself */ });
+    }, 800);
+  }
+
+  document.addEventListener('academy-auth-changed', function (e) {
+    if (e.detail && e.detail.session && e.detail.session.loggedIn) scheduleSync();
+  });
 
   function isQuizLesson(lesson) {
     return !!lesson && /-quiz$/.test(lesson.id) && !!lesson.querySelector('.acad-quiz');
@@ -935,7 +1047,7 @@ function initAcademy() {
     }
     saveRead(read);
     syncLabGate(lesson);
-    try { localStorage.setItem(KEY_POS, id); } catch (e) {}
+    try { localStorage.setItem(KEY_POS, id); localStorage.setItem(KEY_POS_AT, new Date().toISOString()); } catch (e) {}
     buildChips(track, id);
     buildPager(lesson);
     updateProgress();
@@ -1390,6 +1502,14 @@ function initAcademy() {
   // resumed position) would otherwise never see the profile nudge until they change
   // tracks or refocus the tab — check once at boot too.
   maybeShowProfileNudge();
+  // Same reasoning for progress sync: pull down (and push up) this account's canonical
+  // progress once at boot, not just on a later login/track-change. academy-auth.min.js
+  // loads AFTER this file, so window.AcademyAuth is typically not defined yet at this
+  // exact line (scheduleSync() no-ops safely when so) — the academy-auth-changed
+  // listener registered above is what actually fires the first sync in that case, once
+  // AcademyAuth's own boot-time refreshSession() resolves. This direct call only helps
+  // in the (currently hypothetical) case both scripts are ever reordered.
+  scheduleSync();
   // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader.
   dismissBootLoader();
 }

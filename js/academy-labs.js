@@ -6969,6 +6969,42 @@ AcadLabs.register('lab-exam', {
     var saved;
     try { saved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { saved = null; }
 
+    // Claim a pre-existing LOCAL pass — from before this account existed, or from a
+    // browser session that finished the exam before ever signing in — as this account's
+    // official, server-recorded certificate. Only offered when the server has NO passing
+    // attempt yet for this account (checked fresh every render, so it naturally stops
+    // appearing forever once claimed or once a fresh exam attempt is recorded normally).
+    var claimHost = h.el('div');
+    root.appendChild(claimHost);
+    if (saved && saved.passed && saved.best != null) {
+      authApi.listExamAttempts().then(function (attempts) {
+        var hasServerPass = (attempts || []).some(function (a) { return a.passed; });
+        if (hasServerPass) return;
+        var claimPct = Math.round((saved.best / N) * 100);
+        claimHost.appendChild(h.panel(null, [
+          h.el('p', null, 'We found a passing score (' + claimPct + '%) saved on this device from before you signed in.'),
+          h.el('div', { 'class': 'acad-lab-row' }, [
+            h.button('Save it to my account', 'primary', function () {
+              claimHost.innerHTML = '';
+              claimHost.appendChild(h.note('Saving…'));
+              authApi.recordExamAttempt({ score: claimPct, passed: true, questionIds: ['legacy-local-pass'] })
+                .then(function (attempt) {
+                  claimHost.innerHTML = '';
+                  var certHost = h.el('div', { 'class': 'acad-cert-flow' });
+                  claimHost.appendChild(certHost);
+                  profileStep(certHost, attempt);
+                })
+                .catch(function (err) {
+                  claimHost.innerHTML = '';
+                  claimHost.appendChild(h.note('Couldn’t save it right now (' + describeErr(err) + ').'));
+                });
+            }),
+            h.button('Not now', '', function () { claimHost.innerHTML = ''; })
+          ])
+        ]));
+      }).catch(function () { /* best-effort — no banner if we can't check */ });
+    }
+
     var intro = h.el('div');
     var kids = [
       h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning The Absolute Basics through Identity Architecture — at least ' + GUAR + ' from every track. Pick the best answer for each, then submit to see your score.')
