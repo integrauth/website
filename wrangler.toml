@@ -1,0 +1,54 @@
+name = "integrauth-website"
+main = "src/worker.ts"
+compatibility_date = "2025-06-20"
+compatibility_flags = ["nodejs_compat"]
+
+# --- workers.dev ---
+# INTENTIONALLY left enabled (unlike the sister `integrauth/lab` repo, which disables
+# workers.dev to force one canonical origin). The product owner wants to exercise this
+# Worker on its *.workers.dev URL first and cut integrauth.com's DNS over from GitHub
+# Pages manually, later, once it's verified. Do NOT add a `routes`/`custom_domain` block
+# until that manual cutover is actually happening — doing so would start routing live
+# production traffic (integrauth.com) through this Worker.
+#
+# When ready to go live, add:
+#   routes = [
+#     { pattern = "integrauth.com", custom_domain = true },
+#     { pattern = "www.integrauth.com", custom_domain = true }
+#   ]
+workers_dev = true
+
+# --- Static assets ---
+# Serves the existing static site (index.html, academy.html, css/, js/, images/, etc.)
+# straight from the repo root — the same directory GitHub Pages serves today.
+# run_worker_first = true so this Worker sees every request first: it lets us stamp
+# security headers on static responses too, and ensures /api/academy/* requests reach
+# the Worker's Hono app instead of falling through to a literal (404ing) static lookup.
+[assets]
+binding = "ASSETS"
+directory = "."
+run_worker_first = true
+
+# --- D1 database ---
+# SHARED with the `integrauth/lab` repo — this is the SAME physical D1 instance
+# (lab-db), not a copy. Schema/migrations for it are owned by the `integrauth/lab`
+# repo. This Worker only:
+#   - reads (never writes/creates/revokes) the Lab-owned `users` and `sessions` tables
+#     for shared-session validation, and
+#   - reads/writes its OWN tables: profiles, academy_lesson_progress,
+#     academy_quiz_progress, academy_last_position, academy_exam_attempts,
+#     academy_certificates.
+# Never run migrations from this repo against this database, and never alter any
+# Lab-owned table from here.
+[[d1_databases]]
+binding = "DB"
+database_name = "lab-db"
+database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
+
+[vars]
+# Same Turnstile site key the Lab uses — both apps share one Turnstile widget.
+# Placeholder only; the real value is provisioned by the CI/provisioning task, not here.
+PUBLIC_TURNSTILE_SITE_KEY = "REPLACE_ME_TURNSTILE_SITE_KEY"
+
+[observability]
+enabled = true

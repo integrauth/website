@@ -14,6 +14,9 @@ package-lock.json
 dist/
 build/
 
+# Wrangler local dev/build cache
+.wrangler/
+
 # IDE and editors
 .vscode/
 .idea/
