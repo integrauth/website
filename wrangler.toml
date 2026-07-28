@@ -24,13 +24,33 @@ workers_dev = true
 # --- Static assets ---
 # Serves the existing static site (index.html, academy.html, css/, js/, images/, etc.)
 # straight from the repo root — the same directory GitHub Pages serves today.
-# run_worker_first = true so this Worker sees every request first: it lets us stamp
-# security headers on static responses too, and ensures /api/academy/* requests reach
-# the Worker's Hono app instead of falling through to a literal (404ing) static lookup.
+# See .assetsignore for what is deliberately NOT published (notably `.git`).
+#
+# LOCAL DEV GOTCHA: because the assets directory IS the repo root, wrangler's own local state
+# directory (`.wrangler/`) sits *inside* the tree it watches — so a plain `wrangler dev` writes
+# state, retriggers its own watcher, and reload-loops forever without ever serving a request.
+# Always run it via `npm run worker:dev`, which passes `--persist-to ../.wrangler-state` to put
+# that state outside the watched tree. (Verified: 250+ reloads/minute before, 1 after.)
 [assets]
 binding = "ASSETS"
 directory = "."
-run_worker_first = true
+
+# Only /api/academy/* is routed to the Worker; every other request is answered directly by
+# Cloudflare's asset server without a Worker invocation (faster, and no per-asset Worker
+# request billed for ~200 static files incl. 43 logos). Security headers for those static
+# responses come from the `_headers` file at the repo root instead of from security.ts —
+# keep the two in sync when either changes.
+run_worker_first = ["/api/academy/*"]
+
+# Serve the repo's custom 404.html for unmatched paths. WITHOUT this, the default is "none",
+# which returns a bare bodyless 404 — i.e. the custom 404 page GitHub Pages serves today would
+# silently stop working after the cutover. (Verified: default "none" returns Content-Length: 0.)
+not_found_handling = "404-page"
+
+# Left at the default "auto-trailing-slash", which is what makes the site's extensionless URL
+# convention work: /academy serves academy.html, and /academy.html 307-redirects to /academy.
+# Verified locally against the real asset server — do not change without re-testing every page.
+html_handling = "auto-trailing-slash"
 
 # --- D1 database ---
 # SHARED with the `integrauth/lab` repo — this is the SAME physical D1 instance

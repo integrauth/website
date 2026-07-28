@@ -39,6 +39,13 @@ on:
   push:
     branches: [main]
 
+# Serialize deploys: two pushes landing close together could otherwise run `wrangler deploy`
+# concurrently and leave the older build live. PRs are cancel-in-progress (only the latest
+# commit's check matters); main is not, so a deploy already in flight always finishes.
+concurrency:
+  group: ci-deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -78,10 +85,24 @@ jobs:
       # rotating it would invalidate the signature embedded in every certificate already issued.
       # Needs the Worker to already exist (first deploy above), same ordering as the lab repo's own
       # provision-cf.sh (`secrets` phase runs after `wrangler deploy`, not before).
+      # FAIL-CLOSED: if we cannot positively determine whether the secret already exists, STOP.
+      # The dangerous failure mode is the opposite one — a `wrangler secret list` that errors
+      # (auth blip, API change, network) yields an empty list, the grep below misses, and we would
+      # generate and upload a NEW key, silently invalidating the signature on every certificate
+      # ever issued. An unreadable secret list is a broken deploy, not a licence to rotate.
       - name: Sync Worker secrets
         run: |
           set -euo pipefail
-          EXISTING=$(npx wrangler secret list --format json 2>/dev/null | jq -r '.[].name' || true)
+          if ! SECRETS_JSON=$(npx wrangler secret list --format json); then
+            echo "::error::Could not list Worker secrets. Refusing to continue: generating"\
+                 "ACADEMY_PRIVATE_JWK now could rotate the certificate signing key and invalidate"\
+                 "every certificate already issued. Fix CF_TOKEN / API access and re-run."
+            exit 1
+          fi
+          if ! EXISTING=$(printf '%s' "$SECRETS_JSON" | jq -r '.[].name'); then
+            echo "::error::Worker secret list was not valid JSON — refusing to continue (see above)."
+            exit 1
+          fi
           if printf '%s\n' "$EXISTING" | grep -qxF 'ACADEMY_PRIVATE_JWK'; then
             echo "ACADEMY_PRIVATE_JWK already set — leaving it (never rotated)."
           else

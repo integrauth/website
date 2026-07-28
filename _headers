@@ -1,0 +1,25 @@
+# Security headers for STATIC responses, applied by Cloudflare's asset server.
+#
+# Why this file exists: wrangler.toml scopes `run_worker_first` to /api/academy/*, so static
+# requests never reach src/worker.ts and therefore never pass through withSecurityHeaders() in
+# src/lib/server/security.ts. This file is the static-side equivalent — it must stay in sync with
+# BASE_SECURITY_HEADERS there, which still covers the JSON API responses.
+#
+# No Content-Security-Policy here on purpose: the site loads Bootstrap, Font Awesome, jQuery and
+# Google Fonts from CDNs and uses inline boot-loader <script>/<style> blocks (see CLAUDE.md's
+# "Boot loader & async CDN CSS"), so a strict default CSP would break every page. The API's own
+# strict CSP is applied in security.ts, where we fully control the response shape.
+#
+# Wrangler excludes this file from upload automatically — it is configuration, not an asset.
+# GitHub Pages ignores it, so it is inert until the DNS cutover.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), sync-xhr=(), usb=()
+  # HSTS without `preload`: includeSubDomains already covers the ~30 *.integrauth.com hosts (all
+  # HTTPS on Cloudflare), but submitting to the browser preload list is a separate, deliberate act
+  # that is very hard to reverse — so the directive is deliberately not advertised here.
+  Strict-Transport-Security: max-age=63072000; includeSubDomains

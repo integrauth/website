@@ -1,8 +1,34 @@
-node_modules
+# Paths under the repo root that must NOT be uploaded as public static assets.
+#
+# `[assets] directory = "."` in wrangler.toml points at the repo root (the same tree GitHub Pages
+# serves today), so EVERYTHING here is a publish candidate — including the repo's own plumbing.
+# Anything not listed below is served at https://integrauth.com/<path>.
+#
+# `.git` is the important one: without it, `.git/config`, `.git/HEAD`, the refs and
+# `.git/objects/pack/*.pack` all upload, which is the entire repository history downloadable from
+# the live site. GitHub Actions checkouts create `.git` too, so CI deploys would publish it as well.
+# Verify after changing this file with:
+#   WRANGLER_LOG=debug npx wrangler deploy --dry-run 2>&1 | grep 'Ignoring asset'
+# (`.assetsignore`, `_headers` and `_redirects` are excluded by wrangler automatically.)
+#
+# NOT listed here on purpose: `.well-known` (security.txt must stay publicly reachable) and
+# `.nojekyll` (harmless, and still needed by GitHub Pages until the DNS cutover).
+
+# --- repo plumbing (never publish) ---
+.git
+.gitignore
+.claude
 .github
+.wrangler
+
+# --- build/dev tooling, not part of the site ---
+node_modules
 src
-*.md
+tsconfig.json
 package*.json
 wrangler.toml
-.wrangler
-tsconfig.json
+
+# --- internal working documents: CLAUDE.md, README.md, QUICK_START.md and docs/*.md are notes,
+#     not site content, and nothing on the site links to them ---
+*.md
+docs
