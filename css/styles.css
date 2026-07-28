@@ -7702,3 +7702,146 @@ body.theme-cyber .nav-dd .dropdown-item.acad-auth-danger {
 }
 .acad-cert-row:last-child { border-bottom: none; }
 .acad-cert-row-text { font-size: 0.86rem; flex: 1 1 auto; min-width: 0; }
+
+/* ============================================================
+   Certificate verification page (/verify)
+   The page used to be plain Bootstrap (solid .btn-primary, default
+   .form-control, .alert-success/.alert-danger), which renders identically
+   in all four themes — the page looked unthemed next to the rest of the
+   site. Everything below is driven by the same global --acad-* tokens the
+   Academy uses (body / body.bg-dark / body.theme-contrast / body.theme-cyber),
+   so the card, input, buttons and result banner all change with the theme.
+   Deliberately NOT Bootstrap's .btn-outline-primary — the site's masked-border
+   outline style renders with artifacts here (see CLAUDE.md).
+   ============================================================ */
+
+.vfy-card {
+  --acad-warn: #b45309;             /* extra token, same convention as .acad-lab */
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 18px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.10);
+  color: var(--acad-ink);
+}
+body.bg-dark .vfy-card { --acad-warn: #fbbf24; box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35); }
+body.theme-cyber .vfy-card { --acad-warn: #fbbf24; box-shadow: 0 18px 45px rgba(2, 6, 23, 0.6); }
+body.theme-contrast .vfy-card {
+  --acad-warn: #7c2d12;
+  border-width: 2px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.vfy-title { color: var(--acad-ink); }
+.vfy-title-icon { color: var(--acad-em); }
+.vfy-lead { color: var(--acad-ink); }
+.vfy-hint, .vfy-fineprint { color: var(--acad-muted); }
+.vfy-hint code {
+  color: var(--acad-em);
+  background: var(--acad-block);
+  border-radius: 5px;
+  padding: 0.05rem 0.3rem;
+}
+.vfy-card a.vfy-link { color: var(--acad-em); font-weight: 600; }
+.vfy-card a.vfy-link:hover { color: var(--acad-em); text-decoration: underline; }
+
+.vfy-label { color: var(--acad-ink); }
+
+.vfy-input {
+  display: block;
+  width: 100%;
+  max-width: 26rem;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.02rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--acad-ink);
+  background: var(--acad-fig-bg);
+  border: 1px solid var(--acad-line);
+  border-radius: 10px;
+  padding: 0.62rem 0.85rem;
+}
+.vfy-input::placeholder {
+  color: var(--acad-muted);
+  opacity: 0.7;
+  letter-spacing: 0.04em;
+}
+/* Focus ring uses --acad-em, not --acad-actor: actor is a deep teal in Midnight Cyber
+   and would all but disappear against that theme's near-black input background. */
+.vfy-input:focus,
+.vfy-input:focus-visible {
+  border-color: var(--acad-em);
+  outline: 2px solid var(--acad-em);
+  outline-offset: 2px;
+}
+body.theme-contrast .vfy-input { border-width: 2px; border-radius: 6px; }
+
+.vfy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  appearance: none;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  border-radius: 10px;
+  padding: 0.6rem 1.15rem;
+  background: var(--acad-actor);
+  border: 1px solid var(--acad-actor);
+  color: var(--acad-atext, #fff);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--acad-actor) 55%, black 35%);
+  transition: transform 0.08s, filter 0.15s, border-color 0.15s, background-color 0.15s;
+}
+.vfy-btn:hover { filter: brightness(1.12); color: var(--acad-atext, #fff); }
+.vfy-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 color-mix(in srgb, var(--acad-actor) 55%, black 35%); }
+.vfy-btn:disabled { opacity: 0.5; cursor: progress; }
+.vfy-btn:focus-visible { outline: 2px solid var(--acad-em); outline-offset: 3px; }
+
+.vfy-btn-ghost {
+  background: transparent;
+  color: var(--acad-ink);
+  border-color: var(--acad-line);
+  box-shadow: none;
+}
+.vfy-btn-ghost:hover {
+  color: var(--acad-ink);
+  border-color: var(--acad-em);
+  background: color-mix(in srgb, var(--acad-em) 10%, transparent);
+  filter: none;
+}
+.vfy-btn-ghost:active { box-shadow: none; }
+
+/* High Contrast: square, heavy borders, no soft fills — and the ghost buttons must beat
+   the global `body.theme-contrast a { color:#000 }` anchor override. */
+body.theme-contrast .vfy-btn { border-radius: 6px; border-width: 2px; box-shadow: none; }
+body.theme-contrast a.vfy-btn { color: #fff; text-decoration: none; }
+body.theme-contrast a.vfy-btn-ghost { color: #000; text-decoration: none; }
+body.theme-contrast .vfy-btn-ghost:hover,
+body.theme-contrast a.vfy-btn-ghost:hover { background: #000; color: #fff; border-color: #000; }
+
+.vfy-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  border: 1px solid var(--acad-line);
+  border-left-width: 5px;
+  border-radius: 12px;
+  padding: 0.85rem 1.05rem;
+  color: var(--acad-ink);
+  background: var(--acad-block);
+}
+.vfy-result .vfy-result-icon { flex: 0 0 auto; line-height: 1.5; }
+.vfy-result .vfy-result-body { min-width: 0; }
+.vfy-result.is-ok { border-color: var(--acad-em); background: color-mix(in srgb, var(--acad-em) 12%, transparent); }
+.vfy-result.is-ok .vfy-result-icon { color: var(--acad-em); }
+.vfy-result.is-bad { border-color: var(--acad-bad); background: color-mix(in srgb, var(--acad-bad) 12%, transparent); }
+.vfy-result.is-bad .vfy-result-icon { color: var(--acad-bad); }
+.vfy-result.is-warn { border-color: var(--acad-warn); background: color-mix(in srgb, var(--acad-warn) 14%, transparent); }
+.vfy-result.is-warn .vfy-result-icon { color: var(--acad-warn); }
+.vfy-result .vfy-serial {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+body.theme-contrast .vfy-result { border-radius: 6px; border-width: 2px; border-left-width: 6px; }

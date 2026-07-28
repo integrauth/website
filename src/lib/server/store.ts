@@ -3,9 +3,17 @@
 // academy_exam_attempts, academy_certificates. Every query is parameterized —
 // never string-interpolate SQL here.
 //
-// `users` is Lab-owned and read-only from this repo (see session.ts for the
-// equally read-only `sessions` access); `getUserById` below is the one place we
-// touch it, purely to read an email for certificate claims.
+// This module does NOT touch the Lab-owned `users` table at all. It used to, to
+// read an email for a certificate JWT claim; that claim was dropped (certs.ts
+// explains why), and with it the last reason for this repo to read another repo's
+// user records. The only Lab-owned table we still read is `sessions`, in
+// session.ts, and that read names its columns explicitly for the same reason.
+//
+// Row-count safety: the two list queries below (`listExamAttempts`,
+// `listCertificates`) are bounded by explicit LIMITs — see MAX_* constants. Both
+// feed JSON responses, and neither has any application-level cap on how many rows
+// a single user can accumulate, so an unbounded SELECT would be an unbounded
+// response body.
 
 export interface ProfileRow {
   user_id: string;
@@ -14,14 +22,6 @@ export interface ProfileRow {
   name_locked_at: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface UserRow {
-  id: string;
-  email: string;
-  email_verified_at: string | null;
-  created_at: string;
-  status: string;
 }
 
 export interface ExamAttemptRow {
@@ -172,28 +172,32 @@ export async function listLessonProgress(db: D1Database, userId: string): Promis
 // ---------------------------------------------------------------------------
 
 /**
- * Bitwise-ORs an incoming revealed-question mask into whatever is already stored
- * for this track, so two devices that each revealed different quiz questions
- * offline both end up reflected once synced (a reveal is one-way — never
- * un-reveal a question a device already knows was revealed elsewhere).
+ * Bitwise-ORs incoming revealed-question masks into whatever is already stored for
+ * each track, so two devices that each revealed different quiz questions offline
+ * both end up reflected once synced (a reveal is one-way — never un-reveal a
+ * question a device already knows was revealed elsewhere).
+ *
+ * Takes the whole set of tracks at once and sends them as ONE `db.batch()`, the
+ * same way unionLessonProgress does. The route layer previously looped and
+ * awaited one statement per track, which cost up to MAX_TRACK_IDS (50) serial
+ * round-trips to D1 on a single sync — with identical semantics, since each
+ * upsert is independent and the OR is commutative.
  */
-export async function unionQuizMask(
+export async function unionQuizMasks(
   db: D1Database,
   userId: string,
-  trackId: string,
-  mask: number,
+  entries: Array<[trackId: string, mask: number]>,
   nowIso: string
 ): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO academy_quiz_progress (user_id, track_id, revealed_mask, updated_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(user_id, track_id) DO UPDATE SET
-         revealed_mask = revealed_mask | excluded.revealed_mask,
-         updated_at = excluded.updated_at`
-    )
-    .bind(userId, trackId, mask, nowIso)
-    .run();
+  if (entries.length === 0) return;
+  const stmt = db.prepare(
+    `INSERT INTO academy_quiz_progress (user_id, track_id, revealed_mask, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, track_id) DO UPDATE SET
+       revealed_mask = revealed_mask | excluded.revealed_mask,
+       updated_at = excluded.updated_at`
+  );
+  await db.batch(entries.map(([trackId, mask]) => stmt.bind(userId, trackId, mask, nowIso)));
 }
 
 export async function listQuizProgress(
@@ -278,13 +282,24 @@ export async function insertExamAttempt(
     .run();
 }
 
+/**
+ * Most recent exam attempts, newest first, hard-capped. A learner who has taken
+ * more than MAX_EXAM_ATTEMPTS_RETURNED exams does not need the tail of that list
+ * rendered in the UI, and the cap stops a pathological (or abusive) row count from
+ * producing a multi-megabyte JSON response — each row carries a 50-element
+ * question_ids_json blob, so the payload grows fast.
+ */
+export const MAX_EXAM_ATTEMPTS_RETURNED = 200;
+
 export async function listExamAttempts(
   db: D1Database,
   userId: string
 ): Promise<ExamAttemptRow[]> {
   const { results } = await db
-    .prepare('SELECT * FROM academy_exam_attempts WHERE user_id = ? ORDER BY taken_at DESC')
-    .bind(userId)
+    .prepare(
+      'SELECT * FROM academy_exam_attempts WHERE user_id = ? ORDER BY taken_at DESC LIMIT ?'
+    )
+    .bind(userId, MAX_EXAM_ATTEMPTS_RETURNED)
     .all<ExamAttemptRow>();
   return results;
 }
@@ -294,6 +309,23 @@ export async function getExamAttemptById(
   id: string
 ): Promise<ExamAttemptRow | null> {
   return db.prepare('SELECT * FROM academy_exam_attempts WHERE id = ?').bind(id).first<ExamAttemptRow>();
+}
+
+/**
+ * Abuse backstop support: how many exam attempts this user has recorded since
+ * `sinceIso`. `taken_at` is always an ISO-8601 UTC string from toISOString(), and
+ * those compare correctly as plain strings, so a `>=` range scan is exact.
+ */
+export async function countExamAttemptsSince(
+  db: D1Database,
+  userId: string,
+  sinceIso: string
+): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM academy_exam_attempts WHERE user_id = ? AND taken_at >= ?')
+    .bind(userId, sinceIso)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,9 +368,24 @@ export async function insertCertificateIfAbsent(
   // Race-safe re-read keyed on the UNIQUE(attempt_id) index: whichever row actually
   // landed for this attempt wins, whether that was this call or a concurrent retry
   // of the same issue request (idempotency).
+  return getCertificateByAttemptId(db, row.attemptId);
+}
+
+/**
+ * Looks up the certificate already minted for an exam attempt, if any. Keyed on the
+ * UNIQUE(attempt_id) index, which is what makes certificate issuance idempotent:
+ * the route layer calls this FIRST so a repeat "issue" for an attempt that already
+ * has a certificate returns the stored row without re-signing a JWT (an ES256
+ * signature plus a key import is the most expensive thing that endpoint does, and
+ * on the re-issue path it was pure waste — the freshly signed token was discarded).
+ */
+export async function getCertificateByAttemptId(
+  db: D1Database,
+  attemptId: string
+): Promise<CertificateRow | null> {
   return db
     .prepare('SELECT * FROM academy_certificates WHERE attempt_id = ?')
-    .bind(row.attemptId)
+    .bind(attemptId)
     .first<CertificateRow>();
 }
 
@@ -353,18 +400,65 @@ export async function markOthersNotBest(
     .run();
 }
 
+/**
+ * The learner's certificates, newest first, hard-capped for the same reason as
+ * listExamAttempts (each row carries a full JWT string).
+ *
+ * IMPORTANT: because this is now truncated, it must never be used to compute an
+ * aggregate over ALL of a user's certificates — a max/count over a truncated list
+ * is simply wrong. Use getBestCertificateScore() / countCertificatesSince() for
+ * that; both aggregate in SQL over the complete set.
+ */
+export const MAX_CERTIFICATES_RETURNED = 100;
+
 export async function listCertificates(
   db: D1Database,
   userId: string
 ): Promise<CertificateRow[]> {
   const { results } = await db
-    .prepare('SELECT * FROM academy_certificates WHERE user_id = ? ORDER BY issued_at DESC')
-    .bind(userId)
+    .prepare(
+      'SELECT * FROM academy_certificates WHERE user_id = ? ORDER BY issued_at DESC LIMIT ?'
+    )
+    .bind(userId, MAX_CERTIFICATES_RETURNED)
     .all<CertificateRow>();
   return results;
 }
 
-/** Public lookup path by design — no user_id filter. Used by the verify-by-serial route. */
+/**
+ * Highest score across ALL of this user's certificates, or -1 if they have none.
+ * Used to decide whether a newly issued certificate becomes the "best" one.
+ * Aggregated in SQL rather than by reducing listCertificates(), both because it's
+ * one bounded round-trip instead of hauling every JWT back, and because
+ * listCertificates() is LIMIT-ed and so cannot answer this question correctly.
+ */
+export async function getBestCertificateScore(db: D1Database, userId: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT MAX(score) AS best FROM academy_certificates WHERE user_id = ?')
+    .bind(userId)
+    .first<{ best: number | null }>();
+  return row?.best ?? -1;
+}
+
+/** Abuse backstop support — see countExamAttemptsSince() for the timestamp-comparison note. */
+export async function countCertificatesSince(
+  db: D1Database,
+  userId: string,
+  sinceIso: string
+): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM academy_certificates WHERE user_id = ? AND issued_at >= ?')
+    .bind(userId, sinceIso)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * Public lookup path by design — no user_id filter. Used by the verify-by-serial
+ * route. `serial` MUST already be canonicalised (see normalizeCertificateSerial in
+ * certs.ts): serials are stored in exactly one canonical form, and this is an
+ * exact-match query, so a differently-cased or differently-hyphenated string that
+ * a human typed will not match unless it is normalised first.
+ */
 export async function getCertificateBySerial(
   db: D1Database,
   serial: string
@@ -373,12 +467,4 @@ export async function getCertificateBySerial(
     .prepare('SELECT * FROM academy_certificates WHERE serial = ?')
     .bind(serial)
     .first<CertificateRow>();
-}
-
-// ---------------------------------------------------------------------------
-// users (Lab-owned, read-only)
-// ---------------------------------------------------------------------------
-
-export async function getUserById(db: D1Database, userId: string): Promise<UserRow | null> {
-  return db.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first<UserRow>();
 }
