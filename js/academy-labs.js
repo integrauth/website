@@ -555,7 +555,8 @@ AcadLabs.register('lab-assurance', {
     }
     function phishResistant() { return factors.passkey || factors.key; }
 
-    var out = h.stage([]);
+    var out = h.stage(h.note('Pick Maya\'s factors on the left, then press a call above to see whether it\'s allowed.'));
+    var hasResult = false;
     var meter = h.meter(0, 'bad');
     var badgeBox = h.el('div', { class: 'acad-lab-row' });
     var log = h.logPanel();
@@ -570,9 +571,10 @@ AcadLabs.register('lab-assurance', {
       badgeBox.appendChild(h.badge(phishResistant() ? '🛡️ phishing-resistant' : '🎣 phishable', phishResistant() ? 'ok' : 'warn'));
       if (factors.sms) badgeBox.appendChild(h.badge('SMS OTP = SIM-swappable, fallback only', 'warn'));
       // Factors just changed, so any earlier 200/401 no longer reflects Maya's assurance level.
-      if (out.childNodes.length) {
+      if (hasResult) {
         out.innerHTML = '';
         out.appendChild(h.note('Factors changed — try the call again to see the new outcome.'));
+        hasResult = false;
       }
     }
 
@@ -588,6 +590,7 @@ AcadLabs.register('lab-assurance', {
 
     function call(need, method, path, reqBody, okStatus, okBody) {
       out.innerHTML = '';
+      hasResult = true;
       var a = aal();
       if (a >= need) {
         out.appendChild(h.httpCard({
