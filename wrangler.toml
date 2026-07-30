@@ -92,24 +92,29 @@ LAB_ISSUER = "https://lab.integrauth.com"
 OIDC_CLIENT_ID = "integrauth-website"
 
 # NOT here, and must never be committed: IA_WEBSITE_OIDC_SECRET — the client secret for the
-# `integrauth-website` OIDC client. Set it as a Wrangler secret:
+# `integrauth-website` OIDC client. THE SAME RAW VALUE must exist in the `integrauth/lab` Worker
+# under the same name; the Lab stores only its SHA-256, so it can never be read back or compared.
 #
-#   npx wrangler secret put IA_WEBSITE_OIDC_SECRET
+# Provision it as ONE GitHub Secret named IA_WEBSITE_OIDC_SECRET — organisation-level, shared to this
+# repo AND integrauth/lab — and each repo's deploy workflow mirrors it into its own Worker. Rotating
+# is then "change the GitHub Secret, redeploy both". Neither CI ever GENERATES it: a value one side
+# invented would be one the other does not know, and a generated Wrangler secret is masked out of the
+# log and unreadable afterwards, so nobody could tell the other side what to match.
 #
-# THE SAME RAW VALUE must be set in the `integrauth/lab` repo's Worker (same env var name). The Lab
-# stores only its SHA-256, so it cannot tell you the value back — if it is ever lost, it has to be
-# regenerated and set on BOTH sides in the same change. Until it is set, `rpConfigFromEnv()` returns
-# null and the /auth routes answer 503 `sign_in_unavailable`; the rest of the site is unaffected,
-# which is deliberate so the Worker can be deployed before the secret is provisioned.
+#   openssl rand -base64 32     # once, then paste into the GitHub Secret
+#
+# For a purely local run, `.dev.vars` (gitignored, and in .assetsignore) does the same job.
+#
+# Until it is set, `rpConfigFromEnv()` returns null and the /auth routes answer 503
+# `sign_in_unavailable`; the rest of the site is unaffected, which is deliberate so the Worker can be
+# deployed before the secret is provisioned.
 #
 # ALSO REQUIRED, on the Lab side: this site's callback URL must appear VERBATIM in the Lab's
-# IA_WEBSITE_REDIRECT_URIS (a comma-separated list, max 5 entries, exact string match at request
-# time — no host/port/scheme laxity). Register every origin this Worker answers on:
-#   https://integrauth.com/auth/callback
-#   https://www.integrauth.com/auth/callback
-#   https://<name>.<subdomain>.workers.dev/auth/callback   (for the pre-cutover staging step)
-# and set IA_WEBSITE_BACKCHANNEL_LOGOUT_URI to https://integrauth.com/auth/backchannel-logout so
-# signing out at the Lab also signs the user out here.
+# IA_WEBSITE_REDIRECT_URIS (comma-separated, max 5, exact string match at request time — no
+# host/port/scheme laxity, NO trailing slash). The two production entries are already committed
+# there; the `*.workers.dev` one for pre-cutover staging is printed ready-to-paste by this repo's
+# deploy workflow ("OIDC redirect URI (paste into the Lab)" in the run summary), because that hostname
+# comes from the Cloudflare account subdomain and is not knowable from the repo.
 
 [observability]
 enabled = true

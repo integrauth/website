@@ -91,6 +91,12 @@ jobs:
       # generate and upload a NEW key, silently invalidating the signature on every certificate
       # ever issued. An unreadable secret list is a broken deploy, not a licence to rotate.
       - name: Sync Worker secrets
+        env:
+          # Shared with the integrauth/lab Worker, which must hold the IDENTICAL raw value. Set it
+          # once as a GitHub Secret — ideally an ORGANISATION secret shared to both repos, since a
+          # repository secret has to be added to each of them separately and two different values is
+          # the failure this is trying to avoid. Unset is tolerated (see below).
+          IA_WEBSITE_OIDC_SECRET: ${{ secrets.IA_WEBSITE_OIDC_SECRET }}
         run: |
           set -euo pipefail
           if ! SECRETS_JSON=$(npx wrangler secret list --format json); then
@@ -116,27 +122,69 @@ jobs:
             echo "  set ACADEMY_PRIVATE_JWK"
           fi
 
-          # IA_WEBSITE_OIDC_SECRET is checked but NEVER generated here, and that asymmetry is the
-          # whole point: it is a SHARED secret. The same raw value must exist in the
-          # `integrauth/lab` Worker, which stores only its SHA-256 and so can never tell us what it
-          # is. Generating one here would therefore not "provision" anything — it would mint a value
-          # the provider does not know, and every sign-in would fail with invalid_client until
-          # someone noticed. Only a human who can set it on BOTH sides can provision this.
+          # IA_WEBSITE_OIDC_SECRET is SHARED with the integrauth/lab Worker, which must hold the
+          # identical raw value — it stores only the SHA-256, so it can never tell anyone what the
+          # value is. That is why this is never GENERATED here: a value we invented would be one the
+          # provider does not know, and every sign-in would fail invalid_client. It is instead
+          # mirrored from a GitHub Secret, which is the one place a human can set it once and have
+          # both Workers converge on it.
           #
-          # A warning rather than a failure because the deploy order is deliberately staged: the
-          # Worker is meant to be deployable before sign-in is wired up, and it degrades honestly
-          # without the secret (rpConfigFromEnv() returns null, /auth/* answers 503
-          # sign_in_unavailable, and the account-free Academy — lessons, labs, Flow Explorer,
-          # Challenge mode — keeps working).
-          if printf '%s\n' "$EXISTING" | grep -qxF 'IA_WEBSITE_OIDC_SECRET'; then
-            echo "IA_WEBSITE_OIDC_SECRET is set."
+          # Synced on EVERY deploy when the GitHub Secret is present, deliberately: that makes an
+          # update propagate (rotating the shared secret is then "change it in one place, redeploy
+          # both") instead of being pinned forever by a get-or-create.
+          if [ -n "${IA_WEBSITE_OIDC_SECRET:-}" ]; then
+            printf '%s' "$IA_WEBSITE_OIDC_SECRET" | npx wrangler secret put IA_WEBSITE_OIDC_SECRET
+            echo "  synced IA_WEBSITE_OIDC_SECRET from the GitHub Secret"
+          elif printf '%s\n' "$EXISTING" | grep -qxF 'IA_WEBSITE_OIDC_SECRET'; then
+            # Already on the Worker and no GitHub Secret to compare against. Leave it alone rather
+            # than clearing it — but say so, because a value nobody can read is a value nobody can
+            # confirm matches the Lab's.
+            echo "IA_WEBSITE_OIDC_SECRET is set on the Worker but no GitHub Secret was provided —"\
+                 "leaving the existing value in place."
           else
+            # A warning rather than a failure, because the deploy order is deliberately staged: this
+            # Worker is meant to be deployable before sign-in is wired up, and it degrades honestly
+            # without the secret — rpConfigFromEnv() returns null, /auth/* answers 503
+            # sign_in_unavailable, and the account-free Academy (lessons, labs, Flow Explorer,
+            # Challenge mode) keeps working.
             echo "::warning::IA_WEBSITE_OIDC_SECRET is not set, so sign-in will answer 503"\
-                 "sign_in_unavailable. Set it with 'npx wrangler secret put IA_WEBSITE_OIDC_SECRET'"\
-                 "using the SAME raw value as the integrauth/lab Worker's IA_WEBSITE_OIDC_SECRET,"\
-                 "and make sure this Worker's /auth/callback URL is listed in the Lab's"\
-                 "IA_WEBSITE_REDIRECT_URIS. The rest of the site is unaffected."
+                 "sign_in_unavailable. Add it as a GitHub Secret (organisation-level, shared to this"\
+                 "repo AND integrauth/lab, so both get the same value) and re-run. Also make sure"\
+                 "this Worker's /auth/callback URL is in the Lab's IA_WEBSITE_REDIRECT_URIS — the"\
+                 "'OIDC redirect URI' step below prints the exact line to paste."
           fi
+
+      # The one value that cannot be committed ahead of time: this Worker's *.workers.dev hostname
+      # is assigned by Cloudflare from the account's subdomain, so it is not knowable from the repo.
+      # The Lab matches redirect URIs by EXACT string equality, so it has to be registered verbatim.
+      # Printing the whole ready-to-paste line into the run summary turns "go dig the hostname out of
+      # the dashboard, then hand-assemble a comma-separated list" into one copy-paste.
+      - name: OIDC redirect URI (paste into the Lab)
+        if: always()
+        run: |
+          set -uo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          {
+            echo "### OIDC configuration for \`integrauth/lab\`"
+            echo
+            echo "Paste into that repo's \`wrangler.toml\` under \`[vars]\`:"
+            echo
+            echo '```toml'
+            if [ -n "$URL" ]; then
+              echo "IA_WEBSITE_REDIRECT_URIS = \"https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback,${URL}/auth/callback\""
+            else
+              echo '# workers.dev URL not captured from this run — take it from the deploy log'
+              echo 'IA_WEBSITE_REDIRECT_URIS = "https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback,https://<worker>.<subdomain>.workers.dev/auth/callback"'
+            fi
+            echo 'IA_WEBSITE_BACKCHANNEL_LOGOUT_URI = "https://integrauth.com/auth/backchannel-logout"'
+            echo '```'
+            echo
+            echo "Comma-separated, **max 5** entries, matched by exact string equality at request"
+            echo "time — no trailing slash. \`/auth/callback/\` passes the Lab's registration check"
+            echo "but never matches, because this site sends the no-slash form."
+            echo
+            echo "Drop the workers.dev entry after the DNS cutover."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Best-effort smoke probe against the *.workers.dev URL this run just deployed to. Not
       # security-critical (unlike the lab repo's live-production probes) since this Worker isn't

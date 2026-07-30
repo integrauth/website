@@ -121,41 +121,49 @@ reimplementing them.
 
 1. **Lab first.** Merge + deploy. Lands migrations 0045–0053 in the shared D1 and restores the
    `__Host-` cookie. The website Worker cannot function before the `academy_*` tables exist.
-2. **Provision the shared secret — BEFORE step 1's deploy, not after.** `IA_WEBSITE_OIDC_SECRET` must
-   hold the **same raw value** in both Workers:
+2. **Provision the shared secret — before step 1's deploy.** Add ONE GitHub Secret named
+   `IA_WEBSITE_OIDC_SECRET` and both Workers converge on it; no `wrangler secret put` by hand.
 
    ```
-   openssl rand -base64 32          # once — use the SAME output for both commands
-   wrangler secret put IA_WEBSITE_OIDC_SECRET     # in integrauth/lab
-   wrangler secret put IA_WEBSITE_OIDC_SECRET     # in integrauth/website
+   openssl rand -base64 32     # once, then paste into the GitHub Secret
    ```
 
-   Why the ordering matters: the Lab's deploy workflow runs `provision-cf.sh secrets` on every push
-   to main, and that script generates this secret if absent. The generated value is `::add-mask::`ed
-   out of the CI log and a Wrangler secret cannot be read back, so if CI mints it first, **nobody can
-   discover what it is** and sign-in fails `invalid_client` until it is overwritten on both sides
-   anyway. Recovery is clean (the Lab re-syncs its stored SHA-256 on the next request naming the
-   client), so this is an annoyance rather than a lockout — but pre-setting it is strictly less work.
+   **Make it an organisation-level secret shared to both `integrauth/lab` and `integrauth/website`.**
+   A repository secret works but has to be added to each repo separately, and two different values is
+   exactly the failure this is avoiding — the Lab stores only the SHA-256, so a mismatch surfaces as
+   `invalid_client` with no way to compare the two.
 
-   This repo's CI deliberately never generates it, for the same reason: a value we invented would be
-   one the provider does not know.
+   Both CI workflows now mirror it into their Worker on every deploy, so rotating is "change the
+   GitHub Secret, redeploy both". Neither side ever generates it: a value either CI invented would be
+   one the other does not know. The Lab's `provision-cf.sh` still has a generate-as-last-resort path
+   so a solo deploy is not blocked, but it now emits a loud `::warning::` when it fires, because a
+   generated value is masked out of the log and unreadable from Wrangler afterwards — nobody could
+   then tell the website what to match. Recovery is clean if that happens (the Lab re-syncs its stored
+   SHA-256 on the next request naming the client), just manual on both sides.
 
    `ACADEMY_PRIVATE_JWK` is different — it is ours alone, auto-generates on first deploy, and is
    **never rotated** (rotating it invalidates the signature on every certificate ever issued).
-3. **Register redirect URIs on the Lab**, in its `wrangler.toml` `[vars]`:
+3. **Redirect URIs — the two production ones are already committed** to the Lab's `wrangler.toml`:
 
    ```toml
-   IA_WEBSITE_REDIRECT_URIS = "https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback,https://<worker>.<subdomain>.workers.dev/auth/callback"
+   IA_WEBSITE_REDIRECT_URIS = "https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback"
    IA_WEBSITE_BACKCHANNEL_LOGOUT_URI = "https://integrauth.com/auth/backchannel-logout"
    ```
 
-   Comma-separated, **max 5** entries, matched by **exact string equality** at request time — no
-   host, port or scheme laxity, and **no trailing slash**. `https://integrauth.com/auth/callback/`
-   passes the Lab's registration-time validation but would never match, because the RP sends the
-   no-slash form. Take the workers.dev hostname from the website Worker's own deploy output.
+   Verified against the Lab's own `validRedirectUri` + comma-split parser: both accepted, none
+   dropped. Comma-separated, **max 5**, matched by **exact string equality** at request time — no
+   host/port/scheme laxity and **no trailing slash** (`/auth/callback/` passes registration
+   validation but never matches, since the RP sends the no-slash form; it fails as a generic
+   `invalid_client_or_redirect`).
 
-   Registering both production and workers.dev now means the DNS cutover is a DNS change rather than
-   a Lab redeploy.
+   **One entry still to append: the website's `*.workers.dev` callback**, needed for the staging step
+   below. That hostname comes from the Cloudflare account's subdomain and is not knowable from either
+   repo — so the website's deploy now prints the complete ready-to-paste line into its GitHub Actions
+   run summary, under **"OIDC redirect URI (paste into the Lab)"**. Append it as a third entry, and
+   drop it again after the cutover.
+
+   Both vars are inert until `IA_WEBSITE_OIDC_SECRET` exists: without it
+   `websiteClientConfigFromEnv` returns null and the client is simply never seeded.
 4. **Deploy the website Worker to `*.workers.dev` only** (no `routes` block yet).
 5. **Exercise it there against real data**: sign in → progress sync across two browser profiles →
    reset a track and confirm it stays reset on the other profile → exam → certificate → `/verify` →
@@ -176,7 +184,10 @@ reimplementing them.
 2. **`ADMIN_SECRET` — purpose unknown.** Asked, never answered. Nothing in this repo reads it.
 3. **`RESEND_APIKEY` is unnecessary here.** This Worker never sends email; all of it stays with the
    Lab, which is where the sign-in form now lives.
-4. **Provision `IA_WEBSITE_OIDC_SECRET`** and populate `IA_WEBSITE_REDIRECT_URIS` — see §4.
+4. **Add the `IA_WEBSITE_OIDC_SECRET` GitHub Secret** (organisation-level, shared to both repos) —
+   see §4 step 2. CI does the rest; nothing to set by hand in Cloudflare.
+5. **Append the workers.dev callback** to the Lab's `IA_WEBSITE_REDIRECT_URIS` once the website's
+   first deploy prints it — see §4 step 3.
 
 ---
 
