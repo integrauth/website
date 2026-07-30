@@ -188,11 +188,21 @@ tables; that is fixed. Leave these or tighten them at leisure — not a defect.
 - `verify.html` distinguishes status codes (7 checks) instead of reporting everything as not-found.
 - Certificate logo handling reworked (18 `CERT_LOGO` references).
 
-### The one thing that genuinely is not done in this commit
-`js/academy-labs.min.js` and `css/styles.min.css` are **STALE** against their sources (confirmed by
-comparing last-commit timestamps). `js/functions.min.js` and `js/academy-auth.min.js` are current.
-`acad-build` and `academy-version.txt` are both `5.52` and in sync — but they must be bumped again as
-part of the final pass, since `styles.min.css` will change.
+### Minified-asset state — resolved as of the `origin/main` merge
+`js/academy-labs.min.js` and `css/styles.min.css` were stale against their sources in `f054c5a`.
+Both were **regenerated** while resolving the merge with `origin/main`, so all four minified assets
+are now current. Versions after that merge:
+
+| Asset | Version |
+|---|---|
+| `css/styles.min.css` | `5.55` (all 11 pages) |
+| `js/functions.min.js` | `5.52` (all 11 pages) |
+| `js/academy-auth.min.js` | `1.1` (all 11 pages) |
+| `js/academy-labs.min.js` | `5.51` (academy.html only) |
+| `acad-build` + `academy-version.txt` | `5.53` (in sync) |
+
+They will need one more bump in the final pass, because the OIDC RP work still has to change
+`js/academy-auth.js` and `js/functions.js`.
 
 ---
 
