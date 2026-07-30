@@ -144,16 +144,55 @@ cutover.
 
 ---
 
-## 4. What is in `f054c5a` but NOT verified
+## 4. What is in `f054c5a` — audited against the committed code
 
 Three agents wrote concurrently with disjoint file ownership. **Their completion reports were never
-received** — the work is in the tree but unvouched-for. Re-verify before trusting any of it.
+received** (the session lost them), so the work was initially unvouched-for. It has since been audited
+directly against the committed tree — the code is the record. Result: **all three substantially
+completed their scope.** Per-item status below, verified by inspection, not by report.
 
-| Files | Intended scope |
+### Backend — `src/lib/server/{api,store,certs,session}.ts`, `src/worker.ts` ✅
+| Item | Status |
 |---|---|
-| `src/lib/server/{api,store,certs,session}.ts`, `src/worker.ts` | Batch quiz-mask writes; throttle `last_seen_at`; column projections instead of `SELECT *` on Lab-owned tables; `LIMIT` on list queries; short-circuit idempotent cert re-issue; cache the imported signing key; abuse caps on exam attempts + cert issuance; **CSRF Origin allowlist + Content-Type enforcement**; serial → `IA-XXXX-XXXX-XXXX` Crockford base32; drop `email` from the cert JWT, add `iss`/`aud`; **publish `/api/academy/.well-known/jwks.json`** so the JWT is actually verifiable |
-| `privacy.html`, `terms.html`, `index.html`, `academy.html`, `CLAUDE.md` | Privacy policy now covers email/names/progress + the shared account DB; FAQ answer **and** its mirrored FAQPage JSON-LD corrected (was telling Google the exam needs no account); academy.html's "no sign-up" blurb; CLAUDE.md's stale `certId()`/client-side-verify sections |
-| `js/academy-labs.js`, `verify.html`, `css/styles.css` | Detached cert-history node; logo-less certificate render; **stable non-positional exam question ids**; verify.html error-vs-not-found; honest `/verify` copy; **theme-aware verify page controls** (owner-reported: buttons looked identical in all 4 themes) |
+| Batch quiz-mask writes | ✅ `db.batch()` in `store.ts` (3 sites) |
+| Throttle `last_seen_at` writes | ✅ in `session.ts` |
+| Column projections on **Lab-owned** tables | ✅ `session.ts` now lists columns explicitly; `token_hash` deliberately excluded |
+| `LIMIT` on list queries | ✅ 4 sites |
+| CSRF Origin allowlist + Content-Type check | ✅ present in `api.ts` |
+| Serial → `IA-XXXX-XXXX-XXXX` Crockford base32 | ✅ in `certs.ts` |
+| Drop `email` from cert JWT, add `iss`/`aud` | ✅ removed — `email` now appears only in a comment explaining why it is *not* embedded |
+| Publish `/.well-known/jwks.json` | ✅ route present |
+
+Note: 6 `SELECT *` queries remain in `store.ts`, but all are against **this repo's own** tables
+(`profiles`, `academy_exam_attempts`, `academy_certificates`). The concern was reading another repo's
+tables; that is fixed. Leave these or tighten them at leisure — not a defect.
+
+### Copy — `privacy.html`, `terms.html`, `index.html`, `academy.html`, `CLAUDE.md` ✅
+- Privacy policy now references the shared Lab account and Resend.
+- `terms.html` covers Academy accounts.
+- `academy.html`'s "no sign-up" claim is gone.
+- **FAQ + its mirrored FAQPage JSON-LD both corrected and in sync.** The phrase "no account needed"
+  still appears twice, but the surrounding sentence is now *accurate*: lessons and labs are free with
+  no account, "the final exam and certificate are the" part that requires one. Two occurrences = the
+  visible FAQ and its JSON-LD twin, exactly as CLAUDE.md requires.
+- One `certId` mention survives in `CLAUDE.md`; check whether it's an intentional historical note or a
+  leftover.
+
+### Exam / certificate / theming — `js/academy-labs.js`, `verify.html`, `css/styles.css` ✅
+- **Verify-page theming (the owner-reported issue) is done.** A full `.vfy-*` component set —
+  `.vfy-card/-title/-lead/-label/-input/-btn/-btn-ghost/-hint/-result` — with explicit
+  `body.bg-dark`, `body.theme-contrast` and `body.theme-cyber` overrides. ~143 new CSS lines.
+- **Exam question ids are now stable and semantic** (`basics-01`, `basics-02`, …), the positional
+  `'q' + __idx` tagging is **gone**, and there is a loud load-time validation:
+  `'ACAD_EXAM_POOL is invalid — every question needs a unique, position-independent id: …'`
+- `verify.html` distinguishes status codes (7 checks) instead of reporting everything as not-found.
+- Certificate logo handling reworked (18 `CERT_LOGO` references).
+
+### The one thing that genuinely is not done in this commit
+`js/academy-labs.min.js` and `css/styles.min.css` are **STALE** against their sources (confirmed by
+comparing last-commit timestamps). `js/functions.min.js` and `js/academy-auth.min.js` are current.
+`acad-build` and `academy-version.txt` are both `5.52` and in sync — but they must be bumped again as
+part of the final pass, since `styles.min.css` will change.
 
 ---
 
