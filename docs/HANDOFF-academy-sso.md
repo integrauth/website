@@ -121,15 +121,41 @@ reimplementing them.
 
 1. **Lab first.** Merge + deploy. Lands migrations 0045–0053 in the shared D1 and restores the
    `__Host-` cookie. The website Worker cannot function before the `academy_*` tables exist.
-2. **Provision the shared secret.** `IA_WEBSITE_OIDC_SECRET` must hold the **same raw value** in both
-   Workers. The Lab stores only its SHA-256, so it can never be read back. CI checks for it and
-   deliberately never generates one — a generated value would be one the provider does not know.
-   `ACADEMY_PRIVATE_JWK` auto-generates on first deploy and is **never rotated** (rotating it
-   invalidates the signature on every certificate ever issued).
-3. **Register redirect URIs on the Lab.** `IA_WEBSITE_REDIRECT_URIS` is comma-separated, max 5, and
-   matched by **exact string equality** at request time — no host/port/scheme laxity. List every
-   origin the Worker answers on, including the workers.dev callback for staging. Set
-   `IA_WEBSITE_BACKCHANNEL_LOGOUT_URI` to `https://integrauth.com/auth/backchannel-logout`.
+2. **Provision the shared secret — BEFORE step 1's deploy, not after.** `IA_WEBSITE_OIDC_SECRET` must
+   hold the **same raw value** in both Workers:
+
+   ```
+   openssl rand -base64 32          # once — use the SAME output for both commands
+   wrangler secret put IA_WEBSITE_OIDC_SECRET     # in integrauth/lab
+   wrangler secret put IA_WEBSITE_OIDC_SECRET     # in integrauth/website
+   ```
+
+   Why the ordering matters: the Lab's deploy workflow runs `provision-cf.sh secrets` on every push
+   to main, and that script generates this secret if absent. The generated value is `::add-mask::`ed
+   out of the CI log and a Wrangler secret cannot be read back, so if CI mints it first, **nobody can
+   discover what it is** and sign-in fails `invalid_client` until it is overwritten on both sides
+   anyway. Recovery is clean (the Lab re-syncs its stored SHA-256 on the next request naming the
+   client), so this is an annoyance rather than a lockout — but pre-setting it is strictly less work.
+
+   This repo's CI deliberately never generates it, for the same reason: a value we invented would be
+   one the provider does not know.
+
+   `ACADEMY_PRIVATE_JWK` is different — it is ours alone, auto-generates on first deploy, and is
+   **never rotated** (rotating it invalidates the signature on every certificate ever issued).
+3. **Register redirect URIs on the Lab**, in its `wrangler.toml` `[vars]`:
+
+   ```toml
+   IA_WEBSITE_REDIRECT_URIS = "https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback,https://<worker>.<subdomain>.workers.dev/auth/callback"
+   IA_WEBSITE_BACKCHANNEL_LOGOUT_URI = "https://integrauth.com/auth/backchannel-logout"
+   ```
+
+   Comma-separated, **max 5** entries, matched by **exact string equality** at request time — no
+   host, port or scheme laxity, and **no trailing slash**. `https://integrauth.com/auth/callback/`
+   passes the Lab's registration-time validation but would never match, because the RP sends the
+   no-slash form. Take the workers.dev hostname from the website Worker's own deploy output.
+
+   Registering both production and workers.dev now means the DNS cutover is a DNS change rather than
+   a Lab redeploy.
 4. **Deploy the website Worker to `*.workers.dev` only** (no `routes` block yet).
 5. **Exercise it there against real data**: sign in → progress sync across two browser profiles →
    reset a track and confirm it stays reset on the other profile → exam → certificate → `/verify` →
