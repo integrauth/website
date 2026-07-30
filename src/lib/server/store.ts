@@ -1,19 +1,21 @@
 // Typed D1 accessors for THIS repo's own Academy tables: profiles,
 // academy_lesson_progress, academy_quiz_progress, academy_last_position,
-// academy_exam_attempts, academy_certificates. Every query is parameterized —
-// never string-interpolate SQL here.
+// academy_exam_attempts, academy_certificates, academy_progress_epoch. Every query
+// is parameterized — never string-interpolate SQL here.
 //
 // This module does NOT touch the Lab-owned `users` table at all. It used to, to
 // read an email for a certificate JWT claim; that claim was dropped (certs.ts
 // explains why), and with it the last reason for this repo to read another repo's
-// user records. The only Lab-owned table we still read is `sessions`, in
-// session.ts, and that read names its columns explicitly for the same reason.
+// user records. The one Lab-owned table this repo still reads is `users`, joined in
+// session.ts to check account status — NOT `sessions`, which nothing here touches
+// any more (this repo has its own `website_sessions`). That join names its columns
+// explicitly for the same reason.
 //
 // Row-count safety: the two list queries below (`listExamAttempts`,
 // `listCertificates`) are bounded by explicit LIMITs — see MAX_* constants. Both
-// feed JSON responses, and neither has any application-level cap on how many rows
-// a single user can accumulate, so an unbounded SELECT would be an unbounded
-// response body.
+// feed JSON responses, and an unbounded SELECT would be an unbounded response body.
+// The progress tables are bounded differently, at the route layer, by total-row
+// ceilings — see `countLessonProgress` for why that is the only bound available.
 
 export interface ProfileRow {
   user_id: string;
@@ -157,6 +159,33 @@ export async function unionLessonProgress(
     'INSERT OR IGNORE INTO academy_lesson_progress (user_id, lesson_id, read_at) VALUES (?, ?, ?)'
   );
   await db.batch(lessonIds.map((lessonId) => stmt.bind(userId, lessonId, nowIso)));
+}
+
+/**
+ * How many read marks this learner already has stored.
+ *
+ * Exists purely so the sync route can refuse to grow this table without bound. The curriculum is
+ * 133 lessons and the server deliberately holds no copy of it (see `deleteLessonProgress`), so ids
+ * arriving from a client cannot be validated against a canonical list — which means an
+ * authenticated caller could otherwise loop `POST /progress/sync` with 500 junk ids a time and
+ * write rows forever into a D1 instance this repo shares with, but does not own (wrangler.toml).
+ * A single exact COUNT is cheap and is the only bound available without duplicating the curriculum.
+ */
+export async function countLessonProgress(db: D1Database, userId: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM academy_lesson_progress WHERE user_id = ?')
+    .bind(userId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** Same bound as `countLessonProgress`, for the per-track quiz masks. */
+export async function countQuizProgress(db: D1Database, userId: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM academy_quiz_progress WHERE user_id = ?')
+    .bind(userId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 export async function listLessonProgress(db: D1Database, userId: string): Promise<string[]> {
@@ -510,6 +539,39 @@ export async function markOthersNotBest(
     .prepare('UPDATE academy_certificates SET is_best = 0 WHERE user_id = ? AND id != ?')
     .bind(userId, exceptId)
     .run();
+}
+
+/**
+ * Recomputes `is_best` across ALL of a learner's certificates from the stored rows.
+ *
+ * Preferred over `markOthersNotBest` for anything concurrent, because it needs no opinion from the
+ * caller about which row won. Two DIFFERENT attempts certified at the same moment each read the same
+ * "current best" score before inserting, so each concluded it had won and demoted the other — and
+ * the learner ended up with NO certificate flagged best and no badge in their history. Deciding the
+ * winner from the table instead makes the operation idempotent and self-correcting: whichever
+ * request runs it last leaves the same, correct answer.
+ *
+ * The winner is the highest score, ties broken by most recently issued and then by `id` so the
+ * result is total and deterministic (D1/SQLite has no row ordering to fall back on). Two statements
+ * rather than one so the "demote everything" step cannot leave a gap where two rows are both best.
+ */
+export async function recomputeBestCertificate(db: D1Database, userId: string): Promise<void> {
+  await db.batch([
+    db
+      .prepare('UPDATE academy_certificates SET is_best = 0 WHERE user_id = ? AND is_best != 0')
+      .bind(userId),
+    db
+      .prepare(
+        `UPDATE academy_certificates SET is_best = 1
+          WHERE id = (
+            SELECT id FROM academy_certificates
+             WHERE user_id = ?
+             ORDER BY score DESC, issued_at DESC, id DESC
+             LIMIT 1
+          )`
+      )
+      .bind(userId),
+  ]);
 }
 
 /**

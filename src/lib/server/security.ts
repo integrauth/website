@@ -11,8 +11,8 @@
 // responses served via ASSETS.fetch() are left exactly as they are today.
 
 // KEEP IN SYNC with the `_headers` file at the repo root, which applies this same set to STATIC
-// responses (wrangler.toml scopes run_worker_first to /api/academy/*, so static requests never
-// reach this Worker). HSTS deliberately omits `preload` — see _headers for why.
+// responses (wrangler.toml scopes run_worker_first to /api/academy/* and /auth/*, so requests for
+// anything else never reach this Worker). HSTS deliberately omits `preload` — see _headers for why.
 const BASE_SECURITY_HEADERS: Record<string, string> = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
   'X-Content-Type-Options': 'nosniff',

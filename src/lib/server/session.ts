@@ -136,14 +136,42 @@ export interface WebsiteSessionSummary {
   current: boolean;
 }
 
-/** Picks the cookie name valid for this request's scheme. See the constants above for why. */
-export function sessionCookieName(url: URL): string {
-  return url.protocol === 'https:' ? SESSION_COOKIE_PROD : SESSION_COOKIE_DEV;
+/**
+ * Hostnames on which the unprefixed, non-`Secure` DEV cookie name may be used. Nothing else, ever.
+ *
+ * WHY THIS IS A HOST ALLOWLIST AND NOT `url.protocol !== 'https:'`. Keying the choice on the scheme
+ * alone looks equivalent and is not. It correctly refuses the dev name over HTTPS, but it happily
+ * SERVES the dev name to any plaintext `http://integrauth.com` request that reaches this Worker —
+ * and `ia_web_session` has no `__Host-` prefix, so any of the ~30 sibling `*.integrauth.com` hosts
+ * can set it with `Domain=.integrauth.com`. That is exactly the session-fixation vector the whole
+ * OIDC redesign was built to eliminate (see this file's header), reintroduced through the back door.
+ * Nothing in either repo forces HTTPS at the zone level, and our HSTS header deliberately omits
+ * `preload`, so a browser's first-ever contact with the domain is not covered by it either.
+ *
+ * Keying on the host removes the dependency on zone configuration entirely: on any real hostname the
+ * only cookie name that exists is the `__Host-`-prefixed one, which a sibling cannot write.
+ */
+const DEV_COOKIE_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
+
+/** True when this request is addressed to a local development host. */
+function isLocalDevHost(url: URL): boolean {
+  return DEV_COOKIE_HOSTS.has(url.hostname);
 }
 
-/** True when this request is over TLS, i.e. when cookies may carry `Secure` / a `__Host-` prefix. */
+/** Picks the cookie name valid for this request. See DEV_COOKIE_HOSTS for why it keys on the host. */
+export function sessionCookieName(url: URL): string {
+  return isLocalDevHost(url) ? SESSION_COOKIE_DEV : SESSION_COOKIE_PROD;
+}
+
+/**
+ * True when cookies may carry `Secure` / a `__Host-` prefix.
+ *
+ * Anything that is not a local dev host is treated as secure REGARDLESS of the request scheme: on a
+ * real hostname we always want the `__Host-` prefix and `Secure`, and a plaintext request there is
+ * something to refuse to serve a usable cookie to, not something to downgrade for.
+ */
 export function isSecureRequest(url: URL): boolean {
-  return url.protocol === 'https:';
+  return !isLocalDevHost(url) || url.protocol === 'https:';
 }
 
 /**
@@ -334,7 +362,12 @@ export async function validateSession(
 
   if (!row) return null;
   if (row.revoked_at !== null && row.revoked_at !== undefined) return null;
-  if (row.user_status !== null && row.user_status !== 'active') return null;
+  // ALLOWLIST, not a denylist: only the literal 'active' passes. The previous form let a NULL status
+  // through, which is unreachable today (users.status is NOT NULL DEFAULT 'active' in migration 0001,
+  // and the INNER JOIN above guarantees the row exists) but is the wrong shape for a table this repo
+  // does not own — the day the Lab adds a 'pending' or 'locked' status, or makes the column nullable,
+  // this check must fail closed rather than wave the new state through.
+  if (row.user_status !== 'active') return null;
 
   const now = Date.now();
 

@@ -10,10 +10,31 @@ export interface Env {
   /**
    * P-256 private key (JWK, JSON-stringified) used to sign Academy certificate JWTs.
    * A Wrangler secret, provisioned out-of-band (not this Worker's job) — mirrors the
-   * Lab's LAB_PRIVATE_JWK convention: generate once, never rotate. Unset in local dev,
-   * where certs.ts falls back to an ephemeral per-isolate key instead.
+   * Lab's LAB_PRIVATE_JWK convention: generate once, never rotate.
+   *
+   * If it is missing, certificate issuance FAILS (500) rather than falling back to anything — see
+   * ALLOW_EPHEMERAL_CERT_KEY for the one deliberate exception and why it has to be opt-in.
    */
   ACADEMY_PRIVATE_JWK?: string;
+  /**
+   * Local-development escape hatch: when set to `1`, certs.ts may generate an ephemeral per-isolate
+   * P-256 keypair if ACADEMY_PRIVATE_JWK is unset, so the certificate and JWKS routes are
+   * exercisable with `npm run worker:dev` and no secrets configured.
+   *
+   * THIS MUST NEVER BE SET IN PRODUCTION, and the mechanism is chosen so that it cannot be by
+   * accident: it lives ONLY in `.dev.vars`, which is gitignored, listed in .assetsignore, and never
+   * uploaded by `wrangler deploy`. It is deliberately NOT a wrangler.toml `[vars]` entry, because
+   * those DO get deployed.
+   *
+   * Why it needs to be opt-in at all: the fallback used to fire unconditionally on a missing secret,
+   * which fails OPEN in the worst way. In production that silently mints certificates signed by a
+   * key that dies with the isolate, publishes a DIFFERENT public key per isolate from
+   * /.well-known/jwks.json (so verification succeeds or fails depending on which isolate answers),
+   * and leaves every already-stored JWT permanently unverifiable — all with no error, no log, and
+   * nothing in the UI to suggest anything is wrong. Failing closed turns that into a loud 500 on the
+   * first issuance attempt instead.
+   */
+  ALLOW_EPHEMERAL_CERT_KEY?: string;
   /**
    * Client secret for the `integrauth-website` OIDC client, shared with the Lab's
    * `IA_WEBSITE_OIDC_SECRET`. A Wrangler secret; the Lab stores only its SHA-256, so the SAME RAW

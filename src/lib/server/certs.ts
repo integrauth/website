@@ -91,7 +91,10 @@ function toPublicEcJwk(jwk: JWK): JWK {
   return { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y };
 }
 
-async function buildSigningMaterial(jwkJson: string | undefined): Promise<SigningMaterial> {
+async function buildSigningMaterial(
+  jwkJson: string | undefined,
+  allowEphemeral: boolean
+): Promise<SigningMaterial> {
   if (jwkJson) {
     const jwk = JSON.parse(jwkJson) as JWK;
     const privateKey = (await importJWK(jwk, 'ES256')) as KeyLike;
@@ -103,12 +106,20 @@ async function buildSigningMaterial(jwkJson: string | undefined): Promise<Signin
     return { privateKey, publicJwk: { ...bare, kid, alg: 'ES256', use: 'sig' }, kid };
   }
 
-  // Local-dev-only fallback: no ACADEMY_PRIVATE_JWK secret configured, so generate an
-  // ephemeral P-256 keypair once per isolate. Certificates signed with it are only ever
-  // verifiable within that isolate's lifetime — fine for local testing, never used once
-  // the real Wrangler secret is provisioned. Same convention the sister repo uses for its
-  // own LAB_PRIVATE_JWK dev fallback. We export the public half too so the JWKS route is
-  // exercisable locally (and self-consistent: it publishes the very key that just signed).
+  // Local-dev-only fallback, and it must be ASKED for — see Env.ALLOW_EPHEMERAL_CERT_KEY for the
+  // full reasoning. Short version: an unconditional fallback fails open, silently signing production
+  // certificates with a key that dies with the isolate while publishing a different public key per
+  // isolate. Failing closed here converts a misconfigured deploy into a loud 500 on the first
+  // issuance rather than a fleet of permanently unverifiable credentials nobody notices.
+  if (!allowEphemeral) {
+    throw new Error(
+      'ACADEMY_PRIVATE_JWK is not configured; refusing to sign certificates with an ephemeral key'
+    );
+  }
+
+  // Ephemeral P-256 keypair, once per isolate. Certificates signed with it are only ever verifiable
+  // within that isolate's lifetime — fine for local testing. We export the public half too so the
+  // JWKS route is exercisable locally (and self-consistent: it publishes the very key that signed).
   const keyPair = (await crypto.subtle.generateKey(
     { name: 'ECDSA', namedCurve: 'P-256' },
     true,
@@ -124,9 +135,21 @@ async function buildSigningMaterial(jwkJson: string | undefined): Promise<Signin
 }
 
 function getSigningMaterial(env: Env): Promise<SigningMaterial> {
-  const source = env.ACADEMY_PRIVATE_JWK ?? '';
+  const allowEphemeral = env.ALLOW_EPHEMERAL_CERT_KEY === '1';
+  // The cache key includes the ephemeral flag so flipping it in .dev.vars is picked up rather than
+  // being served a stale promise (and so a rejected promise for a missing secret is not cached
+  // against a later-configured one).
+  const source = `${allowEphemeral ? 'dev:' : 'prod:'}${env.ACADEMY_PRIVATE_JWK ?? ''}`;
   if (!cachedMaterial || cachedMaterial.source !== source) {
-    cachedMaterial = { source, promise: buildSigningMaterial(env.ACADEMY_PRIVATE_JWK) };
+    cachedMaterial = {
+      source,
+      promise: buildSigningMaterial(env.ACADEMY_PRIVATE_JWK, allowEphemeral),
+    };
+    // A rejected promise must not be cached — otherwise one request made before the secret was
+    // provisioned would keep failing for the isolate's whole life.
+    cachedMaterial.promise.catch(() => {
+      if (cachedMaterial?.source === source) cachedMaterial = null;
+    });
   }
   return cachedMaterial.promise;
 }

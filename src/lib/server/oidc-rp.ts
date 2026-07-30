@@ -169,6 +169,20 @@ export async function s256(verifier: string): Promise<string> {
  * parser reads it as a host, not a path), `https://evil.com`, and `/\evil.com` (backslash, which
  * some browsers normalise to `/`). Rejecting rather than sanitising means a hostile value never
  * gets a second chance at being "cleaned up" into something exploitable.
+ *
+ * WHY ALL C0 CONTROL CHARACTERS AND NOT JUST CR/LF. This previously blocked `\n` and `\r` and let
+ * TAB through, which was a live open redirect: the WHATWG URL parser strips tab, CR and LF from its
+ * input BEFORE parsing, so `/<TAB>/evil.com` — which passes a naive "starts with a single slash"
+ * test — resolves to `https://evil.com/`. Verified: `new URL("/\t/evil.com", "https://integrauth.com").href`
+ * is `"https://evil.com/"`. Tab is a legal HTTP header-value character too, so it survived all the
+ * way into `Location:`, and it round-tripped through JSON into the popup's `location.replace`. The
+ * lesson is that enumerating the two separators everyone remembers is the wrong shape of check, so
+ * this now rejects the whole C0 range plus DEL and every Unicode whitespace character — none of
+ * which has any business in a path we generated.
+ *
+ * The final `new URL` re-parse is the belt-and-braces version of the same idea: whatever the string
+ * looks like to us, if a real URL parser does not resolve it to the same-origin path we think it is,
+ * it does not ship.
  */
 export function safeReturnPath(raw: string | null | undefined, fallback = '/academy'): string {
   if (!raw) return fallback;
@@ -176,7 +190,19 @@ export function safeReturnPath(raw: string | null | undefined, fallback = '/acad
   if (!raw.startsWith('/')) return fallback;
   if (raw.startsWith('//')) return fallback;
   if (raw.includes('\\')) return fallback;
-  if (raw.includes('\n') || raw.includes('\r')) return fallback;
+  // C0 controls + DEL, and any Unicode whitespace (which includes \t \n \r \f \v and friends).
+  if (/[ -]/.test(raw)) return fallback;
+  if (/\s/.test(raw)) return fallback;
+
+  // Authoritative check: resolve it the way a browser will. If the result is not on our own origin,
+  // or the path no longer matches what we were given, refuse it.
+  try {
+    const probe = new URL(raw, 'https://relying-party.invalid');
+    if (probe.origin !== 'https://relying-party.invalid') return fallback;
+    if (probe.pathname + probe.search + probe.hash !== raw) return fallback;
+  } catch {
+    return fallback;
+  }
   return raw;
 }
 
