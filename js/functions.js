@@ -565,7 +565,10 @@ function initAcademy() {
   // two helpers below translate between them via each quiz lesson's own data-track.
   const KEY_POS_AT = 'acad_pos_at';
   const KEY_EXAM = 'acad_exam'; // lab-exam's own saved best-score/passed record (academy-labs.js)
-  const KEY_OWNER = 'acad_owner'; // userId this browser's local progress currently belongs to
+  // NOTE: there is deliberately no KEY_OWNER constant here. `acad_owner` is read and written only by
+  // academy-auth.js (its OWNER_KEY), because ownership reconciliation has to happen on every page,
+  // not just academy.html where this file's initAcademy() runs. A duplicate constant here was dead
+  // code that made it look as though this file participated in that decision.
 
   // Reset epoch: the server's per-learner counter, bumped every time progress is reset. This
   // device remembers the value it last saw and presents it on every sync. It exists because the
@@ -893,8 +896,15 @@ function initAcademy() {
 
   document.addEventListener('academy-auth-changed', function (e) {
     const session = e.detail && e.detail.session;
+    // `confirmed` distinguishes a session the server answered for from one read out of the
+    // localStorage cache. Rendering may use either — showing the cached name instantly is the whole
+    // point of caching it — but the sync WRITES, and writing against a guess about who is signed in
+    // is how one learner's progress lands in another's account on a shared browser. The boot path
+    // enforces this by waiting on AcademyAuth.ready(); this listener is the other way in, and it
+    // fires on the unconfirmed boot event too, so it has to make the same distinction itself.
+    const confirmed = !!(e.detail && e.detail.confirmed);
     updateProgress();
-    if (session && session.loggedIn) {
+    if (confirmed && session && session.loggedIn) {
       if (hasUnsyncedLocalProgress()) claimAnonymousProgress();
       else scheduleSync();
     }
@@ -1114,11 +1124,25 @@ function initAcademy() {
     hub.hidden = false;
     lessons.forEach(function (s) { s.classList.remove('is-active'); });
     if (location.hash) history.replaceState(null, '', location.pathname);
-    // Both must clear together: leaving KEY_POS_AT behind after KEY_POS is gone means the
-    // NEXT server sync sees "no local position, but a recent-looking timestamp" and, being
-    // last-write-wins by timestamp, can resurrect the exact lesson the learner just backed
-    // out of the moment the server's own lastPosition is older than that stale timestamp.
-    try { localStorage.removeItem(KEY_POS); localStorage.removeItem(KEY_POS_AT); } catch (e) {}
+    // Drop the saved lesson, but leave a TOMBSTONE timestamp behind rather than clearing both.
+    //
+    // The obvious move is to remove both keys, and it is wrong in a way that only shows up for a
+    // signed-in learner. The merge in applyServerProgress adopts the server's position when
+    // `!localAt || serverAt > localAt` — and `!localAt` is the FIRST clause, so removing KEY_POS_AT
+    // makes adoption UNCONDITIONAL. Backing out to the hub, reloading, and letting the sync run
+    // would hand the server's stored position straight back, and the next visit would boot into the
+    // very lesson the learner just left. (An earlier comment here claimed the opposite — that
+    // keeping the timestamp is what allows the resurrection. It is worth being precise: the
+    // timestamp is what PREVENTS it.)
+    //
+    // A tombstone dated now says "I deliberately have no position, as of this moment", which loses
+    // to a genuinely newer position from another device and beats the stale one we just cleared.
+    // The server has no way to represent a cleared position, so this stays local by design: a fresh
+    // device with no local state still adopts the server's lesson, which is the wanted behaviour.
+    try {
+      localStorage.removeItem(KEY_POS);
+      localStorage.setItem(KEY_POS_AT, new Date().toISOString());
+    } catch (e) {}
     updateProgress();
     const focusEl = focusId ? document.getElementById(focusId) : null;
     if (focusEl) {
@@ -1835,13 +1859,30 @@ function initAcademy() {
   // resolves once identity has been settled with the server — or once we know there is no server to
   // ask, pre-cutover — and reconcileProgressOwner has therefore already run. Rendering still uses the
   // cache immediately; only the write waits.
+  //
+  // And take the SAME claim-vs-sync branch the academy-auth-changed listener takes. Calling
+  // scheduleSync() unconditionally here looks harmless and destroys anonymous progress in a case
+  // that is easy to hit: read some lessons signed out, sign in from ANOTHER page's navbar (every
+  // page loads academy-auth.js), then open /academy. By then the session is already signed-in, so
+  // there is no identity transition, no event fires, and the listener — the only other caller of
+  // claimAnonymousProgress — never runs. The plain sync then posts epoch 0; if the account has ever
+  // been reset the server rejects it as stale and answers with post-reset truth, which
+  // applyServerProgress applies authoritatively, REPLACING the local state it was supposed to
+  // claim. Boot is exactly as much a "first sync after signing in" as the transition is.
+  const firstSync = function () {
+    const auth = window.AcademyAuth;
+    const session = auth && typeof auth.getSession === 'function' ? auth.getSession() : null;
+    if (session && session.loggedIn && hasUnsyncedLocalProgress()) claimAnonymousProgress();
+    else scheduleSync();
+  };
   if (window.AcademyAuth && typeof window.AcademyAuth.ready === 'function') {
-    window.AcademyAuth.ready().then(scheduleSync);
+    window.AcademyAuth.ready().then(firstSync);
   } else {
-    // academy-auth.min.js loads AFTER this file, so AcademyAuth is typically not defined at this
-    // line yet. The academy-auth-changed listener above fires the first sync in that case, once
-    // AcademyAuth's own boot-time refresh resolves — which is itself after reconciliation.
-    scheduleSync();
+    // Reachable when academy-auth.js has not executed yet — deferred scripts run in order, but
+    // jQuery's ready callback can resolve as a microtask before the later files are fetched. The
+    // academy-auth-changed listener above then fires the first sync instead, once AcademyAuth's own
+    // boot refresh resolves, which is after reconciliation.
+    firstSync();
   }
   // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader.
   dismissBootLoader();

@@ -113,13 +113,24 @@ const LEGACY_LOCAL_PASS_SENTINEL = 'legacy-local-pass';
  * is the last point at which anything can be rejected.
  *
  * Not an XSS control (verify.html escapes correctly, and the canvas draws text): an IMPERSONATION
- * one. `U+202E` and friends visually reverse the text that follows them, zero-width and combining
- * characters let two different names render identically, and newlines/tabs break the certificate
- * layout. `\p{C}` covers control, format, surrogate, private-use and unassigned code points; the
- * explicit additions are the bidi controls and zero-width joiners/spaces that `\p{C}` does not
- * catch (they are `\p{Cf}`, so in fact covered — listed anyway so the intent survives an edit).
+ * one. `U+202E` and friends visually reverse the text that follows them, zero-width characters let
+ * two different names render identically, and newlines/tabs break the certificate layout. `\p{C}`
+ * covers control, format, surrogate, private-use and unassigned code points; the explicit additions
+ * are bidi controls and zero-width joiners/spaces, which are `\p{Cf}` and so already covered —
+ * listed anyway so the intent survives an edit.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT STOP, so nobody reads more into it than is here: homoglyphs and
+ * combining marks. `\p{C}` contains no `\p{M}` and no confusable letters, so "Аlice" with a Cyrillic
+ * A, or "Alice" with a combining acute, is accepted, locked at first certificate issuance, and then
+ * published by the public verify route as a visually identical twin of a real holder's name. Closing
+ * that means script-mixing or confusable-skeleton rules, which is a product decision (it rejects
+ * legitimate multi-script names) rather than a missing line of code. An earlier version of this
+ * comment cited combining characters as motivation, which read as though they were handled.
+ *
+ * Written with explicit \u escapes: the code points here are by definition invisible, so spelling
+ * them out is the only way the set can be reviewed or edited safely.
  */
-const FORBIDDEN_NAME_CHARS = /[\p{C}​-‏‪-‮⁦-⁩﻿]/u;
+const FORBIDDEN_NAME_CHARS = /[\p{C}\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/u;
 
 /**
  * The ONLY origins allowed to make a state-changing request to this API.

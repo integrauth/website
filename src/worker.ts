@@ -23,8 +23,10 @@ export default {
     try {
       return await route(request, env, ctx);
     } catch {
-      // Last-resort catch. Hono has its own onError for both sub-apps, so this only fires for a
-      // throw that escapes routing itself or comes from env.ASSETS.fetch — and without it, such a
+      // Last-resort catch. Both sub-apps register their own `onError` (api.ts returns JSON;
+      // auth.ts renders the closing page so a popup can report the failure to its opener), so this
+      // only fires for a throw that escapes routing itself or comes from env.ASSETS.fetch — and
+      // without it, such a
       // throw renders Cloudflare's default error page, which carries NONE of the security headers
       // below (no HSTS, no nosniff, no COOP, no frame-deny). Nothing about the error is echoed.
       return withSecurityHeaders(

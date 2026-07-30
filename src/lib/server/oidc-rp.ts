@@ -191,7 +191,7 @@ export function safeReturnPath(raw: string | null | undefined, fallback = '/acad
   if (raw.startsWith('//')) return fallback;
   if (raw.includes('\\')) return fallback;
   // C0 controls + DEL, and any Unicode whitespace (which includes \t \n \r \f \v and friends).
-  if (/[ -]/.test(raw)) return fallback;
+  if (/[\x00-\x1f\x7f]/.test(raw)) return fallback;
   if (/\s/.test(raw)) return fallback;
 
   // Authoritative check: resolve it the way a browser will. If the result is not on our own origin,
@@ -206,9 +206,30 @@ export function safeReturnPath(raw: string | null | undefined, fallback = '/acad
   return raw;
 }
 
+/**
+ * Bytes of CSPRNG output behind the PKCE `code_verifier`.
+ *
+ * 32 bytes is 43 base64url characters unpadded, and RFC 7636 §4.1 sets the verifier's legal range
+ * at 43-128 characters — so this sits exactly ON the floor, and the provider enforces that floor
+ * (`/^[A-Za-z0-9._~-]{43,128}$/`) at the token endpoint.
+ *
+ * It gets its own named constant purely so that boundary is visible. `randomToken()`'s default is
+ * shared with session tokens, `state` and `nonce`, none of which have a lower bound anywhere near
+ * this; someone trimming that default to 24 bytes for unrelated reasons would take the verifier to
+ * 32 characters and break EVERY login with `invalid_grant` at the exchange — an error that points
+ * at the code, the client secret and the redirect URI long before it points at a token length.
+ */
+const PKCE_VERIFIER_BYTES = 32;
+
 /** Mints a fresh login transaction: `state`, `nonce`, and a PKCE verifier. */
 export function newTransaction(ret: string, mode: 'popup' | 'redirect'): LoginTransaction {
-  return { state: randomToken(), nonce: randomToken(), verifier: randomToken(), ret, mode };
+  return {
+    state: randomToken(),
+    nonce: randomToken(),
+    verifier: randomToken(PKCE_VERIFIER_BYTES),
+    ret,
+    mode,
+  };
 }
 
 /**
@@ -396,6 +417,16 @@ export async function verifyIdToken(
     claims = verified.payload;
   } catch (error) {
     throw new OidcError('invalid_id_token', `id_token failed verification: ${String(error)}`);
+  }
+
+  // OIDC Core §3.1.3.7 steps 3-5. `jwtVerify`'s `audience` option is satisfied when our client id is
+  // merely CONTAINED in a multi-valued `aud`, which is not the same as the token being meant for us.
+  // The spec's answer is that a multi-valued `aud` REQUIRES an `azp` naming the intended party. The
+  // Lab only ever mints single-audience ID tokens today, so this cannot fire — it is here because
+  // the day that changes, the failure is silent acceptance of a token issued for somebody else.
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (audiences.length > 1 && claims.azp !== config.clientId) {
+    throw new OidcError('invalid_id_token', 'multi-audience id_token without a matching azp');
   }
 
   const nonce = typeof claims.nonce === 'string' ? claims.nonce : '';

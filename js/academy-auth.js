@@ -96,9 +96,17 @@
     return a.userId === b.userId;
   }
 
-  function fireChanged(session) {
+  /**
+   * `confirmed` says whether `session` came from an answer by the server or from the localStorage
+   * cache. Listeners that WRITE (the progress sync) must act only on a confirmed session: the cache
+   * is a guess about who is signed in, and on a shared browser acting on a wrong guess is how one
+   * learner's progress ends up in another's account. Listeners that only RENDER can use either.
+   */
+  function fireChanged(session, confirmed) {
     try {
-      document.dispatchEvent(new CustomEvent('academy-auth-changed', { detail: { session: session } }));
+      document.dispatchEvent(new CustomEvent('academy-auth-changed', {
+        detail: { session: session, confirmed: !!confirmed }
+      }));
     } catch (e) { /* pre-CustomEvent-constructor browsers are not a supported target */ }
   }
 
@@ -193,7 +201,7 @@
     writeStore(SESSION_KEY, JSON.stringify(session));
     // Before the event, always — see reconcileProgressOwner.
     if (confirmed) reconcileProgressOwner(session);
-    if (force || !sameIdentity(previous, session)) fireChanged(session);
+    if (force || !sameIdentity(previous, session)) fireChanged(session, confirmed);
   }
 
   function normalizeSession(data) {
@@ -260,7 +268,9 @@
       // refresh is. Runs unconditionally rather than only on a fired change, because this tab's
       // acad_owner may be stale even when the identity it is being told about matches its cache.
       reconcileProgressOwner(incoming);
-      if (!sameIdentity(previous, incoming)) fireChanged(incoming);
+      // Confirmed: another tab only writes SESSION_KEY after ITS /auth/session answered, so this
+      // value is server truth relayed between tabs, not this tab's own cached guess.
+      if (!sameIdentity(previous, incoming)) fireChanged(incoming, true);
       return;
     }
     if (e.key === AUTH_EVENT_KEY && e.newValue) {
@@ -355,7 +365,19 @@
           return !!data && typeof data.loggedIn === 'boolean';
         }).catch(function () { return false; });
       })
-      .catch(function () { return false; });
+      .catch(function () { return false; })
+      .then(function (available) {
+        // Memoise only a POSITIVE answer. "No Worker here" is a permanent fact about the host
+        // (pre-cutover GitHub Pages) but it is indistinguishable at this layer from a transient
+        // one — an offline blip at boot, a Worker cold-start 5xx, a captive portal. Caching the
+        // negative turns one unlucky request at page load into accounts being dead for the whole
+        // page lifetime: no session refresh, no sync, and both Sign-in buttons stuck reading
+        // "Accounts aren't available yet" long after connectivity came back. Clearing the cache on
+        // a negative costs one extra probe per sign-in attempt on a genuinely account-free host,
+        // which is the cheaper side of the trade by a wide margin.
+        if (!available) apiAvailablePromise = null;
+        return available;
+      });
     return apiAvailablePromise;
   }
 
@@ -383,13 +405,15 @@
 
   var pendingSignIn = null; // { poll, timeout, onStorage, overlay } while a flow is in progress
 
-  function endPendingSignIn() {
+  function endPendingSignIn(keepOverlay) {
     if (!pendingSignIn) return;
     if (pendingSignIn.poll) clearInterval(pendingSignIn.poll);
     if (pendingSignIn.timeout) clearTimeout(pendingSignIn.timeout);
-    window.removeEventListener('storage', pendingSignIn.onStorage);
-    closeSignInOverlay();
+    if (pendingSignIn.onStorage) window.removeEventListener('storage', pendingSignIn.onStorage);
     pendingSignIn = null;
+    // Callers that are about to render their OWN overlay (an "unavailable" or "timed out" message)
+    // pass true, so this does not close the thing they are in the middle of showing.
+    if (!keepOverlay) closeSignInOverlay();
   }
 
   /**
@@ -402,8 +426,21 @@
     opts = opts || {};
     if (pendingSignIn) return;
 
+    // Claim the slot SYNCHRONOUSLY, before the first await.
+    //
+    // The guard above is only meaningful if something is assigned before this function yields.
+    // Assigning `pendingSignIn` inside the `.then` below — its previous shape — meant two clicks in
+    // the same tick (an ordinary double-click on the navbar link, or the account and exam panels'
+    // buttons in quick succession) both passed the guard, and the second flow's assignment
+    // overwrote the first. endPendingSignIn then cleaned up only the survivor, leaving the first
+    // flow's 2.5s /auth/session poll running for the rest of the page's life plus an orphaned
+    // `storage` listener that would later pop a "sign-in didn't finish" modal in response to an
+    // unrelated sign-in completing in another tab.
+    pendingSignIn = { poll: null, timeout: null, onStorage: null };
+
     isApiAvailable().then(function (available) {
       if (!available) {
+        endPendingSignIn(true);
         showSignInOverlay({
           reason: opts.reason,
           unavailable: true
@@ -424,6 +461,7 @@
 
       // Popup blocked. Do not nag — just use the whole window, which always works.
       if (!popup) {
+        endPendingSignIn(true);
         signInViaRedirect();
         return;
       }
@@ -450,7 +488,7 @@
         if (payload && payload.ok === false) {
           // The popup reported a real failure (denied consent, expired transaction). Say so
           // instead of leaving the learner watching a spinner until the timeout.
-          endPendingSignIn();
+          endPendingSignIn(true);
           showSignInOverlay({ reason: opts.reason, failed: payload.error || null });
           return;
         }
@@ -458,13 +496,20 @@
       }
 
       window.addEventListener('storage', onStorage);
-      pendingSignIn = {
-        onStorage: onStorage,
-        // Backup for browsers where the popup's localStorage write throws (private mode) or where
-        // the storage event does not arrive. Cheap, same-origin, and stops the moment we succeed.
-        poll: setInterval(check, SIGNIN_POLL_MS),
-        timeout: setTimeout(function () { endPendingSignIn(); }, SIGNIN_TIMEOUT_MS)
-      };
+      pendingSignIn.onStorage = onStorage;
+      // Backup for browsers where the popup's localStorage write throws (private mode) or where
+      // the storage event does not arrive. Cheap, same-origin, and stops the moment we succeed.
+      pendingSignIn.poll = setInterval(check, SIGNIN_POLL_MS);
+      pendingSignIn.timeout = setTimeout(function () {
+        // Timing out must SAY something. Silently closing the overlay — the previous behaviour —
+        // is the worst available outcome: the learner watched "this page will update by itself"
+        // for five minutes, then saw the dialog vanish with no statement about whether they are
+        // signed in. Nothing writes the handshake if the popup is closed, the provider is
+        // unreachable, or it errors before reaching our callback, so this is a reachable path and
+        // not a theoretical one.
+        endPendingSignIn(true);
+        showSignInOverlay({ reason: opts.reason, failed: 'signin_timeout' });
+      }, SIGNIN_TIMEOUT_MS);
 
       showSignInOverlay({ reason: opts.reason, waiting: true });
     });
@@ -710,6 +755,10 @@
       exchange_failed: 'We couldn’t complete sign-in. Please try again.',
       invalid_id_token: 'We couldn’t complete sign-in. Please try again.',
       access_denied: 'Sign-in was cancelled.',
+      // Purely client-side: nothing was heard back from the pop-up before the timeout. The usual
+      // cause is that the window was closed, so word it as unfinished rather than as an error.
+      signin_timeout: 'Sign-in didn’t finish — the window may have been closed. Please try again.',
+      internal_error: 'Something went wrong on our side. Please try again.',
       forbidden_origin: 'That request was blocked for security reasons. Please reload and retry.',
       // /api/academy/* outcomes
       unauthorized: 'You’re signed out — please sign in again.',
@@ -1002,7 +1051,14 @@
           if (!s.current) {
             row.appendChild(mk('button', {
               type: 'button', class: 'acad-lab-btn acad-auth-device-revoke',
-              onclick: function () { revokeSession(s.id).then(renderAccountPanel); }
+              onclick: function () {
+                // authFetch does not carry apiFetch's noteUnauthorized wrapper, so without a catch
+                // a failed revoke is an unhandled rejection: no re-render, no message, and a row
+                // that still claims the device is signed in.
+                revokeSession(s.id).then(renderAccountPanel, function (err) {
+                  window.alert(describeApiError(err));
+                });
+              }
             }, 'Sign out this device'));
           }
           sessBox.appendChild(row);
@@ -1038,7 +1094,16 @@
       dangerBox.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('button', {
           type: 'button', class: 'acad-lab-btn',
-          onclick: function () { signOut().then(function () { window.location.reload(); }); }
+          onclick: function () {
+            // Reload either way: signOut() clears the local cache before the request, so even a
+            // failed round trip leaves this tab signed out and the reload makes that visible.
+            // Without the second handler this is an unhandled rejection and the page just sits
+            // there still showing the account panel.
+            signOut().then(
+              function () { window.location.reload(); },
+              function () { window.location.reload(); }
+            );
+          }
         }, 'Sign out'),
         mk('button', {
           type: 'button', class: 'acad-lab-btn',

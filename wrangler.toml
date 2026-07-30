@@ -61,11 +61,14 @@ html_handling = "auto-trailing-slash"
 # SHARED with the `integrauth/lab` repo — this is the SAME physical D1 instance
 # (lab-db), not a copy. Schema/migrations for it are owned by the `integrauth/lab`
 # repo. This Worker only:
-#   - reads (never writes/creates/revokes) the Lab-owned `users` and `sessions` tables
-#     for shared-session validation, and
-#   - reads/writes its OWN tables: profiles, academy_lesson_progress,
+#   - reads (never writes) the Lab-owned `users` table, to learn whether the account
+#     behind a session is still active and what address to show in the navbar. It does
+#     NOT touch the Lab-owned `sessions` table at all — that was true of an earlier
+#     shared-cookie design that was withdrawn; this Worker now mints and validates its
+#     own sessions only.
+#   - reads/writes its OWN tables: website_sessions, profiles, academy_lesson_progress,
 #     academy_quiz_progress, academy_last_position, academy_exam_attempts,
-#     academy_certificates.
+#     academy_certificates, academy_progress_epoch.
 # Never run migrations from this repo against this database, and never alter any
 # Lab-owned table from here.
 [[d1_databases]]

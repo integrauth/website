@@ -3,9 +3,12 @@
 > Updated 2026-07-30. Everything below reflects verified repo state, not intent.
 > `docs/` and `*.md` are excluded from asset publishing (`.assetsignore`), so this file is never served.
 >
-> **Read §8 first.** A second adversarial pass over code this document had already called verified
-> found a total sign-in outage, an open redirect, and a security control that never ran. §8 lists what
-> was missed and why, which is more useful to you than the parts that were right.
+> **Read §8 and §9 first.** Two separate adversarial passes over code this document had already
+> called verified each found real defects: §8 a total sign-in outage, an open redirect and a security
+> control that never ran; §9 two silent data-loss paths, a logout that could fail to revoke, and a
+> sign-in error that hung the popup for five minutes. What was missed, and why, is more useful to you
+> than the parts that were right — and the pattern itself is the warning: every round of "this is
+> verified" has so far been followed by a round that found more.
 
 ---
 
@@ -357,3 +360,66 @@ ownership reconciliation ran against the localStorage session cache, which on a 
 reads as signed-out — so it wiped *legitimate* progress, including a passing exam record, on page
 load. It now runs only on a server-confirmed session. This is the clearest argument in this document
 for testing both directions of a destructive guard: the security assertion passed the whole time.
+
+---
+
+## 9. The second re-audit (also 2026-07-30) — what §8 still missed
+
+§8 was written after one adversarial pass and read as though the work was finished. A second pass,
+six independent audits across both repos, found more. That is the useful fact about this section:
+**each round of "verified" has so far been followed by a round that found real defects**, so treat
+any confident statement here — including this one — as a claim to re-check rather than a guarantee.
+
+Two of these were silent data loss for a signed-in learner. One made logout able to fail.
+
+### Fixed in this round
+
+| # | Where | What was wrong |
+|---|---|---|
+| 1 | `lab` `api/index.ts` `/api/logout`, `/api/session/revoke` | Fanned out back-channel logout **before** revoking the session, and the fan-out's own D1 writes were unguarded (only its `fetch` was). One transient D1 error threw out of the handler and the session was **never revoked** — on the "I lost that device" button. A comment claimed the fan-out needed the session row intact; it does not (it reads `oidc_sessions`, the revoke writes `sessions`). Revoke now happens first, fan-out is wrapped. |
+| 2 | `website` `js/functions.js` `showHub()` | Backing out to the hub cleared `acad_pos` **and** `acad_pos_at`. The merge adopts the server's position when `!localAt \|\| serverAt > localAt` — `!localAt` is the FIRST clause, so clearing the timestamp made adoption **unconditional**, and the next visit dumped the learner back into the lesson they had just left. The old comment asserted the exact opposite. Now writes a tombstone timestamp. |
+| 3 | `website` `js/functions.js` boot sync | `claimAnonymousProgress()` was reachable only from the identity-transition listener. Signing in from another page's navbar and then opening `/academy` is not a transition, so the plain sync ran, posted epoch 0, was rejected as stale by any account that had ever been reset, and the authoritative reply **replaced** the anonymous progress it was supposed to claim. Boot now takes the same claim-vs-sync branch. |
+| 4 | `website` `src/lib/server/auth.ts` | `/auth/*` had **no `onError`** — while `worker.ts` asserted it did. A throw in `/auth/callback` (e.g. D1 failing in `createSession`, after the code exchange succeeded) returned bare `text/plain`, which is not the closing page, which is the only thing that writes the localStorage handshake. The popup never closed and the opener sat on "Continue in the pop-up…" for five minutes, then cleared **with no error shown**. |
+| 5 | `website` `src/lib/server/auth.ts` | `/auth/callback` handled the provider's `?error=` **before** validating `state`, and `fail()` clears the transaction cookie (`SameSite=Lax`, so it rides a top-level cross-site navigation). Any third-party page could kill a victim's in-flight login with `?error=access_denied`. `state` is now checked first. |
+| 6 | `website` `src/lib/server/session.ts` | An unparseable `expires_at`/`last_seen_at` was treated as **never expiring / never idle** — `Number.isFinite(x) && …` fails open. Now rejects. |
+| 7 | `website` `src/lib/server/oidc-rp.ts` | `safeReturnPath`'s open-redirect guard contained **raw NUL/US/DEL bytes** instead of `\x` escapes. Behaviour was identical and it typechecked — but the file was **binary to grep and ripgrep**, so every text search silently skipped it, including audits looking for exactly this. CI now fails on stray control bytes in source. |
+| 8 | `lab` `oidc.ts` | `fanOutBackchannelLogoutForUser` walked an unbounded sid list sequentially, each dead RP burning a 5s timeout — minutes of wall time on "sign out everywhere", which Cloudflare kills, losing the audit event for an action that had already succeeded. Now bounded (40 sids, concurrency 8) with the audit written **first** and truncation recorded. |
+| 9 | `lab` `oidc.ts` | The seeded website client held a `refresh_token` grant it can never use (the RP never requests `offline_access`). Narrowed to `authorization_code`. |
+| 10 | `website` `src/lib/server/oidc-rp.ts` | No `azp` check. `jwtVerify`'s `audience` passes when our id is merely *contained* in a multi-valued `aud`; OIDC Core §3.1.3.7 requires `azp` in that case. Not currently reachable (the Lab mints single-audience tokens) — added so it stays that way. |
+| 11 | `website` `.github/workflows/deploy.yml`, `wrangler.toml` | Comments under-counted the required migrations (`0045-0050`, actually **0045-0053**: 0052 is `website_sessions`, without which every sign-in 500s) and still described the withdrawn shared-cookie design. |
+| 12 | `website` `src/lib/server/api.ts` | The name-filter docstring cited combining characters as its motivation; `\p{C}` contains no `\p{M}`. Homoglyph/combining-mark spoofing is **not** blocked — now stated plainly as an accepted risk, and the regex rewritten with explicit `\u` escapes. |
+| 13 | `website` `js/academy-auth.js` | Double-clicking Sign in leaked a 2.5s poll and a stale `storage` listener for the page's life (the guard was checked synchronously but the sentinel assigned after an `await`); a sign-in timeout closed the overlay **silently**; a failed `/auth/session` probe was memoised, disabling accounts for the whole page after one transient blip; account-panel revoke/sign-out had no `.catch`. |
+
+### Known and deliberately NOT fixed
+
+- **No `jti` replay cache on `/auth/backchannel-logout`.** The Lab's own demo RP has one, and the OP's
+  comment justifies omitting `exp` on the grounds that "the receiver's `jti` cache bounds replay" —
+  true of the demo RP, false of this one. Impact is re-revoking already-revoked sessions (idempotent),
+  the 5-minute `maxTokenAge` still bounds it, and BCL 1.0 makes the cache a MAY. Adding it needs a
+  table, i.e. a Lab migration. Recorded rather than silently accepted.
+- **Epoch read-then-write TOCTOU.** A `/progress/sync` that passes the epoch gate can land its union
+  writes after a concurrent `/progress/reset` bumped the epoch, leaving the reset permanently partial.
+  Needs the union made conditional inside the statement. Requires two devices racing within one
+  request; the client-side ordering guard covers the same-device case.
+- **Certificate JWT `sub` is the Lab's internal user id.** Learners forward these to employers, so
+  that publishes a stable cross-application identifier. Using the serial (already the `jti`) instead
+  would be better. Left alone because it changes an artifact format that may already be relied on —
+  **owner's call**.
+- **`terms.html` has four dead in-page anchors** (`#products`, `#mobile`, `#ppno`, `#dmca`).
+  Pre-existing on `main`, unrelated to this work, and the right target for each is a content decision.
+- **Exam panel's read-count is snapshotted at mount**, so after a partial cross-device pull the hub
+  bar and the exam panel can disagree until a reload. Cosmetic.
+
+### A note on how the tests were wrong twice
+
+Both times, a test that "passed" was measuring its own fixture:
+
+- The first fan-out regression test broke *all* audit writes, which fails the request for an unrelated
+  reason (`logoutSession` audits after revoking) and hid the point. It had to break only
+  `endOidcSessionsBySid`, the write that lives *inside* the fan-out.
+- The progress test seeded `localStorage` from `ctx.addInitScript`, which re-runs on **every**
+  navigation — so it re-planted `acad_pos` before the "next visit" booted, and reported a product
+  failure that was pure harness. The seed is now one-shot.
+
+Every fix in the table above was verified by reverting it and watching the test go red. Where a test
+does **not** discriminate, that is stated rather than counted as coverage.

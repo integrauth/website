@@ -309,13 +309,23 @@ export function createAuthApp() {
     if (!config) return fail('sign_in_unavailable', 503);
     if (!tx) return fail('no_transaction');
 
+    // `state` is validated FIRST — before the provider's own error parameter, before anything else
+    // in the response is acted on. The order matters and the tempting order is the wrong one.
+    //
+    // `fail()` clears the transaction cookie, and that cookie is `SameSite=Lax`, so it rides along
+    // on a top-level cross-site GET navigation. If the `error` parameter were handled first, any
+    // third-party page could navigate a victim's browser to /auth/callback?error=access_denied —
+    // no `state`, no knowledge of the transaction, nothing — and destroy whatever login was in
+    // flight while they were typing their code at the provider. The real callback arriving moments
+    // later would then fail `no_transaction`. Checking the binding first means an unbound request
+    // cannot touch the transaction at all.
+    const state = url.searchParams.get('state') ?? '';
+    if (!state || !timingSafeEqual(state, tx.state)) return fail('state_mismatch');
+
     // The provider reports user-visible refusals (a denied consent screen, an invalid request) as
     // redirect parameters, not as a failed exchange. Surface its code rather than a generic one.
     const providerError = url.searchParams.get('error');
     if (providerError) return fail(providerError);
-
-    const state = url.searchParams.get('state') ?? '';
-    if (!state || !timingSafeEqual(state, tx.state)) return fail('state_mismatch');
 
     // Mix-up defence. Only checked when present: the provider does not currently return `iss` on
     // the authorization response, and rejecting its absence would break every login. With a single
@@ -546,6 +556,61 @@ export function createAuthApp() {
 
     // 200 with a count, including when the count is zero — see the doc comment.
     return c.json({ ok: true, revoked });
+  });
+
+  app.notFound((c) => c.json({ error: 'not_found' }, 404));
+
+  /**
+   * Last-resort handler for anything thrown out of a route.
+   *
+   * This exists because of a specific, non-obvious failure mode. The browser-facing GET routes are
+   * rendered as DOCUMENTS in a popup window, and the closing page's inline script is the ONLY thing
+   * that writes the localStorage handshake the opener is waiting on. Hono's default error handler
+   * returns `text/plain` "Internal Server Error" — a perfectly reasonable response that is, here,
+   * indistinguishable from a hang: the popup shows bare text and never closes, the opener is told
+   * nothing, and the overlay sits on "Continue in the pop-up…" until its five-minute timeout and
+   * then clears with NO error shown. So a transient D1 blip inside `createSession` — after the code
+   * exchange has already succeeded — would look to the learner like sign-in silently doing nothing.
+   *
+   * The `sign_in_unavailable` branch in `/auth/start` already documents this trap and renders the
+   * closing page for exactly this reason. That fixed one branch; this fixes the class, which is
+   * what was actually needed. (`worker.ts`'s outer catch does not help: it asserts this handler
+   * exists, and until now that assertion was simply wrong.)
+   *
+   * Non-HTML routes keep JSON, and nothing about the error is echoed to the client either way.
+   */
+  app.onError((_err, c) => {
+    const url = new URL(c.req.url);
+    const isBrowserDocument =
+      c.req.method.toUpperCase() === 'GET' &&
+      (url.pathname === '/auth/callback' || url.pathname === '/auth/start');
+
+    if (!isBrowserDocument) {
+      return c.json({ error: 'internal_error' }, 500);
+    }
+
+    // Recover the popup/redirect distinction and the return path from whichever source survived:
+    // the transaction cookie on the callback, the query string on start. Neither is required — the
+    // handshake write is what matters, and `mode` only decides the wording.
+    const tx = readTxCookie(c.req.header('Cookie') ?? null, url);
+    const queryMode = url.searchParams.get('mode') === 'redirect' ? 'redirect' : null;
+    const nonce = crypto.randomUUID();
+    const response = htmlResponse(
+      closingPage({
+        nonce,
+        ok: false,
+        error: 'internal_error',
+        ret: tx?.ret ?? safeReturnPath(url.searchParams.get('return')),
+        eventKey: AUTH_EVENT_KEY,
+        mode: tx?.mode ?? queryMode ?? 'popup',
+      }),
+      nonce,
+      500
+    );
+    // The transaction is dead either way; leaving it set would only produce a confusing
+    // `state_mismatch` on the learner's next attempt.
+    response.headers.append('Set-Cookie', clearTxCookie(url));
+    return response;
   });
 
   return app;

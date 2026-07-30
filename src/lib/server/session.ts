@@ -342,11 +342,18 @@ export async function validateSession(
   // Two things ride on this join, both of which would otherwise be bugs:
   //
   //   - **A disabled account stays signed in here forever.** Our session is deliberately
-  //     independent of the Lab's, so nothing about the Lab disabling an account (or the account
-  //     being erased under RTBF, which removes the `users` row) would otherwise reach us: the
-  //     `website_sessions` row remains live and valid on its own terms. An INNER join makes a
-  //     missing user row fail validation, and the `status` check below makes a disabled one fail
-  //     too, so both propagate on the very next request.
+  //     independent of the Lab's, so nothing about the Lab disabling or erasing an account would
+  //     otherwise reach us: the `website_sessions` row remains live and valid on its own terms.
+  //     The `status` check below is what propagates both, on the very next request.
+  //
+  //     Be precise about which mechanism does the work here, because the obvious guess is wrong.
+  //     RTBF does NOT delete the `users` row — the Lab TOMBSTONES it (`UPDATE users SET email = ?,
+  //     status = 'disabled'`), so the row survives erasure and the INNER JOIN below still matches.
+  //     The `status` allowlist is therefore not redundant with the join; it is the only thing
+  //     standing between an erased or administratively-disabled account and an indefinitely valid
+  //     session on this site. Do not remove it on the theory that the join covers erasure. (The
+  //     Lab's erasure also hard-deletes our `website_sessions` rows, which handles the erasure case
+  //     twice over — but that second belt covers erasure only, never a plain `disabled`.)
   //   - **The navbar needs the email.** Reading it here costs nothing extra, where a second query
   //     from /auth/session would double the round trips on the site's most frequent API call.
   const row = await db
@@ -371,17 +378,29 @@ export async function validateSession(
 
   const now = Date.now();
 
+  // Both windows treat an UNPARSEABLE timestamp as expired, not as "no limit".
+  //
+  // The natural way to write these is `if (Number.isFinite(x) && now > x) return null`, which reads
+  // as prudent — don't act on a value you couldn't parse — and is exactly backwards for a security
+  // check: a row whose `expires_at` is corrupt would then never expire, and one whose `last_seen_at`
+  // is corrupt would never go idle. The safe default for "I cannot tell whether this session is
+  // still valid" is to reject it and make the learner sign in again. Note the deliberate contrast
+  // with the refresh decision a few lines below, which treats the SAME unparseable value as "needs
+  // rewriting" — that one is a repair, so failing towards action is right there and wrong here.
   const expiresAtMs = Date.parse(row.expires_at);
-  if (Number.isFinite(expiresAtMs) && now > expiresAtMs) return null;
+  if (!Number.isFinite(expiresAtMs) || now > expiresAtMs) return null;
 
   const lastSeenAtMs = Date.parse(row.last_seen_at);
-  if (Number.isFinite(lastSeenAtMs) && now - lastSeenAtMs > IDLE_MS) return null;
+  if (!Number.isFinite(lastSeenAtMs) || now - lastSeenAtMs > IDLE_MS) return null;
 
-  // An unparseable stored timestamp counts as "needs refreshing", so a corrupt value heals on the
-  // next request instead of sticking around forever.
-  const needsLastSeenWrite =
-    !Number.isFinite(lastSeenAtMs) || now - lastSeenAtMs > LAST_SEEN_REFRESH_MS;
+  // `lastSeenAtMs` is known-finite by now — the idle check above rejects the session outright when
+  // it is not — so this is purely "has enough time passed to be worth a write".
+  const needsLastSeenWrite = now - lastSeenAtMs > LAST_SEEN_REFRESH_MS;
 
+  // `cookie_issued_at` is different: migration 0051 added it NULLABLE, so a session minted before
+  // that migration legitimately has no value here. NaN therefore means "unknown age", and for a
+  // repair the right answer to unknown is to go ahead and reissue — which is why this one keeps the
+  // fail-towards-action shape that would have been wrong for the two expiry checks above.
   const cookieIssuedMs = row.cookie_issued_at ? Date.parse(row.cookie_issued_at) : NaN;
   const cookieIsStale =
     !Number.isFinite(cookieIssuedMs) || now - cookieIssuedMs > COOKIE_REISSUE_AFTER_MS;
