@@ -37,6 +37,11 @@ import {
   unionQuizMasks,
   getLastPosition,
   setLastPosition,
+  clearLastPosition,
+  deleteLessonProgress,
+  deleteQuizProgress,
+  getProgressEpoch,
+  bumpProgressEpoch,
   insertExamAttempt,
   listExamAttempts,
   countExamAttemptsSince,
@@ -274,10 +279,11 @@ export function createApp() {
   // -------------------------------------------------------------------------
 
   async function currentProgress(env: Env, userId: string) {
-    const [readLessons, quizMasks, lastPositionRow] = await Promise.all([
+    const [readLessons, quizMasks, lastPositionRow, epoch] = await Promise.all([
       listLessonProgress(env.DB, userId),
       listQuizProgress(env.DB, userId),
       getLastPosition(env.DB, userId),
+      getProgressEpoch(env.DB, userId),
     ]);
     return {
       readLessons,
@@ -285,6 +291,9 @@ export function createApp() {
       lastPosition: lastPositionRow
         ? { lessonId: lastPositionRow.lesson_id, updatedAt: lastPositionRow.updated_at }
         : null,
+      // The client stores this and echoes it back on every sync. See the epoch discussion in
+      // store.ts (getProgressEpoch) for why a union-merge protocol needs it to express a reset.
+      epoch,
     };
   }
 
@@ -349,6 +358,31 @@ export function createApp() {
     const userId = c.get('userId');
     const nowIso = new Date().toISOString();
 
+    // --- the reset gate ---
+    //
+    // A device presents the epoch it last saw. If it is behind the server's, this payload was
+    // composed BEFORE a reset that device has not learned about yet, so merging it would resurrect
+    // exactly the progress the learner asked to delete — on a different machine, hours later, which
+    // is what made the old behaviour so baffling. Drop the payload and hand back canonical truth
+    // plus the current epoch; the client adopts both and converges.
+    //
+    // A MISSING epoch is treated as current, not stale, on purpose: it means a client older than
+    // this protocol change, and refusing its writes would silently stop syncing for anyone who had
+    // not yet loaded new JS. A client claiming a HIGHER epoch than the server's is treated as
+    // stale, since trusting it would let a caller opt out of every future reset by sending a large
+    // number.
+    const clientEpochRaw = (body as Record<string, unknown>).epoch;
+    const serverEpoch = await getProgressEpoch(c.env.DB, userId);
+    if (clientEpochRaw !== undefined) {
+      const clientEpoch =
+        typeof clientEpochRaw === 'number' && Number.isInteger(clientEpochRaw) && clientEpochRaw >= 0
+          ? clientEpochRaw
+          : -1;
+      if (clientEpoch !== serverEpoch) {
+        return c.json({ ...(await currentProgress(c.env, userId)), rejected: 'stale_epoch' });
+      }
+    }
+
     if (Array.isArray(readLessons) && readLessons.length > 0) {
       await unionLessonProgress(c.env.DB, userId, readLessons as string[], nowIso);
     }
@@ -361,6 +395,67 @@ export function createApp() {
     }
 
     // Return the new canonical merged truth so the caller can overwrite its local cache.
+    return c.json(await currentProgress(c.env, userId));
+  });
+
+  /**
+   * Deletes progress — the channel the union-merge sync cannot express.
+   *
+   * `{ scope: 'all' }` clears everything. `{ scope: 'track', lessonIds, trackIds }` clears just the
+   * listed lessons and quiz masks; the id lists come from the client because the curriculum mapping
+   * lives in the front end and the server has never held a copy (see `deleteLessonProgress`).
+   *
+   * Either way the epoch is bumped, which is what makes the reset stick across devices rather than
+   * being quietly re-unioned by the next device to sync. Bumping even for a track-scoped reset is
+   * deliberate: the epoch is per-learner, so a stale device also forgoes contributing unsynced
+   * progress for other tracks that one time. That is a re-readable page versus a reset that does
+   * not hold — see migration 0053's header for the full trade.
+   */
+  app.post('/progress/reset', requireSession, async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+    if (typeof body !== 'object' || body === null) {
+      return c.json({ error: 'invalid_body' }, 400);
+    }
+    const { scope, lessonIds, trackIds } = body as Record<string, unknown>;
+    const userId = c.get('userId');
+
+    if (scope === 'all') {
+      await deleteLessonProgress(c.env.DB, userId);
+      await deleteQuizProgress(c.env.DB, userId);
+      await clearLastPosition(c.env.DB, userId);
+    } else if (scope === 'track') {
+      const lessonsOk =
+        lessonIds === undefined ||
+        (Array.isArray(lessonIds) &&
+          lessonIds.length <= MAX_LESSON_IDS &&
+          lessonIds.every((id) => isNonEmptyShortString(id, 100)));
+      const tracksOk =
+        trackIds === undefined ||
+        (Array.isArray(trackIds) &&
+          trackIds.length <= MAX_TRACK_IDS &&
+          trackIds.every((id) => isNonEmptyShortString(id, 50)));
+      if (!lessonsOk || !tracksOk) {
+        return c.json({ error: 'invalid_reset_scope' }, 400);
+      }
+      if (Array.isArray(lessonIds)) {
+        await deleteLessonProgress(c.env.DB, userId, lessonIds as string[]);
+      }
+      if (Array.isArray(trackIds)) {
+        await deleteQuizProgress(c.env.DB, userId, trackIds as string[]);
+      }
+      // A track reset also drops the saved position, which may well be inside the track that just
+      // got cleared — leaving it would send the learner straight back to a lesson they reset.
+      await clearLastPosition(c.env.DB, userId);
+    } else {
+      return c.json({ error: 'invalid_scope' }, 400);
+    }
+
+    await bumpProgressEpoch(c.env.DB, userId);
     return c.json(await currentProgress(c.env, userId));
   });
 

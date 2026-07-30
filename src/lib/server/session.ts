@@ -89,6 +89,8 @@ const MAX_UA_SUMMARY_LEN = 180;
 export interface ValidatedSession {
   userId: string;
   sessionId: string;
+  /** The account's email, read from the Lab-owned `users` table for display in the navbar. */
+  email: string | null;
   /**
    * True when the browser's cookie is old enough to be worth re-issuing AND the caller said it
    * is in a position to set one (see `canIssueCookie`). Callers that cannot set a cookie must
@@ -110,6 +112,10 @@ export interface ValidateSessionOptions {
 /**
  * Only the columns validateSession() reads. `token_hash` is deliberately absent: it is the lookup
  * key, so we already hold it, and reading it back tells us nothing.
+ *
+ * The last two come from the Lab-owned `users` table via a join — see `validateSession` for why
+ * that join is worth its cost. Named explicitly rather than `SELECT *` because `users` is a table
+ * whose shape this repo does not control and which may grow columns we have no business reading.
  */
 interface SessionRow {
   id: string;
@@ -118,6 +124,8 @@ interface SessionRow {
   expires_at: string;
   revoked_at: string | null;
   cookie_issued_at: string | null;
+  user_status: string | null;
+  user_email: string | null;
 }
 
 export interface WebsiteSessionSummary {
@@ -302,16 +310,31 @@ export async function validateSession(
 
   const tokenHash = await sha256Hex(token);
 
+  // JOINed against the Lab-owned `users` table, which wrangler.toml explicitly permits us to READ.
+  // Two things ride on this join, both of which would otherwise be bugs:
+  //
+  //   - **A disabled account stays signed in here forever.** Our session is deliberately
+  //     independent of the Lab's, so nothing about the Lab disabling an account (or the account
+  //     being erased under RTBF, which removes the `users` row) would otherwise reach us: the
+  //     `website_sessions` row remains live and valid on its own terms. An INNER join makes a
+  //     missing user row fail validation, and the `status` check below makes a disabled one fail
+  //     too, so both propagate on the very next request.
+  //   - **The navbar needs the email.** Reading it here costs nothing extra, where a second query
+  //     from /auth/session would double the round trips on the site's most frequent API call.
   const row = await db
     .prepare(
-      `SELECT id, user_id, last_seen_at, expires_at, revoked_at, cookie_issued_at
-         FROM website_sessions WHERE token_hash = ?`
+      `SELECT ws.id, ws.user_id, ws.last_seen_at, ws.expires_at, ws.revoked_at, ws.cookie_issued_at,
+              u.status AS user_status, u.email AS user_email
+         FROM website_sessions ws
+         JOIN users u ON u.id = ws.user_id
+        WHERE ws.token_hash = ?`
     )
     .bind(tokenHash)
     .first<SessionRow>();
 
   if (!row) return null;
   if (row.revoked_at !== null && row.revoked_at !== undefined) return null;
+  if (row.user_status !== null && row.user_status !== 'active') return null;
 
   const now = Date.now();
 
@@ -348,7 +371,12 @@ export async function validateSession(
     }
   }
 
-  return { userId: row.user_id, sessionId: row.id, shouldReissueCookie };
+  return {
+    userId: row.user_id,
+    sessionId: row.id,
+    email: row.user_email,
+    shouldReissueCookie,
+  };
 }
 
 /** Revokes one session by id. Idempotent: re-revoking keeps the original `revoked_at`. */

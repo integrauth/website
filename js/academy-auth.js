@@ -1,84 +1,154 @@
-// IntegrAuth Academy — shared "who am I" + auth-overlay layer (js/academy-auth.js)
+// IntegrAuth Academy — shared "who am I" + sign-in layer (js/academy-auth.js)
 //
-// Loaded on every page (alongside functions.min.js) so the navbar's Sign-in control
-// works site-wide. True SSO: the session cookie (__Secure-ia_session, Domain=.integrauth.com)
-// is minted by the sister Cloudflare Worker at https://lab.integrauth.com — every call that
-// reads/changes the SESSION itself (account, signup start/verify, revoke-all, erase) is a
-// CROSS-ORIGIN credentialed fetch to that origin. Calls that only touch THIS site's own
-// Academy data (profile, progress, exam attempts, certificates) are same-origin fetches to
-// this site's own Cloudflare Worker at /api/academy/*.
+// Loaded on every page (alongside functions.min.js) so the navbar's sign-in control works
+// site-wide. Exposes window.AcademyAuth. Self-initializes on DOM ready: wires the navbar control
+// and, on academy.html only, the account panel + benefits info icon.
+//
+// HOW SIGN-IN WORKS, and why it looks like this rather than the email+OTP form it replaced:
+//
+// The two sites share one user base but NOT a session cookie. An earlier design did share one
+// (`__Secure-ia_session` with `Domain=.integrauth.com`), which meant any of the ~30 sibling
+// *.integrauth.com hosts could overwrite a visitor's session — session fixation plus an
+// unclearable forced logout. So integrauth.com is now an OIDC Relying Party against
+// lab.integrauth.com's OpenID Provider, and holds its own host-locked cookie. This file therefore
+// makes NO cross-origin calls at all any more: identity comes from this site's own /auth/* routes
+// (src/lib/server/auth.ts) and Academy data from its own /api/academy/* routes.
+//
+// The login handshake runs in a POP-UP rather than by navigating the page, so a learner
+// mid-lesson is not thrown out of it. Two consequences worth knowing before editing:
+//
+//   1. The popup cannot talk to this page directly. Both sites send `Cross-Origin-Opener-Policy:
+//      same-origin`, so the moment the popup navigates to the Lab the browser puts it in a
+//      separate browsing-context group and severs `window.opener` — permanently, even after it
+//      comes back to our own origin. `postMessage` is therefore not available, and neither is
+//      `popup.closed` (a severed handle reports `true` straight away, so "poll until it closes"
+//      silently thinks the popup shut instantly). The callback page hands its result back through
+//      a localStorage write instead, which is browsing-context-group independent and raises a
+//      `storage` event here. A slow poll of /auth/session backs it up for private-mode browsers
+//      where localStorage throws.
+//   2. Being signed in at the Lab no longer signs you in here automatically — the provider has no
+//      silent-authentication mode and its `frame-ancestors 'none'` rules out the hidden-iframe
+//      trick. It costs one click. With an existing grant the popup approves itself and closes
+//      without the learner typing anything.
 //
 // Plain jQuery-era JS to match functions.js/academy-labs.js — no ES modules, no build step.
-// Exposes window.AcademyAuth. Self-initializes: wires the navbar control + (on academy.html
-// only) the account panel + benefits info icon, once the DOM is ready.
 (function () {
   'use strict';
 
+  /** Where the Lab lives. Used ONLY for outbound links now — never for fetch(). */
   var LAB_ORIGIN = 'https://lab.integrauth.com';
+
+  /**
+   * Cached session state. localStorage, NOT sessionStorage.
+   *
+   * sessionStorage is per-tab, which made every new tab start out believing nobody was signed in:
+   * the exam panel rendered its "sign in first" wall to a learner who was already signed in, and
+   * the cache was rebuilt from scratch on every window. localStorage is shared across tabs,
+   * windows and browser restarts, which is what "stay signed in" has to mean. The `storage` event
+   * it raises is also how a sign-in or sign-out in ONE tab reaches all the others.
+   */
   var SESSION_KEY = 'acad_auth_session_v1';
+
+  /**
+   * The channel the /auth/callback page uses to announce a completed login.
+   * MUST MATCH `AUTH_EVENT_KEY` in src/lib/server/auth.ts.
+   */
+  var AUTH_EVENT_KEY = 'acad_auth_event_v1';
+
   var NUDGE_DISMISS_KEY = 'acad_nudge_dismissed';
 
-  var memSession = null; // last-known session, {loggedIn:true,...} or {loggedIn:false}
-  var sessionPromise = null; // in-flight refreshSession() promise, so concurrent callers share it
+  var memSession = null;     // last-known session: {loggedIn:true,...} or {loggedIn:false}
+  var sessionPromise = null; // in-flight refreshSession(), so concurrent callers share one request
 
   /* ---------------------------------------------------------------------
-   * Session cache (in-memory + sessionStorage — per-tab, not per-browser)
+   * Session cache
    * --------------------------------------------------------------------- */
+
+  function readStore(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function writeStore(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* private mode / quota — in-memory only */ }
+  }
 
   function loadCachedSession() {
     if (memSession) return memSession;
-    try {
-      var raw = sessionStorage.getItem(SESSION_KEY);
-      if (raw) memSession = JSON.parse(raw);
-    } catch (e) { /* noop */ }
+    var raw = readStore(SESSION_KEY);
+    if (raw) {
+      try { memSession = JSON.parse(raw); } catch (e) { memSession = null; }
+    }
     return memSession;
   }
 
-  function saveCachedSession(session) {
-    memSession = session;
-    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch (e) { /* noop */ }
+  /**
+   * True when two session snapshots describe the same signed-in identity.
+   *
+   * Used to decide whether to fire `academy-auth-changed`. Previously the event fired on every
+   * single tab focus, and each one cost an account fetch, a full teardown and rebuild of the
+   * account panel, another profile GET and a progress sync — for a state that had not changed.
+   * Comparing identity rather than object equality means the event now marks actual transitions:
+   * signed out → in, in → out, or one account → a different one.
+   */
+  function sameIdentity(a, b) {
+    if (!a || !b) return false;
+    if (!a.loggedIn && !b.loggedIn) return true;
+    if (a.loggedIn !== b.loggedIn) return false;
+    return a.userId === b.userId;
   }
 
   function fireChanged(session) {
     try {
       document.dispatchEvent(new CustomEvent('academy-auth-changed', { detail: { session: session } }));
-    } catch (e) { /* very old browsers without CustomEvent ctor — not a supported target */ }
+    } catch (e) { /* pre-CustomEvent-constructor browsers are not a supported target */ }
   }
 
-  function normalizeAccount(data) {
+  /**
+   * Stores a session snapshot, and fires `academy-auth-changed` only if the identity really moved.
+   * `force` exists for the boot path, where listeners need one event to render their initial state
+   * even though nothing has "changed" yet.
+   */
+  function saveCachedSession(session, force) {
+    var previous = loadCachedSession();
+    memSession = session;
+    writeStore(SESSION_KEY, JSON.stringify(session));
+    if (force || !sameIdentity(previous, session)) fireChanged(session);
+  }
+
+  function normalizeSession(data) {
+    if (!data || !data.loggedIn) return { loggedIn: false };
     return {
       loggedIn: true,
-      id: data.id || null,
+      userId: data.userId || null,
       email: data.email || null,
-      emailVerified: !!data.email_verified,
-      isAdmin: !!data.is_admin,
-      credentials: data.credentials || [],
-      sessions: data.sessions || [],
-      totpEnrolled: !!data.totp_enrolled
+      sessions: data.sessions || []
     };
   }
 
+  function getSession() {
+    return loadCachedSession() || { loggedIn: false };
+  }
+
+  /**
+   * Re-reads session state from the server.
+   *
+   * A network failure deliberately keeps whatever was cached rather than reporting "signed out": a
+   * flaky connection should not make a signed-in learner's exam panel slam shut. A real 401/200
+   * `loggedIn:false` answer is trusted immediately — that is the server speaking, not the network.
+   */
   function refreshSession() {
     if (sessionPromise) return sessionPromise;
-    sessionPromise = fetch(LAB_ORIGIN + '/api/account', { credentials: 'include', mode: 'cors' })
-      .then(function (res) {
-        if (res.status === 401) {
+    sessionPromise = authFetch('/session')
+      .then(function (data) {
+        var out = normalizeSession(data);
+        saveCachedSession(out);
+        return out;
+      })
+      .catch(function (err) {
+        if (err && err.status === 401) {
           var out = { loggedIn: false };
           saveCachedSession(out);
-          fireChanged(out);
           return out;
         }
-        if (!res.ok) throw new Error('http_' + res.status);
-        return res.json().then(function (data) {
-          var out = normalizeAccount(data);
-          saveCachedSession(out);
-          fireChanged(out);
-          return out;
-        });
-      })
-      .catch(function () {
-        // Network hiccup / lab.integrauth.com unreachable — keep whatever we had cached
-        // rather than flipping a genuinely-logged-in learner to "signed out".
         return loadCachedSession() || { loggedIn: false };
       })
       .then(function (out) {
@@ -88,18 +158,44 @@
     return sessionPromise;
   }
 
-  function getSession() {
-    return loadCachedSession() || { loggedIn: false };
-  }
-
-  function checkOnFocus() {
-    if (document.visibilityState === 'visible') refreshSession();
-  }
-  document.addEventListener('visibilitychange', checkOnFocus);
+  /**
+   * Cross-tab propagation. Two keys matter:
+   *   SESSION_KEY    — another tab signed in or out; adopt its answer without a network call.
+   *   AUTH_EVENT_KEY — the sign-in popup finished; go ask the server who we are now.
+   */
+  window.addEventListener('storage', function (e) {
+    if (!e.key) return;
+    if (e.key === SESSION_KEY) {
+      var incoming = null;
+      try { incoming = e.newValue ? JSON.parse(e.newValue) : null; } catch (err) { return; }
+      if (!incoming) return;
+      var previous = memSession;
+      memSession = incoming;
+      if (!sameIdentity(previous, incoming)) fireChanged(incoming);
+      return;
+    }
+    if (e.key === AUTH_EVENT_KEY && e.newValue) {
+      refreshSession();
+    }
+  });
 
   /* ---------------------------------------------------------------------
-   * Same-origin fetch helper for THIS site's own Worker (/api/academy/*)
+   * Fetch helpers — both same-origin, since nothing cross-origin remains
    * --------------------------------------------------------------------- */
+
+  function parseResponse(res) {
+    return res.text().then(function (text) {
+      var data = {};
+      try { data = text ? JSON.parse(text) : {}; } catch (e) { /* non-JSON body, handled below */ }
+      if (!res.ok) {
+        var err = new Error((data && data.error) || ('http_' + res.status));
+        err.code = (data && data.error) || null;
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    });
+  }
 
   function apiFetch(path, opts) {
     opts = opts || {};
@@ -109,145 +205,271 @@
       headers: { 'Content-Type': 'application/json' }
     };
     if (opts.body !== undefined) init.body = JSON.stringify(opts.body);
-    return fetch('/api/academy' + path, init).then(function (res) {
-      return res.text().then(function (text) {
-        var data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch (e) { /* noop */ }
-        if (!res.ok) {
-          var err = new Error((data && data.error) || ('http_' + res.status));
-          err.code = (data && data.error) || null;
-          err.status = res.status;
-          throw err;
+    // `keepalive` lets a request outlive the page that started it. Only worth setting on the
+    // unload-time progress flush: without it the browser cancels an in-flight fetch when the tab
+    // goes away, so a learner who closes the tab right after finishing a lesson loses that lesson's
+    // read mark. Not set by default — keepalive requests share a small per-origin budget, and
+    // spending it on ordinary calls would starve the one case that needs it.
+    if (opts.keepalive) init.keepalive = true;
+    return fetch('/api/academy' + path, init).then(parseResponse);
+  }
+
+  function authFetch(path, opts) {
+    opts = opts || {};
+    var init = {
+      method: opts.method || 'GET',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }
+    };
+    if (opts.body !== undefined) init.body = JSON.stringify(opts.body);
+    return fetch('/auth' + path, init).then(parseResponse);
+  }
+
+  /**
+   * Is the Academy backend reachable at all?
+   *
+   * This matters because of how the hosting cutover is staged: the site is served by GitHub Pages
+   * until DNS moves to the Cloudflare Worker, and on GitHub Pages every /auth/* and /api/academy/*
+   * path is just a 404 (served as the custom 404 HTML page, so it does not even look like an API
+   * error). Without this probe the sign-in button and exam panel would throw confusing failures at
+   * visitors on the old host. With it, callers can degrade to "accounts aren't available here yet"
+   * and leave the free, account-less Academy — lessons, labs, Flow Explorer, Challenge mode —
+   * working exactly as before.
+   *
+   * The probe is /auth/session, which the Worker always answers 200 with a JSON body carrying a
+   * `loggedIn` field. A 404, an HTML body, or a network error all mean "no Worker here".
+   */
+  var apiAvailablePromise = null;
+  function isApiAvailable() {
+    if (apiAvailablePromise) return apiAvailablePromise;
+    apiAvailablePromise = fetch('/auth/session', { credentials: 'same-origin' })
+      .then(function (res) {
+        if (!res.ok) return false;
+        return res.json().then(function (data) {
+          return !!data && typeof data.loggedIn === 'boolean';
+        }).catch(function () { return false; });
+      })
+      .catch(function () { return false; });
+    return apiAvailablePromise;
+  }
+
+  /* ---------------------------------------------------------------------
+   * Sign-in (OIDC popup, with a full-redirect fallback)
+   * --------------------------------------------------------------------- */
+
+  /** Interval between fallback /auth/session polls while a sign-in is in flight. */
+  var SIGNIN_POLL_MS = 2500;
+  /** Give up polling after this long. Generous: the learner may be typing an OTP at the Lab. */
+  var SIGNIN_TIMEOUT_MS = 5 * 60 * 1000;
+
+  function currentReturnPath() {
+    return window.location.pathname + window.location.search + window.location.hash;
+  }
+
+  function startUrl(mode) {
+    return '/auth/start?mode=' + mode + '&return=' + encodeURIComponent(currentReturnPath());
+  }
+
+  /** Hands the whole page over to the Lab. Used when the popup is blocked or the user asks. */
+  function signInViaRedirect() {
+    window.location.href = startUrl('redirect');
+  }
+
+  var pendingSignIn = null; // { poll, timeout, onStorage, overlay } while a flow is in progress
+
+  function endPendingSignIn() {
+    if (!pendingSignIn) return;
+    if (pendingSignIn.poll) clearInterval(pendingSignIn.poll);
+    if (pendingSignIn.timeout) clearTimeout(pendingSignIn.timeout);
+    window.removeEventListener('storage', pendingSignIn.onStorage);
+    closeSignInOverlay();
+    pendingSignIn = null;
+  }
+
+  /**
+   * Begins a sign-in.
+   *
+   * opts.reason    optional sentence explaining why sign-in is being asked for
+   * opts.onSuccess called once the session is confirmed
+   */
+  function signIn(opts) {
+    opts = opts || {};
+    if (pendingSignIn) return;
+
+    isApiAvailable().then(function (available) {
+      if (!available) {
+        showSignInOverlay({
+          reason: opts.reason,
+          unavailable: true
+        });
+        return;
+      }
+
+      var popup = null;
+      try {
+        popup = window.open(
+          startUrl('popup'),
+          'ia-signin',
+          'width=520,height=700,menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes'
+        );
+      } catch (e) {
+        popup = null;
+      }
+
+      // Popup blocked. Do not nag — just use the whole window, which always works.
+      if (!popup) {
+        signInViaRedirect();
+        return;
+      }
+
+      var settled = false;
+      function finish() {
+        if (settled) return;
+        settled = true;
+        endPendingSignIn();
+        if (typeof opts.onSuccess === 'function') opts.onSuccess();
+      }
+
+      function check() {
+        return refreshSession().then(function (session) {
+          if (session.loggedIn) finish();
+          return session;
+        });
+      }
+
+      function onStorage(e) {
+        if (e.key !== AUTH_EVENT_KEY || !e.newValue) return;
+        var payload = null;
+        try { payload = JSON.parse(e.newValue); } catch (err) { payload = null; }
+        if (payload && payload.ok === false) {
+          // The popup reported a real failure (denied consent, expired transaction). Say so
+          // instead of leaving the learner watching a spinner until the timeout.
+          endPendingSignIn();
+          showSignInOverlay({ reason: opts.reason, failed: payload.error || null });
+          return;
         }
-        return data;
-      });
+        check();
+      }
+
+      window.addEventListener('storage', onStorage);
+      pendingSignIn = {
+        onStorage: onStorage,
+        // Backup for browsers where the popup's localStorage write throws (private mode) or where
+        // the storage event does not arrive. Cheap, same-origin, and stops the moment we succeed.
+        poll: setInterval(check, SIGNIN_POLL_MS),
+        timeout: setTimeout(function () { endPendingSignIn(); }, SIGNIN_TIMEOUT_MS)
+      };
+
+      showSignInOverlay({ reason: opts.reason, waiting: true });
     });
   }
 
   /* ---------------------------------------------------------------------
-   * Cross-origin Lab calls (account lifecycle)
+   * Sign-out and session management
    * --------------------------------------------------------------------- */
 
-  function labFetch(path, opts) {
-    opts = opts || {};
-    var init = {
-      method: opts.method || 'GET',
-      credentials: 'include',
-      mode: 'cors',
-      headers: { 'Content-Type': 'application/json' }
-    };
-    if (opts.body !== undefined) init.body = JSON.stringify(opts.body);
-    return fetch(LAB_ORIGIN + path, init).then(function (res) {
-      return res.text().then(function (text) {
-        var data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch (e) { /* noop */ }
-        if (!res.ok) {
-          var err = new Error((data && data.error) || ('http_' + res.status));
-          err.code = (data && data.error) || null;
-          err.status = res.status;
-          throw err;
-        }
-        return data;
-      });
-    });
-  }
-
-  function signOutEverywhere() {
-    // The Lab's /api/account/revoke-all revokes every OTHER live session but
-    // deliberately keeps the session driving the request alive (it's the "panic button"
-    // endpoint, designed to be self-service-safe) — use signOut() below to also end THIS
-    // browser's own session.
-    return labFetch('/api/account/revoke-all', { method: 'POST' }).then(function (out) {
-      refreshSession();
+  function signOut() {
+    return authFetch('/logout', { method: 'POST' }).then(function (out) {
+      saveCachedSession({ loggedIn: false });
       return out;
     });
   }
 
-  function signOut() {
-    // Ends just the current session (this browser/device only) — /api/logout, distinct
-    // from the panic-button revoke-all above.
-    return labFetch('/api/logout', { method: 'POST' }).then(function (out) {
-      var loggedOut = { loggedIn: false };
-      saveCachedSession(loggedOut);
-      fireChanged(loggedOut);
+  /**
+   * Ends every session THIS SITE holds for the account, on every device.
+   *
+   * Scope note that the UI copy has to match: this does not reach lab.integrauth.com. Under the
+   * OIDC design this site holds no credential that would let it revoke the Lab's own sessions, and
+   * that boundary is intentional. The reverse direction does work — signing out at the Lab
+   * back-channel-notifies us and revokes the matching session here.
+   */
+  function signOutEverywhere() {
+    return authFetch('/logout-all', { method: 'POST' }).then(function (out) {
+      saveCachedSession({ loggedIn: false });
       return out;
     });
   }
 
   function revokeSession(sessionId) {
-    return labFetch('/api/session/revoke', { method: 'POST', body: { session_id: sessionId } })
+    return authFetch('/sessions/revoke', { method: 'POST', body: { sessionId: sessionId } })
       .then(function (out) {
-        refreshSession();
+        if (out && out.self) saveCachedSession({ loggedIn: false });
+        else refreshSession();
         return out;
       });
   }
 
-  function deleteAccount() {
-    // No internal confirmation here by design — the caller (the account panel below)
-    // is responsible for a strong, explicit confirm step before ever calling this.
-    return labFetch('/api/account/erase', { method: 'POST' }).then(function (out) {
-      var loggedOut = { loggedIn: false };
-      saveCachedSession(loggedOut);
-      fireChanged(loggedOut);
-      return out;
+  /* ---------------------------------------------------------------------
+   * Academy data (same-origin, this site's own Worker)
+   * --------------------------------------------------------------------- */
+
+  function syncProgress(localSnapshot, opts) {
+    opts = opts || {};
+    return apiFetch('/progress/sync', {
+      method: 'POST',
+      body: localSnapshot || {},
+      keepalive: !!opts.keepalive
     });
   }
-
-  function syncProgress(localSnapshot) {
-    return apiFetch('/progress/sync', { method: 'POST', body: localSnapshot || {} });
+  function getProgress() {
+    return apiFetch('/progress');
   }
 
+  /**
+   * Tells the server to DELETE progress, which the ordinary sync cannot express.
+   *
+   * `payload` is `{scope:'all'}` or `{scope:'track', lessonIds:[...], trackIds:[...]}`. The server
+   * deletes the rows and bumps a per-learner reset epoch; every device that syncs afterwards with
+   * an older epoch has its payload ignored and adopts the post-reset truth instead. Without that,
+   * a reset here was quietly undone later by another device re-uploading its stale copy — and
+   * often undone within a second on THIS device, by the debounced sync that fired right after the
+   * local clear. Resolves with the new canonical progress, including the new `epoch`.
+   */
+  function resetProgress(payload) {
+    return apiFetch('/progress/reset', { method: 'POST', body: payload || { scope: 'all' } });
+  }
   function getProfile() {
     return apiFetch('/profile');
   }
-
   function saveProfile(profile) {
     return apiFetch('/profile', { method: 'PUT', body: profile });
   }
-
   function recordExamAttempt(attempt) {
     return apiFetch('/exam/attempts', { method: 'POST', body: attempt });
   }
-
   function listExamAttempts() {
     return apiFetch('/exam/attempts');
   }
-
   function issueCertificate(attemptId) {
     return apiFetch('/certificates/issue', { method: 'POST', body: { attemptId: attemptId } });
   }
-
   function listCertificates() {
     return apiFetch('/certificates');
   }
-
   function getCertificateJwt(serial) {
     return apiFetch('/certificates/' + encodeURIComponent(serial) + '/jwt');
   }
 
   /* ---------------------------------------------------------------------
-   * Progressive-profiling nudge (data-only; UI rendering lives in functions.js
-   * on academy.html, per the existing acad-update-toast pattern)
+   * Progressive-profiling nudge (data only; academy.html renders it)
    * --------------------------------------------------------------------- */
 
   function shouldShowProfileNudge() {
     var session = getSession();
     if (!session.loggedIn) return Promise.resolve(false);
-    var dismissed = false;
-    try { dismissed = sessionStorage.getItem(NUDGE_DISMISS_KEY) === '1'; } catch (e) { /* noop */ }
-    if (dismissed) return Promise.resolve(false);
+    if (readStore(NUDGE_DISMISS_KEY) === '1') return Promise.resolve(false);
     return getProfile().then(function (profile) {
       return !(profile && profile.firstName && profile.lastName);
     }).catch(function () { return false; });
   }
 
   function dismissProfileNudge() {
-    try { sessionStorage.setItem(NUDGE_DISMISS_KEY, '1'); } catch (e) { /* noop */ }
+    writeStore(NUDGE_DISMISS_KEY, '1');
   }
 
   /* ---------------------------------------------------------------------
-   * Tiny DOM helper (independent of academy-labs.js's private `h` — this
-   * file loads on every page, academy-labs.js loads only on academy.html)
+   * Tiny DOM helper (independent of academy-labs.js's private `h` — this file
+   * loads on every page, academy-labs.js only on academy.html)
    * --------------------------------------------------------------------- */
 
   function mk(tag, attrs, children) {
@@ -272,8 +494,8 @@
 
   /* ---------------------------------------------------------------------
    * Themed confirm dialog (mirrors initAcademy()'s private acadConfirm in
-   * functions.js — same .acad-confirm-* classes, reimplemented here since
-   * that one is closure-private to academy.html's reader).
+   * functions.js — same .acad-confirm-* classes, reimplemented here because
+   * that one is closure-private to academy.html's reader)
    * --------------------------------------------------------------------- */
 
   function authConfirm(opts) {
@@ -321,64 +543,30 @@
   }
 
   /* ---------------------------------------------------------------------
-   * Turnstile: lazy-loaded only the first time the login overlay opens.
-   * --------------------------------------------------------------------- */
-
-  var turnstileLoadPromise = null;
-
-  function loadTurnstile() {
-    if (window.turnstile) return Promise.resolve(window.turnstile);
-    if (turnstileLoadPromise) return turnstileLoadPromise;
-    turnstileLoadPromise = new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-      s.async = true;
-      s.defer = true;
-      s.onload = function () { resolve(window.turnstile); };
-      s.onerror = function () { reject(new Error('turnstile_load_failed')); };
-      document.head.appendChild(s);
-    });
-    return turnstileLoadPromise;
-  }
-
-  function turnstileSiteKey() {
-    var meta = document.querySelector('meta[name="turnstile-site-key"]');
-    return meta ? meta.getAttribute('content') : '';
-  }
-
-  /* ---------------------------------------------------------------------
-   * Login overlay
+   * Sign-in overlay
    *
-   * Markup contract (all classes below are what css/styles.css themes):
-   *   .acad-auth-overlay              full-viewport backdrop, role="dialog" aria-modal="true"
-   *     .acad-auth-card                 the panel itself
-   *       .acad-auth-close                dismiss button, top-right
-   *       .acad-auth-title                "Sign in"
-   *       .acad-auth-reason                only present when opts.reason was given
-   *       .acad-auth-step .acad-auth-step-email   (hidden via [hidden] once step 2 shows)
-   *         .acad-lab-field > input.acad-lab-input.acad-auth-email-input
-   *         .acad-auth-msg (+ .is-error / .is-ok)
-   *         button.acad-lab-btn.primary.acad-auth-send
-   *       .acad-auth-turnstile-wrap > #acadAuthTurnstile   (persists across both steps)
-   *       .acad-auth-step .acad-auth-step-code    ([hidden] until step 1 succeeds)
-   *         .acad-auth-code-hint > strong.acad-auth-code-email
-   *         .acad-lab-field > input.acad-lab-input.acad-auth-code-input
-   *         .acad-auth-msg (+ .is-error / .is-ok)
-   *         button.acad-lab-btn.primary.acad-auth-verify
-   *         .acad-auth-links > button.acad-auth-link.acad-auth-resend
-   *                          > button.acad-auth-link.acad-auth-back
+   * Much smaller than the email+OTP form it replaces — the Lab collects the
+   * credentials now. This only explains what is happening in the pop-up and
+   * offers a way out if the pop-up misbehaves.
+   *
+   * Markup contract (classes are what css/styles.css themes):
+   *   .acad-auth-overlay          full-viewport backdrop, role="dialog" aria-modal="true"
+   *     .acad-auth-card
+   *       .acad-auth-close
+   *       .acad-auth-title
+   *       .acad-auth-reason       present only when a reason was given
+   *       .acad-auth-msg (+ .is-error)
+   *       .acad-auth-links > button.acad-auth-link
    * --------------------------------------------------------------------- */
 
   var overlayEl = null;
   var overlayTriggerFocus = null;
-  var resendCooldownTimer = null;
 
-  function closeLoginOverlay() {
+  function closeSignInOverlay() {
     if (!overlayEl) return;
     document.removeEventListener('keydown', overlayKeydown);
     overlayEl.remove();
     overlayEl = null;
-    if (resendCooldownTimer) { clearTimeout(resendCooldownTimer); resendCooldownTimer = null; }
     if (overlayTriggerFocus && typeof overlayTriggerFocus.focus === 'function') overlayTriggerFocus.focus();
     overlayTriggerFocus = null;
   }
@@ -386,14 +574,14 @@
   function overlayFocusables() {
     if (!overlayEl) return [];
     return Array.prototype.slice.call(
-      overlayEl.querySelectorAll('button:not([hidden]):not(:disabled), input:not([hidden]):not(:disabled), a[href]')
+      overlayEl.querySelectorAll('button:not([hidden]):not(:disabled), a[href]')
     ).filter(function (el) {
       return el.offsetParent !== null || el === document.activeElement;
     });
   }
 
   function overlayKeydown(e) {
-    if (e.key === 'Escape') { closeLoginOverlay(); return; }
+    if (e.key === 'Escape') { endPendingSignIn(); closeSignInOverlay(); return; }
     if (e.key === 'Tab') {
       var order = overlayFocusables();
       if (!order.length) return;
@@ -407,212 +595,104 @@
   function describeApiError(err) {
     var code = err && err.code;
     var MAP = {
-      invalid_input: 'That doesn’t look like a valid email address.',
-      turnstile_failed: 'We couldn’t verify you’re human. Please try again.',
+      // /auth/* outcomes
+      sign_in_unavailable: 'Sign-in isn’t available on this site yet — please try again later.',
+      no_transaction: 'That sign-in attempt expired. Please try again.',
+      state_mismatch: 'That sign-in attempt couldn’t be verified. Please try again.',
+      issuer_mismatch: 'That sign-in attempt couldn’t be verified. Please try again.',
+      nonce_mismatch: 'That sign-in attempt couldn’t be verified. Please try again.',
+      exchange_failed: 'We couldn’t complete sign-in. Please try again.',
+      invalid_id_token: 'We couldn’t complete sign-in. Please try again.',
+      access_denied: 'Sign-in was cancelled.',
+      forbidden_origin: 'That request was blocked for security reasons. Please reload and retry.',
+      // /api/academy/* outcomes
+      unauthorized: 'You’re signed out — please sign in again.',
       rate_limited: 'Too many attempts — please wait a bit and try again.',
-      daily_email_cap: 'We’ve hit today’s sending limit — please try again tomorrow.',
-      code_invalid: 'That code isn’t right. Double-check it and try again.',
-      code_expired: 'That code has expired — send a new one.',
-      code_locked: 'Too many wrong attempts — request a fresh code.',
-      email_unavailable: 'We couldn’t send an email right now — please try again shortly.'
+      name_locked: 'Your certificate name is locked and can’t be changed.',
+      invalid_input: 'Please check what you entered and try again.'
     };
     return MAP[code] || 'Something went wrong — please try again.';
   }
 
-  function openLoginOverlay(opts) {
+  /**
+   * Renders the sign-in overlay in one of three states: waiting on the pop-up, reporting a
+   * failure, or explaining that accounts are not available on this host yet.
+   */
+  function showSignInOverlay(opts) {
     opts = opts || {};
-    if (overlayEl) return; // already open
-    overlayTriggerFocus = document.activeElement;
-
-    var emailInput = mk('input', {
-      type: 'email', class: 'acad-lab-input acad-auth-email-input',
-      autocomplete: 'email', placeholder: 'you@example.com', required: 'required'
-    });
-    var emailMsg = mk('div', { class: 'acad-auth-msg', role: 'alert' });
-    var sendBtn = mk('button', { type: 'button', class: 'acad-lab-btn primary acad-auth-send' }, 'Send code');
-    var turnstileWrap = mk('div', { class: 'acad-auth-turnstile-wrap' }, [
-      mk('div', { id: 'acadAuthTurnstile', class: 'acad-auth-turnstile' })
-    ]);
-
-    var codeEmailLabel = mk('strong', { class: 'acad-auth-code-email' });
-    var codeInput = mk('input', {
-      type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '6',
-      autocomplete: 'one-time-code', class: 'acad-lab-input acad-auth-code-input'
-    });
-    var codeMsg = mk('div', { class: 'acad-auth-msg', role: 'alert' });
-    var verifyBtn = mk('button', { type: 'button', class: 'acad-lab-btn primary acad-auth-verify' }, 'Verify');
-    var resendBtn = mk('button', { type: 'button', class: 'acad-auth-link acad-auth-resend' }, 'Resend code');
-    var backBtn = mk('button', { type: 'button', class: 'acad-auth-link acad-auth-back' }, '← use a different email');
-
-    var stepEmail = mk('div', { class: 'acad-auth-step acad-auth-step-email' }, [
-      mk('label', { class: 'acad-lab-field' }, [
-        mk('span', { class: 'acad-lab-field-label' }, 'Email address'),
-        emailInput
-      ]),
-      emailMsg,
-      mk('div', { class: 'acad-lab-row' }, [sendBtn])
-    ]);
-    var stepCode = mk('div', { class: 'acad-auth-step acad-auth-step-code', hidden: 'hidden' }, [
-      mk('p', { class: 'acad-auth-code-hint' }, ['We sent a 6-digit code to ', codeEmailLabel, '.']),
-      mk('label', { class: 'acad-lab-field' }, [
-        mk('span', { class: 'acad-lab-field-label' }, '6-digit code'),
-        codeInput
-      ]),
-      codeMsg,
-      mk('div', { class: 'acad-lab-row' }, [verifyBtn]),
-      mk('div', { class: 'acad-auth-links' }, [resendBtn, backBtn])
-    ]);
+    closeSignInOverlay();
+    overlayTriggerFocus = overlayTriggerFocus || document.activeElement;
 
     var closeBtn = mk('button', { type: 'button', class: 'acad-auth-close', 'aria-label': 'Close' }, '×');
-    var titleEl = mk('h2', { class: 'acad-auth-title', id: 'acadAuthOverlayTitle' }, 'Sign in');
-    var cardKids = [closeBtn, titleEl];
-    if (opts.reason) cardKids.push(mk('p', { class: 'acad-auth-reason' }, opts.reason));
-    cardKids.push(stepEmail, turnstileWrap, stepCode);
-    var card = mk('div', { class: 'acad-auth-card' }, cardKids);
+    var titleEl = mk('h2', { class: 'acad-auth-title', id: 'acadAuthOverlayTitle' },
+      opts.unavailable ? 'Accounts aren’t available yet' : (opts.failed ? 'Sign-in didn’t finish' : 'Continue in the pop-up'));
 
+    var kids = [closeBtn, titleEl];
+    if (opts.reason) kids.push(mk('p', { class: 'acad-auth-reason' }, opts.reason));
+
+    if (opts.unavailable) {
+      kids.push(mk('p', { class: 'acad-auth-msg' },
+        'Sign-in and certificates are still being rolled out on this address. Every lesson, lab, ' +
+        'the Flow Explorer and Challenge mode work right now without an account.'));
+    } else if (opts.failed) {
+      kids.push(mk('div', { class: 'acad-auth-msg is-error', role: 'alert' },
+        describeApiError({ code: opts.failed })));
+      kids.push(mk('div', { class: 'acad-auth-links' }, [
+        mk('button', {
+          type: 'button', class: 'acad-auth-link',
+          onclick: function () { closeSignInOverlay(); signIn({ reason: opts.reason }); }
+        }, 'Try again')
+      ]));
+    } else {
+      kids.push(mk('p', { class: 'acad-auth-msg', role: 'status' },
+        'We opened a window at lab.integrauth.com to sign you in. Your Academy account is the same ' +
+        'account you use there. This page will update by itself when you’re done.'));
+      kids.push(mk('div', { class: 'acad-auth-links' }, [
+        mk('button', {
+          type: 'button', class: 'acad-auth-link',
+          onclick: function () { endPendingSignIn(); signInViaRedirect(); }
+        }, 'Pop-up blocked? Sign in in this window instead'),
+        mk('button', {
+          type: 'button', class: 'acad-auth-link',
+          onclick: function () { endPendingSignIn(); }
+        }, 'Cancel')
+      ]));
+    }
+
+    var card = mk('div', { class: 'acad-auth-card' }, kids);
     overlayEl = mk('div', {
-      class: 'acad-auth-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'acadAuthOverlayTitle'
+      class: 'acad-auth-overlay', role: 'dialog', 'aria-modal': 'true',
+      'aria-labelledby': 'acadAuthOverlayTitle'
     }, [card]);
-    overlayEl.addEventListener('mousedown', function (e) { if (e.target === overlayEl) closeLoginOverlay(); });
-    closeBtn.addEventListener('click', closeLoginOverlay);
+    overlayEl.addEventListener('mousedown', function (e) {
+      if (e.target === overlayEl) { endPendingSignIn(); closeSignInOverlay(); }
+    });
+    closeBtn.addEventListener('click', function () { endPendingSignIn(); closeSignInOverlay(); });
     document.addEventListener('keydown', overlayKeydown);
     document.body.appendChild(overlayEl);
-    emailInput.focus();
-
-    var widgetId = null;
-    loadTurnstile().then(function (turnstile) {
-      try {
-        widgetId = turnstile.render('#acadAuthTurnstile', { sitekey: turnstileSiteKey() });
-      } catch (e) { /* placeholder sitekey / widget unavailable — Send will surface the server's turnstile_failed */ }
-    }).catch(function () { /* CDN unreachable — Send will surface the server's turnstile_failed */ });
-
-    function turnstileToken() {
-      try { return (window.turnstile && widgetId != null) ? (window.turnstile.getResponse(widgetId) || '') : ''; }
-      catch (e) { return ''; }
-    }
-    function resetTurnstile() {
-      try { if (window.turnstile && widgetId != null) window.turnstile.reset(widgetId); } catch (e) { /* noop */ }
-    }
-
-    var currentEmail = '';
-
-    function setMsg(el, text, kind) {
-      el.textContent = text || '';
-      el.classList.toggle('is-error', kind === 'error');
-      el.classList.toggle('is-ok', kind === 'ok');
-    }
-
-    function startCooldown(seconds) {
-      var remaining = seconds;
-      resendBtn.disabled = true;
-      function tick() {
-        if (remaining <= 0) {
-          resendBtn.disabled = false;
-          resendBtn.textContent = 'Resend code';
-          resendCooldownTimer = null;
-          return;
-        }
-        resendBtn.textContent = 'Resend code (' + remaining + 's)';
-        remaining--;
-        resendCooldownTimer = setTimeout(tick, 1000);
-      }
-      tick();
-    }
-
-    function sendCode(isResend) {
-      var email = emailInput.value.trim();
-      if (!email) { setMsg(emailMsg, 'Enter your email address first.', 'error'); return; }
-      var btn = isResend ? resendBtn : sendBtn;
-      var msgEl = isResend ? codeMsg : emailMsg;
-      btn.disabled = true;
-      setMsg(msgEl, '', null);
-      apiSignupStart(email, turnstileToken())
-        .then(function () {
-          currentEmail = email;
-          codeEmailLabel.textContent = email;
-          stepEmail.hidden = true;
-          stepCode.hidden = false;
-          setMsg(codeMsg, isResend ? 'A new code is on its way.' : '', isResend ? 'ok' : null);
-          codeInput.value = '';
-          codeInput.focus();
-          startCooldown(30);
-        })
-        .catch(function (err) {
-          setMsg(msgEl, describeApiError(err), 'error');
-        })
-        .then(function () {
-          resetTurnstile();
-          btn.disabled = false;
-        });
-    }
-
-    function apiSignupStart(email, token) {
-      return labFetch('/api/signup/start', { method: 'POST', body: { email: email, purpose: 'signup', turnstileToken: token } });
-    }
-
-    sendBtn.addEventListener('click', function () { sendCode(false); });
-    emailInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') sendCode(false); });
-
-    resendBtn.addEventListener('click', function () {
-      emailInput.value = currentEmail;
-      sendCode(true);
-    });
-
-    backBtn.addEventListener('click', function () {
-      stepCode.hidden = true;
-      stepEmail.hidden = false;
-      setMsg(codeMsg, '', null);
-      if (resendCooldownTimer) { clearTimeout(resendCooldownTimer); resendCooldownTimer = null; }
-      resendBtn.disabled = false;
-      resendBtn.textContent = 'Resend code';
-      emailInput.focus();
-    });
-
-    function verify() {
-      var code = codeInput.value.trim();
-      if (!/^\d{6}$/.test(code)) { setMsg(codeMsg, 'Enter the 6-digit code from your email.', 'error'); return; }
-      verifyBtn.disabled = true;
-      setMsg(codeMsg, '', null);
-      labFetch('/api/signup/verify', { method: 'POST', body: { email: currentEmail, purpose: 'signup', code: code } })
-        .then(function () {
-          return refreshSession();
-        })
-        .then(function () {
-          closeLoginOverlay();
-          if (typeof opts.onSuccess === 'function') opts.onSuccess();
-        })
-        .catch(function (err) {
-          setMsg(codeMsg, describeApiError(err), 'error');
-          verifyBtn.disabled = false;
-        });
-    }
-    verifyBtn.addEventListener('click', verify);
-    codeInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') verify(); });
-    codeInput.addEventListener('paste', function () {
-      setTimeout(function () { codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 6); }, 0);
-    });
+    closeBtn.focus();
   }
 
   /* ---------------------------------------------------------------------
-   * Navbar control — identical markup/behavior on all 11 pages, wired here.
+   * Navbar control — identical markup/behavior on all 11 pages
    * --------------------------------------------------------------------- */
 
   function renderNavAuth(session) {
     var nav = document.getElementById('acadAuthNav');
     if (!nav) return;
-    var signIn = document.getElementById('acadAuthSignIn');
+    var signInEl = document.getElementById('acadAuthSignIn');
     var accountBtn = document.getElementById('acadAuthAccountBtn');
     var avatar = document.getElementById('acadAuthAvatar');
     var emailLabel = document.getElementById('acadAuthEmailLabel');
-    if (!signIn || !accountBtn) return;
+    if (!signInEl || !accountBtn) return;
     if (session.loggedIn) {
-      signIn.hidden = true;
+      signInEl.hidden = true;
       accountBtn.hidden = false;
       var email = session.email || '';
       if (avatar) avatar.textContent = email ? email.charAt(0).toUpperCase() : '?';
       if (emailLabel) emailLabel.textContent = email;
     } else {
-      signIn.hidden = false;
+      signInEl.hidden = false;
       accountBtn.hidden = true;
     }
   }
@@ -623,11 +703,15 @@
     renderNavAuth(getSession());
     document.addEventListener('academy-auth-changed', function (e) { renderNavAuth(e.detail.session); });
 
-    var signIn = document.getElementById('acadAuthSignIn');
-    if (signIn) {
-      signIn.addEventListener('click', function (e) {
+    var signInEl = document.getElementById('acadAuthSignIn');
+    if (signInEl) {
+      // The element is a real <a href="/auth/start?..."> so it still works with JS disabled (it
+      // then does the full-page redirect flow). Intercept it here only to upgrade that to the
+      // nicer pop-up, and let the plain navigation stand if anything goes wrong.
+      signInEl.addEventListener('click', function (e) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();
-        openLoginOverlay({});
+        signIn({});
       });
     }
 
@@ -637,61 +721,33 @@
       var action = actionEl.getAttribute('data-acad-auth-action');
       if (action === 'signout') {
         e.preventDefault();
-        signOut().then(function () {
-          window.location.reload();
-        }).catch(function () { /* best-effort */ });
+        signOut().then(function () { window.location.reload(); }).catch(function () { /* best-effort */ });
       } else if (action === 'signout-all') {
         e.preventDefault();
-        authConfirm({
-          title: 'Sign out of every other device?',
-          message: 'This revokes every OTHER active session for your account (this browser tab stays signed in). Connected apps lose their access too.',
-          confirmLabel: 'Sign out everywhere',
-          danger: true
-        }).then(function (ok) {
-          if (!ok) return;
-          signOutEverywhere().catch(function () { /* best-effort */ });
-        });
-      } else if (action === 'delete') {
-        e.preventDefault();
-        confirmAndDeleteAccount();
+        confirmSignOutEverywhere();
       }
-      // 'profile' / 'certificates' are plain <a href="/academy#..."> — no JS needed.
+      // 'profile' / 'certificates' / 'manage-account' are plain links — no JS needed.
     });
   }
 
-  function confirmAndDeleteAccount() {
-    var typedOk = false;
-    authConfirm({
-      title: 'Delete your account?',
-      message: 'This permanently erases your account across BOTH the Academy (integrauth.com) and the IntegrAuth Lab (lab.integrauth.com) — every lesson’s progress, quiz results, exam attempts, certificates, and passkeys. This cannot be undone. Type DELETE to confirm.',
-      confirmLabel: 'Delete my account',
-      danger: true,
-      requireTyped: true,
-      extra: function (setOkEnabled) {
-        var input = mk('input', { type: 'text', class: 'acad-lab-input', placeholder: 'Type DELETE', autocomplete: 'off' });
-        input.addEventListener('input', function () {
-          typedOk = input.value.trim().toUpperCase() === 'DELETE';
-          setOkEnabled(typedOk);
-        });
-        return mk('div', { class: 'acad-lab-field' }, [input]);
-      }
+  function confirmSignOutEverywhere() {
+    return authConfirm({
+      title: 'Sign out on all your devices?',
+      message: 'This signs you out of the Academy everywhere, including this browser. It does not ' +
+        'sign you out of lab.integrauth.com — use your account page there for that.',
+      confirmLabel: 'Sign out everywhere',
+      danger: true
     }).then(function (ok) {
-      if (!ok || !typedOk) return;
-      deleteAccount().then(function () {
-        window.location.href = '/';
-      }).catch(function (err) {
-        if (err && err.code === 'step_up_required') {
-          window.alert('Your account has an extra security step (TOTP) enabled, which this site can’t satisfy yet. Please delete your account from lab.integrauth.com instead.');
-        } else {
-          window.alert('Couldn’t delete your account right now. Please try again in a moment.');
-        }
-      });
+      if (!ok) return;
+      return signOutEverywhere().then(function () {
+        window.location.reload();
+      }).catch(function () { /* best-effort */ });
     });
   }
 
   /* ---------------------------------------------------------------------
    * academy.html-only: benefits info icon + #acadAccount panel.
-   * Both no-op cleanly on every other page (elements simply don't exist).
+   * Both no-op cleanly on every other page (the elements simply don't exist).
    * --------------------------------------------------------------------- */
 
   function wireBenefitsInfo() {
@@ -700,7 +756,7 @@
     var popover = null;
     icon.addEventListener('click', function () {
       if (!getSession().loggedIn) {
-        openLoginOverlay({ reason: 'Sign in to sync your progress across devices and save your certificate permanently.' });
+        signIn({ reason: 'Sign in to sync your progress across devices and save your certificate permanently.' });
         return;
       }
       if (window.bootstrap && window.bootstrap.Popover) {
@@ -723,24 +779,19 @@
     try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); }
     catch (e) { return iso.slice(0, 10); }
   }
-  function fmtDateTime(iso) {
-    if (!iso) return '—';
-    try { return new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-    catch (e) { return iso; }
-  }
 
   function renderAccountPanel() {
     var host = document.getElementById('acadAccountPanel');
     if (!host) return;
-    var session = getSession();
     host.innerHTML = '';
 
+    var session = getSession();
     if (!session.loggedIn) {
       host.appendChild(mk('p', { class: 'acad-lab-note' }, 'Sign in to manage your profile, devices and data.'));
       host.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('button', {
           type: 'button', class: 'acad-lab-btn primary',
-          onclick: function () { openLoginOverlay({ onSuccess: renderAccountPanel }); }
+          onclick: function () { signIn({ onSuccess: renderAccountPanel }); }
         }, 'Sign in')
       ]));
       return;
@@ -748,7 +799,10 @@
 
     host.appendChild(mk('p', { class: 'acad-lab-note' }, 'Loading your account…'));
 
-    Promise.all([getProfile().catch(function () { return null; }), refreshSession()]).then(function (results) {
+    Promise.all([
+      getProfile().catch(function () { return null; }),
+      refreshSession()
+    ]).then(function (results) {
       var profile = results[0];
       var acct = results[1];
       host.innerHTML = '';
@@ -757,20 +811,77 @@
       var profileBox = mk('div', { class: 'acad-lab-panel' });
       profileBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Profile'));
       profileBox.appendChild(mk('p', { class: 'acad-lab-note' }, 'Signed in as ' + (acct.email || '—') + '.'));
-      if (profile && profile.firstName && profile.lastName) {
+      // The name is LOCKED once a certificate has been issued, so a certificate's holder name can
+      // never be edited out from under a verifier who already checked it. Show it read-only in that
+      // case and say why, rather than offering a field that the server would reject.
+      if (profile && profile.nameLocked && profile.firstName && profile.lastName) {
         profileBox.appendChild(mk('p', null, [
           'Certificate name: ',
           mk('strong', null, profile.firstName + ' ' + profile.lastName),
-          profile.nameLocked ? mk('span', { class: 'acad-lab-badge neutral' }, ' locked after first certificate') : null
+          mk('span', { class: 'acad-lab-badge neutral' }, ' locked after first certificate')
         ]));
       } else {
-        profileBox.appendChild(mk('p', { class: 'acad-lab-note' }, 'No certificate name set yet — you’ll be asked for one the first time you earn a certificate.'));
+        // An actual editable form. This used to be absent, which made the "Add your name" nudge a
+        // dead end: it scrolled the learner to this panel and there was nothing here to type into.
+        profileBox.appendChild(mk('p', { class: 'acad-lab-note' },
+          profile && profile.firstName
+            ? 'This is the name that will appear on your certificate. You can change it until your first certificate is issued, after which it is locked.'
+            : 'Set the name you want on your certificate. You can change it any time until your first certificate is issued.'));
+
+        var firstInput = mk('input', {
+          type: 'text', class: 'acad-lab-input', autocomplete: 'given-name',
+          maxlength: '80', placeholder: 'First name',
+          value: (profile && profile.firstName) || ''
+        });
+        var lastInput = mk('input', {
+          type: 'text', class: 'acad-lab-input', autocomplete: 'family-name',
+          maxlength: '80', placeholder: 'Last name',
+          value: (profile && profile.lastName) || ''
+        });
+        var nameMsg = mk('div', { class: 'acad-auth-msg', role: 'alert' });
+        var saveBtn = mk('button', { type: 'button', class: 'acad-lab-btn primary' }, 'Save name');
+
+        saveBtn.addEventListener('click', function () {
+          var f = firstInput.value.trim();
+          var l = lastInput.value.trim();
+          // Mirrors the server's own rule (it rejects empty/whitespace names) so the learner gets
+          // an instant answer instead of a round trip that fails.
+          if (!f || !l) {
+            nameMsg.textContent = 'Please enter both a first and a last name.';
+            nameMsg.className = 'acad-auth-msg is-error';
+            return;
+          }
+          saveBtn.disabled = true;
+          nameMsg.textContent = '';
+          nameMsg.className = 'acad-auth-msg';
+          saveProfile({ firstName: f, lastName: l }).then(function () {
+            // Stop nagging: the nudge exists only to get a name, and there now is one.
+            dismissProfileNudge();
+            renderAccountPanel();
+          }).catch(function (err) {
+            nameMsg.textContent = describeApiError(err);
+            nameMsg.className = 'acad-auth-msg is-error';
+            saveBtn.disabled = false;
+            if (err && err.status === 401) refreshSession();
+          });
+        });
+
+        profileBox.appendChild(mk('label', { class: 'acad-lab-field' }, [
+          mk('span', { class: 'acad-lab-field-label' }, 'First name'), firstInput
+        ]));
+        profileBox.appendChild(mk('label', { class: 'acad-lab-field' }, [
+          mk('span', { class: 'acad-lab-field-label' }, 'Last name'), lastInput
+        ]));
+        profileBox.appendChild(nameMsg);
+        profileBox.appendChild(mk('div', { class: 'acad-lab-row' }, [saveBtn]));
       }
       host.appendChild(profileBox);
 
-      // --- sessions / devices ---
+      // --- devices ---
       var sessBox = mk('div', { class: 'acad-lab-panel' });
-      sessBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Active sessions'));
+      sessBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Where you’re signed in'));
+      sessBox.appendChild(mk('p', { class: 'acad-lab-note' },
+        'Academy sessions only. Sessions at lab.integrauth.com are listed on your account page there.'));
       var sessions = acct.sessions || [];
       if (!sessions.length) {
         sessBox.appendChild(mk('p', { class: 'acad-lab-note' }, 'No session data available.'));
@@ -778,7 +889,7 @@
         sessions.forEach(function (s) {
           var row = mk('div', { class: 'acad-lab-row acad-auth-device-row' }, [
             mk('p', { class: 'acad-lab-note' }, [
-              (s.ua_summary || 'Unknown device') + ' · last active ' + fmtDate(s.last_seen_at) + ' · started ' + fmtDate(s.created_at),
+              (s.device || 'Unknown device') + ' · last active ' + fmtDate(s.lastSeenAt) + ' · started ' + fmtDate(s.createdAt),
               s.current ? mk('span', { class: 'acad-lab-badge info' }, ' this device') : null
             ])
           ]);
@@ -793,9 +904,31 @@
       }
       host.appendChild(sessBox);
 
-      // --- danger zone ---
+      // --- account-wide actions, which live at the Lab ---
+      //
+      // Deleting the account and signing out of the Lab itself are deliberately NOT done from
+      // here. Both are operations on the SHARED account, and under the OIDC design this site holds
+      // no credential that permits them — the Lab is the single canonical owner of the account
+      // lifecycle (its erasure path is what cascades a deletion across both apps' data, including
+      // everything the Academy stores). Linking out is the honest interface; reimplementing either
+      // one here would mean a second, divergent deletion path.
+      var acctBox = mk('div', { class: 'acad-lab-panel' });
+      acctBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Account'));
+      acctBox.appendChild(mk('p', { class: 'acad-lab-note' },
+        'Your Academy account is the same account as lab.integrauth.com. Changing your email, ' +
+        'managing passkeys or two-factor, and deleting your account are all done there — deleting ' +
+        'it removes your Academy progress, exam attempts and certificates too.'));
+      acctBox.appendChild(mk('div', { class: 'acad-lab-row' }, [
+        mk('a', {
+          class: 'acad-lab-btn', href: LAB_ORIGIN + '/account',
+          target: '_blank', rel: 'noopener noreferrer'
+        }, 'Manage account at the Lab ↗')
+      ]));
+      host.appendChild(acctBox);
+
+      // --- session actions ---
       var dangerBox = mk('div', { class: 'acad-lab-panel' });
-      dangerBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Danger zone'));
+      dangerBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Sign out'));
       dangerBox.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('button', {
           type: 'button', class: 'acad-lab-btn',
@@ -803,19 +936,8 @@
         }, 'Sign out'),
         mk('button', {
           type: 'button', class: 'acad-lab-btn',
-          onclick: function () {
-            authConfirm({
-              title: 'Sign out of every other device?',
-              message: 'This revokes every OTHER active session for your account (this browser tab stays signed in). Connected apps lose their access too.',
-              confirmLabel: 'Sign out everywhere',
-              danger: true
-            }).then(function (ok) { if (ok) signOutEverywhere().then(renderAccountPanel); });
-          }
-        }, 'Sign out everywhere'),
-        mk('button', {
-          type: 'button', class: 'acad-lab-btn danger',
-          onclick: confirmAndDeleteAccount
-        }, 'Delete account')
+          onclick: confirmSignOutEverywhere
+        }, 'Sign out everywhere')
       ]));
       host.appendChild(dangerBox);
     });
@@ -836,7 +958,17 @@
     wireNavAuth();
     wireBenefitsInfo();
     wireAccountPanel();
-    refreshSession();
+
+    // Render from cache first (instant, no flash of the wrong state), then confirm with the
+    // server. `force` so listeners get one event to draw their initial state from.
+    saveCachedSession(getSession(), true);
+
+    // Only ask the server if there is a server to ask. On GitHub Pages, before the DNS cutover,
+    // /auth/session is a 404 — probing first keeps a failed fetch out of the console on every page
+    // load of the currently-live site.
+    isApiAvailable().then(function (available) {
+      if (available) refreshSession();
+    });
   }
 
   if (document.readyState === 'loading') {
@@ -848,14 +980,16 @@
   window.AcademyAuth = {
     getSession: getSession,
     refreshSession: refreshSession,
-    checkOnFocus: checkOnFocus,
-    openLoginOverlay: openLoginOverlay,
-    closeLoginOverlay: closeLoginOverlay,
-    signOutEverywhere: signOutEverywhere,
+    isApiAvailable: isApiAvailable,
+    signIn: signIn,
+    signInViaRedirect: signInViaRedirect,
+    closeSignInOverlay: closeSignInOverlay,
     signOut: signOut,
+    signOutEverywhere: signOutEverywhere,
     revokeSession: revokeSession,
-    deleteAccount: deleteAccount,
     syncProgress: syncProgress,
+    getProgress: getProgress,
+    resetProgress: resetProgress,
     getProfile: getProfile,
     saveProfile: saveProfile,
     recordExamAttempt: recordExamAttempt,

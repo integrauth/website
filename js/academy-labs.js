@@ -7005,7 +7005,12 @@ AcadLabs.register('lab-exam', {
         h.el('div', { 'class': 'acad-lab-row' }, [
           h.button('Sign in to continue', 'primary', function () {
             if (!authApi) return;
-            authApi.openLoginOverlay({
+            // signIn() opens the OIDC pop-up at lab.integrauth.com (it replaced the in-page
+            // email + one-time-code overlay). It checks first whether this host actually serves
+            // /auth/* and explains itself instead of failing if not — so on GitHub Pages, before
+            // the DNS cutover, this button says "accounts aren't available yet" rather than
+            // throwing. The remount is still needed because signing in does not reload the page.
+            authApi.signIn({
               reason: 'Sign in to take the final exam and get your certificate.',
               onSuccess: function () {
                 if (window.AcadLabs) window.AcadLabs.remountWithin(document.getElementById('acadExam'));

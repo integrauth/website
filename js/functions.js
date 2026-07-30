@@ -564,6 +564,46 @@ function initAcademy() {
   // the server's schema is keyed by TRACK id with a revealed-question bitmask, so the
   // two helpers below translate between them via each quiz lesson's own data-track.
   const KEY_POS_AT = 'acad_pos_at';
+  const KEY_EXAM = 'acad_exam'; // lab-exam's own saved best-score/passed record (academy-labs.js)
+  const KEY_OWNER = 'acad_owner'; // userId this browser's local progress currently belongs to
+
+  // Reset epoch: the server's per-learner counter, bumped every time progress is reset. This
+  // device remembers the value it last saw and presents it on every sync. It exists because the
+  // sync merges by UNION, which has no way to express a deletion — so before the epoch, pressing
+  // "Reset track" cleared the local marks, the debounced sync fired ~800ms later, the server
+  // unioned every id back in, and the checkmarks visibly REAPPEARED. Deleting on the server alone
+  // was not enough either: any other device still holding the old progress re-uploaded its stale
+  // copy on its next sync and the reset silently un-happened somewhere else.
+  const KEY_EPOCH = 'acad_epoch';
+
+  function storedEpoch() {
+    try {
+      const raw = localStorage.getItem(KEY_EPOCH);
+      const n = raw === null ? 0 : parseInt(raw, 10);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    } catch (e) { return 0; }
+  }
+
+  function saveEpoch(epoch) {
+    try { localStorage.setItem(KEY_EPOCH, String(epoch)); } catch (e) {}
+  }
+
+  // All of this browser's Academy progress in one place, so both call sites below (account
+  // switch, sign-out) wipe the same list instead of drifting out of sync with each other.
+  function clearLocalProgress() {
+    try {
+      localStorage.removeItem(KEY_READ);
+      localStorage.removeItem(KEY_QUIZ);
+      localStorage.removeItem(KEY_POS);
+      localStorage.removeItem(KEY_POS_AT);
+      localStorage.removeItem(KEY_EXAM);
+      // The reset epoch belongs to an ACCOUNT, not to this browser, so a different account's
+      // remembered value is meaningless here. Dropping it makes the next sync look stale, which is
+      // the safe direction: the server answers with canonical truth and the current epoch, and this
+      // device adopts both instead of uploading progress under the wrong epoch.
+      localStorage.removeItem(KEY_EPOCH);
+    } catch (e) {}
+  }
 
   function quizLessonIdForTrack(track) {
     for (let i = 0; i < lessons.length; i++) {
@@ -597,7 +637,14 @@ function initAcademy() {
       const posId = localStorage.getItem(KEY_POS);
       if (posId) lastPosition = { lessonId: posId, updatedAt: localStorage.getItem(KEY_POS_AT) || new Date(0).toISOString() };
     } catch (e) {}
-    return { readLessons: Array.from(readSet()), quizMasks: quizMasks, lastPosition: lastPosition };
+    return {
+      readLessons: Array.from(readSet()),
+      quizMasks: quizMasks,
+      lastPosition: lastPosition,
+      // The server compares this against its own counter and IGNORES this whole payload if we are
+      // behind — meaning this device is holding progress from before a reset it hasn't seen yet.
+      epoch: storedEpoch()
+    };
   }
 
   let acadApplyingServerProgress = false;
@@ -605,38 +652,76 @@ function initAcademy() {
   // Merges the server's canonical progress DOWN into local storage — a pure union for
   // read lessons and quiz-reveal masks (never removes/overwrites an already-marked
   // item), and a last-write-wins-by-timestamp replace for "where was I last reading."
+  //
+  // EXCEPT after a reset. If the server reports an epoch different from the one this device last
+  // saw, its answer is not a merge candidate but the post-reset truth, and it must REPLACE local
+  // state rather than be unioned into it. Union would be exactly wrong here: the server's
+  // readLessons is empty after a reset, and unioning an empty set into a full local one changes
+  // nothing — the reset would appear to have done nothing on this device.
   function applyServerProgress(server) {
     if (!server) return;
+    const serverEpoch = typeof server.epoch === 'number' ? server.epoch : null;
+    const authoritative = serverEpoch !== null && serverEpoch !== storedEpoch();
     acadApplyingServerProgress = true;
     try {
-      if (Array.isArray(server.readLessons) && server.readLessons.length) {
-        const merged = readSet();
-        server.readLessons.forEach(function (id) { merged.add(id); });
-        saveRead(merged);
-      }
-      if (server.quizMasks && typeof server.quizMasks === 'object') {
-        const qStore = quizStore();
-        Object.keys(server.quizMasks).forEach(function (track) {
-          const lessonId = quizLessonIdForTrack(track);
-          if (!lessonId) return;
-          const mergedMask = maskFromIndices(qStore[lessonId]) | (server.quizMasks[track] | 0);
-          qStore[lessonId] = indicesFromMask(mergedMask);
-        });
-        saveQuizStore(qStore);
-      }
-      if (server.lastPosition && server.lastPosition.lessonId) {
-        let localAt = null;
-        try { localAt = localStorage.getItem(KEY_POS_AT); } catch (e) {}
-        const serverAt = server.lastPosition.updatedAt || null;
-        if (!localAt || (serverAt && Date.parse(serverAt) > Date.parse(localAt))) {
-          try {
-            localStorage.setItem(KEY_POS, server.lastPosition.lessonId);
-            localStorage.setItem(KEY_POS_AT, serverAt || new Date().toISOString());
-          } catch (e) {}
+      if (authoritative) {
+        // Adopt the server's state verbatim, including its emptiness.
+        saveRead(new Set(Array.isArray(server.readLessons) ? server.readLessons : []));
+        const qStore = {};
+        if (server.quizMasks && typeof server.quizMasks === 'object') {
+          Object.keys(server.quizMasks).forEach(function (track) {
+            const lessonId = quizLessonIdForTrack(track);
+            if (lessonId) qStore[lessonId] = indicesFromMask(server.quizMasks[track] | 0);
+          });
         }
+        saveQuizStore(qStore);
+        try {
+          if (server.lastPosition && server.lastPosition.lessonId) {
+            localStorage.setItem(KEY_POS, server.lastPosition.lessonId);
+            localStorage.setItem(KEY_POS_AT, server.lastPosition.updatedAt || new Date().toISOString());
+          } else {
+            localStorage.removeItem(KEY_POS);
+            localStorage.removeItem(KEY_POS_AT);
+          }
+        } catch (e) {}
+        // Clear the on-page marks too, or a lesson still shows its ✓ until the next navigation.
+        document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress, .acad-lab-gate')
+          .forEach(function (el) { el.remove(); });
+        saveEpoch(serverEpoch);
+      } else {
+        if (Array.isArray(server.readLessons) && server.readLessons.length) {
+          const merged = readSet();
+          server.readLessons.forEach(function (id) { merged.add(id); });
+          saveRead(merged);
+        }
+        if (server.quizMasks && typeof server.quizMasks === 'object') {
+          const qStore = quizStore();
+          Object.keys(server.quizMasks).forEach(function (track) {
+            const lessonId = quizLessonIdForTrack(track);
+            if (!lessonId) return;
+            const mergedMask = maskFromIndices(qStore[lessonId]) | (server.quizMasks[track] | 0);
+            qStore[lessonId] = indicesFromMask(mergedMask);
+          });
+          saveQuizStore(qStore);
+        }
+        if (server.lastPosition && server.lastPosition.lessonId) {
+          let localAt = null;
+          try { localAt = localStorage.getItem(KEY_POS_AT); } catch (e) {}
+          const serverAt = server.lastPosition.updatedAt || null;
+          if (!localAt || (serverAt && Date.parse(serverAt) > Date.parse(localAt))) {
+            try {
+              localStorage.setItem(KEY_POS, server.lastPosition.lessonId);
+              localStorage.setItem(KEY_POS_AT, serverAt || new Date().toISOString());
+            } catch (e) {}
+          }
+        }
+        if (serverEpoch !== null) saveEpoch(serverEpoch);
       }
     } finally {
       acadApplyingServerProgress = false;
+    }
+    if (authoritative && window.AcadLabs && typeof window.AcadLabs.remountAll === 'function') {
+      try { window.AcadLabs.remountAll(); } catch (e) {}
     }
     updateProgress();
     const activeLesson = lessons.filter(function (s) { return s.classList.contains('is-active'); })[0];
@@ -658,12 +743,93 @@ function initAcademy() {
       acadSyncTimer = null;
       window.AcademyAuth.syncProgress(localSyncSnapshot())
         .then(applyServerProgress)
-        .catch(function () { /* best-effort — this device's local state remains authoritative for itself */ });
+        .catch(handleSyncError);
     }, 800);
   }
 
+  // A 401 mid-sync means the session ended server-side sometime after this tab last
+  // checked in (idle timeout, revoke-all from another device, mid-exam expiry) — silently
+  // swallowing it (the old behaviour) leaves the UI still believing it's signed in and
+  // just re-fails on every future debounce tick with no way out for the learner.
+  // refreshSession() re-checks with the Lab and, finding no session, fires
+  // academy-auth-changed(loggedIn:false) itself, which is what actually flips the UI
+  // (including the exam panel below) to the honest signed-out state — no retry loop here,
+  // just handing off to the one place session truth already lives.
+  function handleSyncError(err) {
+    if (err && err.status === 401 && window.AcademyAuth && typeof window.AcademyAuth.refreshSession === 'function') {
+      window.AcademyAuth.refreshSession();
+      return;
+    }
+    /* otherwise: best-effort — this device's local state remains authoritative for itself */
+  }
+
+  // Flush a pending debounced sync immediately instead of losing it to a closing tab.
+  // Reuses scheduleSync's own timer/state rather than a second scheduler — this only ever fires
+  // early what scheduleSync already queued. Two separate losses are being closed here: the up-to-
+  // 800ms debounce window (fixed by firing now), and the browser cancelling an in-flight fetch when
+  // the page goes away (fixed by `keepalive`, which lets the request outlive the document). Without
+  // both, a learner who finishes a lesson and immediately closes the tab loses that read mark.
+  // No applyServerProgress() on this path: the page is going away, so there is nothing left to
+  // apply the merged response to, and touching localStorage during unload is a good way to race.
+  function flushPendingSync() {
+    if (!acadSyncTimer) return;
+    clearTimeout(acadSyncTimer);
+    acadSyncTimer = null;
+    if (acadApplyingServerProgress) return;
+    if (!window.AcademyAuth || !window.AcademyAuth.getSession().loggedIn) return;
+    window.AcademyAuth.syncProgress(localSyncSnapshot(), { keepalive: true })
+      .catch(handleSyncError);
+  }
+
+  // iOS Safari doesn't reliably fire pagehide on tab close/swipe-away, so both events are
+  // wired — whichever the browser actually delivers, the pending write goes out instead of
+  // silently dying with the tab.
+  window.addEventListener('pagehide', flushPendingSync);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') flushPendingSync();
+  });
+
+  // Local progress (acad_read/acad_quiz/acad_pos/acad_pos_at/acad_exam) lives in this
+  // BROWSER, not tied to any account — so on a shared/kiosk machine, if learner A signs
+  // out and learner B signs in next on the same browser, B's very first debounced sync
+  // would upload A's read-lessons and quiz-reveals as B's own. Worse, A's saved acad_exam
+  // record (best score + passed flag) would still be sitting in localStorage, so
+  // lab-exam's "claim this local pass as your certificate" offer (academy-labs.js) would
+  // hand B a real, permanently-verifiable certificate (see /verify) for an exam A took —
+  // one click away from a false credential in B's name. acad_owner pins this browser's
+  // local progress to the userId that produced it: a mismatch means the state on this
+  // device belongs to someone else and must be thrown away before sync — or the exam
+  // panel's remount below — ever gets a chance to read or upload it. No owner recorded
+  // yet means the existing local progress predates any sign-in on this browser, which is
+  // the intentional "carry my anonymous progress into my new account" path — it's simply
+  // claimed (stamped), not wiped.
   document.addEventListener('academy-auth-changed', function (e) {
-    if (e.detail && e.detail.session && e.detail.session.loggedIn) scheduleSync();
+    const session = e.detail && e.detail.session;
+    if (session && session.loggedIn) {
+      let owner = null;
+      try { owner = localStorage.getItem(KEY_OWNER); } catch (err) {}
+      if (owner && owner !== session.userId) clearLocalProgress();
+      try { localStorage.setItem(KEY_OWNER, session.userId); } catch (err) {}
+      updateProgress();
+      scheduleSync();
+    } else {
+      clearLocalProgress();
+      try { localStorage.removeItem(KEY_OWNER); } catch (err) {}
+      updateProgress();
+    }
+    // The exam panel (academy-labs.js's lab-exam) renders its sign-in wall / unlocked
+    // exam / claim-a-local-pass offer by reading window.AcademyAuth.getSession() and
+    // localStorage at render time only — nothing re-renders it when auth state changes
+    // later, so a learner who signs in mid-visit would keep seeing the sign-in wall (or a
+    // freshly-signed-out learner would keep seeing the exam) until a manual reload.
+    // AcadLabs.remountWithin() is the labs framework's existing tear-down-and-re-render
+    // hook — already used by "Reset track"/"Reset all progress" and by lab-exam's own
+    // sign-in button after a successful login — so reusing it here re-renders just
+    // #acadExam's lab host against the new session, with no extra mechanism invented.
+    const examHost = document.getElementById('acadExam');
+    if (examHost && window.AcadLabs && typeof window.AcadLabs.remountWithin === 'function') {
+      window.AcadLabs.remountWithin(examHost);
+    }
   });
 
   function isQuizLesson(lesson) {
@@ -867,7 +1033,11 @@ function initAcademy() {
     hub.hidden = false;
     lessons.forEach(function (s) { s.classList.remove('is-active'); });
     if (location.hash) history.replaceState(null, '', location.pathname);
-    try { localStorage.removeItem(KEY_POS); } catch (e) {}
+    // Both must clear together: leaving KEY_POS_AT behind after KEY_POS is gone means the
+    // NEXT server sync sees "no local position, but a recent-looking timestamp" and, being
+    // last-write-wins by timestamp, can resurrect the exact lesson the learner just backed
+    // out of the moment the server's own lastPosition is older than that stale timestamp.
+    try { localStorage.removeItem(KEY_POS); localStorage.removeItem(KEY_POS_AT); } catch (e) {}
     updateProgress();
     const focusEl = focusId ? document.getElementById(focusId) : null;
     if (focusEl) {
@@ -1182,7 +1352,9 @@ function initAcademy() {
     const items = trackLessons(track);
     const read = readSet();
     const store = quizStore();
+    const lessonIds = [];
     items.forEach(function (s) {
+      lessonIds.push(s.id);
       read.delete(s.id);
       delete store[s.id];
       s.querySelectorAll('.acad-quiz-check, .acad-quiz-progress, .acad-lab-gate').forEach(function (el) { el.remove(); });
@@ -1192,7 +1364,27 @@ function initAcademy() {
     });
     saveRead(read);
     saveQuizStore(store);
+    pushResetToServer({ scope: 'track', lessonIds: lessonIds, trackIds: [track] });
     showHub();
+  }
+
+  // Tells the server about a reset — the one progress change the union-merge sync cannot carry.
+  //
+  // The first thing this does is CANCEL the pending debounced sync, and that ordering is the whole
+  // point. saveRead()/saveQuizStore() above have just queued a sync whose payload still describes
+  // this device's pre-reset state on some points; letting it fire would re-upload what we are in
+  // the middle of deleting. (Before the reset endpoint existed, that queued sync was itself the
+  // bug: the checkmarks came back roughly 800ms after the learner pressed Reset.)
+  //
+  // A no-op when signed out: there is no server-side progress to delete, and the local clear the
+  // caller already did is the entire operation.
+  function pushResetToServer(payload) {
+    if (acadSyncTimer) { clearTimeout(acadSyncTimer); acadSyncTimer = null; }
+    if (!window.AcademyAuth || !window.AcademyAuth.getSession().loggedIn) return;
+    if (typeof window.AcademyAuth.resetProgress !== 'function') return;
+    window.AcademyAuth.resetProgress(payload)
+      .then(applyServerProgress)
+      .catch(handleSyncError);
   }
 
   document.querySelectorAll('.acad-reset-track').forEach(function (btn) {
@@ -1218,13 +1410,16 @@ function initAcademy() {
       danger: true
     }).then(function (ok) {
       if (!ok) return;
-      try {
-        localStorage.removeItem(KEY_POS);
-        localStorage.removeItem(KEY_READ);
-        localStorage.removeItem(KEY_QUIZ);
-        localStorage.removeItem('acad_exam');
-      } catch (e) {}
+      // Uses the shared helper rather than its own list: this used to miss KEY_POS_AT, which meant
+      // "reset everything" left the last-position TIMESTAMP behind. Since last-position sync is
+      // last-write-wins by that timestamp, the server then pushed the just-reset position straight
+      // back on the next sync. KEY_OWNER is deliberately NOT cleared — resetting your progress is
+      // not signing out, so this browser's progress still belongs to the same account.
+      clearLocalProgress();
       document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress, .acad-lab-gate').forEach(function (el) { el.remove(); });
+      // Delete it on the server too, so the reset survives and does not get re-unioned back by this
+      // device's queued sync or by the next device to come online. Signed out, this is a no-op.
+      pushResetToServer({ scope: 'all' });
       // Re-render on-screen labs (Challenge, Final Exam, Flow Explorer) back to their start state.
       if (window.AcadLabs && typeof window.AcadLabs.remountAll === 'function') {
         try { window.AcadLabs.remountAll(); } catch (e) {}

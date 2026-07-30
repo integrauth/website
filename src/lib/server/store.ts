@@ -167,6 +167,39 @@ export async function listLessonProgress(db: D1Database, userId: string): Promis
   return results.map((r) => r.lesson_id);
 }
 
+/**
+ * Deletes read marks — all of them, or just the named lessons.
+ *
+ * This is the one operation the union-shaped sync protocol has no way to express, which is why it
+ * needs its own route and the epoch machinery below. See `bumpProgressEpoch`.
+ *
+ * `lessonIds` is supplied by the CLIENT for a track-scoped reset, and that is not laziness: the
+ * curriculum (which lesson belongs to which track) lives entirely in academy.html's DOM and
+ * functions.js, and the server has never had a copy of it. Deleting by an explicit, validated,
+ * length-capped id list keeps the server from having to duplicate a 133-lesson mapping it would
+ * then have to keep in sync with the front end forever. The blast radius is bounded by the fact
+ * that every id is scoped to `user_id` — a caller can only ever delete their own rows.
+ */
+export async function deleteLessonProgress(
+  db: D1Database,
+  userId: string,
+  lessonIds?: string[]
+): Promise<number> {
+  if (lessonIds === undefined) {
+    const result = await db
+      .prepare('DELETE FROM academy_lesson_progress WHERE user_id = ?')
+      .bind(userId)
+      .run();
+    return result.meta?.changes ?? 0;
+  }
+  if (lessonIds.length === 0) return 0;
+  const stmt = db.prepare(
+    'DELETE FROM academy_lesson_progress WHERE user_id = ? AND lesson_id = ?'
+  );
+  const results = await db.batch(lessonIds.map((lessonId) => stmt.bind(userId, lessonId)));
+  return results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);
+}
+
 // ---------------------------------------------------------------------------
 // academy_quiz_progress
 // ---------------------------------------------------------------------------
@@ -213,6 +246,73 @@ export async function listQuizProgress(
   return out;
 }
 
+/** Deletes revealed-question masks — all of them, or just one track's. */
+export async function deleteQuizProgress(
+  db: D1Database,
+  userId: string,
+  trackIds?: string[]
+): Promise<number> {
+  if (trackIds === undefined) {
+    const result = await db
+      .prepare('DELETE FROM academy_quiz_progress WHERE user_id = ?')
+      .bind(userId)
+      .run();
+    return result.meta?.changes ?? 0;
+  }
+  if (trackIds.length === 0) return 0;
+  const stmt = db.prepare('DELETE FROM academy_quiz_progress WHERE user_id = ? AND track_id = ?');
+  const results = await db.batch(trackIds.map((trackId) => stmt.bind(userId, trackId)));
+  return results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);
+}
+
+// ---------------------------------------------------------------------------
+// academy_progress_epoch — the reset channel for a union-merge protocol
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads a learner's current reset epoch. Absent row ⇒ 0 (never reset).
+ *
+ * WHY AN EPOCH AT ALL. Progress sync merges by union — read lessons are set membership, quiz
+ * reveals are OR-ed masks — which is what makes it safe for a device that has been offline to
+ * reconnect without deleting anything another device has since done. The cost of that choice is
+ * that a union has no way to express a DELETION, and "Reset this track" / "Reset all progress" are
+ * exactly deletions. Before the epoch, those buttons undid themselves: local marks were cleared,
+ * the debounced sync fired, and the server unioned every id the client had just deleted straight
+ * back in. Deleting server-side alone is still not enough — any OTHER device holding the old
+ * progress re-unions its stale copy on its next sync, so the reset silently un-happens later on a
+ * different machine.
+ *
+ * The epoch fixes that without changing the merge: each device remembers the epoch it last saw and
+ * presents it on sync. A device whose epoch is behind the server's is holding pre-reset state, so
+ * its payload is ignored and it is handed canonical truth plus the new epoch instead.
+ */
+export async function getProgressEpoch(db: D1Database, userId: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT epoch FROM academy_progress_epoch WHERE user_id = ?')
+    .bind(userId)
+    .first<{ epoch: number }>();
+  return row?.epoch ?? 0;
+}
+
+/**
+ * Increments the reset epoch and returns the new value.
+ *
+ * Incremented in SQL (`epoch = epoch + 1`) rather than read-then-write, so two resets racing from
+ * two devices cannot both read 3 and both write 4 — each lands its own increment.
+ */
+export async function bumpProgressEpoch(db: D1Database, userId: string): Promise<number> {
+  const nowIso = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO academy_progress_epoch (user_id, epoch, reset_at)
+       VALUES (?, 1, ?)
+       ON CONFLICT(user_id) DO UPDATE SET epoch = epoch + 1, reset_at = excluded.reset_at`
+    )
+    .bind(userId, nowIso)
+    .run();
+  return getProgressEpoch(db, userId);
+}
+
 // ---------------------------------------------------------------------------
 // academy_last_position
 // ---------------------------------------------------------------------------
@@ -256,6 +356,18 @@ export async function getLastPosition(
     .prepare('SELECT lesson_id, updated_at FROM academy_last_position WHERE user_id = ?')
     .bind(userId)
     .first<LastPositionRow>();
+}
+
+/**
+ * Clears the stored "where was I" marker.
+ *
+ * Part of a reset, and it needs its own call rather than riding on the lesson delete: last-position
+ * is the one field the sync merges last-write-wins by timestamp rather than by union, so leaving
+ * the row behind after a reset means the next sync happily restores the learner to the lesson they
+ * just reset out of. That was a real symptom of the pre-epoch behaviour.
+ */
+export async function clearLastPosition(db: D1Database, userId: string): Promise<void> {
+  await db.prepare('DELETE FROM academy_last_position WHERE user_id = ?').bind(userId).run();
 }
 
 // ---------------------------------------------------------------------------

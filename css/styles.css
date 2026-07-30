@@ -83,6 +83,30 @@
   box-sizing: border-box;
 }
 
+/* [hidden] must not depend on Bootstrap's own `[hidden]{display:none!important}` —
+   js/academy-auth.js sets el.hidden=true on the navbar sign-in link/account button,
+   but Bootstrap's stylesheet loads async on index.html and academy.html (see
+   CLAUDE.md's "Boot loader & async CDN CSS"), leaving a real window where a
+   `hidden` element would otherwise still paint. This file is same-origin and
+   render-blocking on every page, so pin the rule here instead of trusting the CDN. */
+[hidden] {
+  display: none !important;
+}
+
+/* Same reasoning, one step further: a closed Bootstrap dropdown is kept collapsed ONLY by
+   Bootstrap's own `.dropdown-menu { display: none }`. Before that stylesheet applies — and it is
+   loaded ASYNC on index.html and academy.html — every `ul.dropdown-menu` in the navbar (Services,
+   Learn, and the account menu) lays out inline and is fully clickable. This was observed, not just
+   theorised: in a browser test a click aimed at the navbar's "Sign in" link landed on the account
+   menu's "Sign out" button, which sits at those coordinates while the menu is unstyled. The boot
+   loader covers that window on those two pages today, but that is incidental cover rather than a
+   guarantee and it does not survive anyone removing the loader. Pinning the rule here — same-origin
+   and render-blocking on all 11 pages — makes it structural instead. `:not(.show)` leaves
+   Bootstrap's own open/close mechanism untouched, since that works by toggling `.show`. */
+.dropdown-menu:not(.show) {
+  display: none;
+}
+
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 80px; /* Account for fixed navbar */
@@ -7523,13 +7547,6 @@ body.theme-contrast .site-footer-social a {
   font-size: 0.85rem;
 }
 
-.acad-auth-danger,
-body.bg-light .nav-dd .dropdown-item.acad-auth-danger,
-body.theme-contrast .nav-dd .dropdown-item.acad-auth-danger,
-body.theme-cyber .nav-dd .dropdown-item.acad-auth-danger {
-  color: #ef4444 !important;
-}
-
 @media (max-width: 991.98px) {
   .acad-auth-email-label { max-width: 220px; }
 }
@@ -7591,29 +7608,12 @@ body.theme-cyber .nav-dd .dropdown-item.acad-auth-danger {
   margin: 0 0 1rem;
 }
 
-.acad-auth-step {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  margin-bottom: 0.9rem;
-}
-
-.acad-auth-turnstile-wrap {
-  margin-bottom: 0.9rem;
-}
-
 .acad-auth-msg {
   font-size: 0.84rem;
   min-height: 1.1em;
 }
 .acad-auth-msg.is-error { color: var(--acad-bad); }
 .acad-auth-msg.is-ok { color: var(--acad-em); }
-
-.acad-auth-code-hint {
-  font-size: 0.88rem;
-  color: var(--acad-muted);
-  margin: 0;
-}
 
 .acad-auth-links {
   display: flex;

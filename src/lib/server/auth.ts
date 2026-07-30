@@ -357,6 +357,7 @@ export function createAuthApp() {
     const body = {
       loggedIn: true,
       userId: session.userId,
+      email: session.email,
       sessions: sessions.map((s) => ({
         id: s.id,
         createdAt: s.createdAt,

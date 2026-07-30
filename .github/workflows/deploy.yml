@@ -116,6 +116,28 @@ jobs:
             echo "  set ACADEMY_PRIVATE_JWK"
           fi
 
+          # IA_WEBSITE_OIDC_SECRET is checked but NEVER generated here, and that asymmetry is the
+          # whole point: it is a SHARED secret. The same raw value must exist in the
+          # `integrauth/lab` Worker, which stores only its SHA-256 and so can never tell us what it
+          # is. Generating one here would therefore not "provision" anything — it would mint a value
+          # the provider does not know, and every sign-in would fail with invalid_client until
+          # someone noticed. Only a human who can set it on BOTH sides can provision this.
+          #
+          # A warning rather than a failure because the deploy order is deliberately staged: the
+          # Worker is meant to be deployable before sign-in is wired up, and it degrades honestly
+          # without the secret (rpConfigFromEnv() returns null, /auth/* answers 503
+          # sign_in_unavailable, and the account-free Academy — lessons, labs, Flow Explorer,
+          # Challenge mode — keeps working).
+          if printf '%s\n' "$EXISTING" | grep -qxF 'IA_WEBSITE_OIDC_SECRET'; then
+            echo "IA_WEBSITE_OIDC_SECRET is set."
+          else
+            echo "::warning::IA_WEBSITE_OIDC_SECRET is not set, so sign-in will answer 503"\
+                 "sign_in_unavailable. Set it with 'npx wrangler secret put IA_WEBSITE_OIDC_SECRET'"\
+                 "using the SAME raw value as the integrauth/lab Worker's IA_WEBSITE_OIDC_SECRET,"\
+                 "and make sure this Worker's /auth/callback URL is listed in the Lab's"\
+                 "IA_WEBSITE_REDIRECT_URIS. The rest of the site is unaffected."
+          fi
+
       # Best-effort smoke probe against the *.workers.dev URL this run just deployed to. Not
       # security-critical (unlike the lab repo's live-production probes) since this Worker isn't
       # serving real traffic yet — failures here are a warning, not a blocking failure.
@@ -136,4 +158,28 @@ jobs:
             echo "OK: $URL/ -> 200"
           else
             echo "::warning::$URL/ returned $code, expected 200"
+          fi
+
+          # /auth/session is the frontend's capability probe: js/academy-auth.js decides whether
+          # accounts exist on this host by calling it and looking for a JSON `loggedIn` field. If
+          # this ever stops answering that shape, the Academy silently drops to its account-free
+          # mode — sign-in and certificates just quietly disappear with no error anywhere. Worth a
+          # probe precisely because the failure is invisible.
+          body=$(curl -sS -m 20 "$URL/auth/session" || true)
+          if printf '%s' "$body" | grep -q '"loggedIn":false'; then
+            echo "OK: $URL/auth/session -> loggedIn:false"
+          else
+            echo "::warning::$URL/auth/session didn't return the expected loggedIn:false shape"\
+                 "(got: $body). The frontend treats that as 'accounts unavailable on this host'."
+          fi
+
+          # A signed-in-only route must reject an anonymous caller. A 200 here would mean the
+          # session gate is not in the request path at all.
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' "$URL/api/academy/progress" || echo 000)
+          if [ "$code" = "401" ]; then
+            echo "OK: $URL/api/academy/progress -> 401 without a session"
+          else
+            echo "::error::$URL/api/academy/progress returned $code, expected 401. A session-gated"\
+                 "route answering anything else means the auth gate is not being applied."
+            exit 1
           fi
