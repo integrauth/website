@@ -86,6 +86,8 @@ function closingPage(params: {
   error: string | null;
   ret: string;
   eventKey: string;
+  /** 'redirect' when this document is the user's ONLY window, not a popup. */
+  mode?: 'popup' | 'redirect';
 }): string {
   const payload = JSON.stringify({
     ok: params.ok,
@@ -94,9 +96,16 @@ function closingPage(params: {
     key: params.eventKey,
   });
   const heading = params.ok ? 'Signed in' : 'Sign-in failed';
-  const detail = params.ok
-    ? 'You can close this window.'
-    : 'You can close this window and try again.';
+  // A redirect-mode flow has no opener and nothing to close — this IS the user's window, which is
+  // the case a visitor with JavaScript disabled always takes. Telling them to close it would be
+  // both wrong and a dead end, so say what is actually about to happen: the script below sends them
+  // back where they started.
+  const detail =
+    params.mode === 'redirect'
+      ? 'Taking you back to the Academy…'
+      : params.ok
+        ? 'You can close this window.'
+        : 'You can close this window and try again.';
 
   return `<!doctype html>
 <html lang="en" data-boot-theme="cyber">
@@ -223,15 +232,35 @@ export function createAuthApp() {
    */
   app.get('/start', async (c) => {
     const url = new URL(c.req.url);
+    const ret = safeReturnPath(url.searchParams.get('return'));
+    const mode = url.searchParams.get('mode') === 'redirect' ? 'redirect' : 'popup';
+
     const config = rpConfigFromEnv(c.env, url);
     if (!config) {
       // Sign-in genuinely cannot work yet (no client secret provisioned). Say so plainly rather
       // than bouncing the user to a provider that will reject an unseeded client.
+      //
+      // Rendered as a page rather than JSON when this was a real navigation. `mode=redirect` is
+      // what the navbar's plain <a href> uses, which is the path a visitor with JavaScript disabled
+      // takes — and showing them `{"error":"sign_in_unavailable"}` as a raw document would be a
+      // dead end. The popup path keeps the JSON: its caller is fetch(), not a human.
+      if (mode === 'redirect') {
+        const nonce = crypto.randomUUID();
+        return htmlResponse(
+          closingPage({
+            nonce,
+            ok: false,
+            error: 'sign_in_unavailable',
+            ret,
+            eventKey: AUTH_EVENT_KEY,
+            mode: 'redirect',
+          }),
+          nonce,
+          503
+        );
+      }
       return c.json({ error: 'sign_in_unavailable' }, 503);
     }
-
-    const ret = safeReturnPath(url.searchParams.get('return'));
-    const mode = url.searchParams.get('mode') === 'redirect' ? 'redirect' : 'popup';
     const tx = newTransaction(ret, mode);
     const challenge = await s256(tx.verifier);
 
@@ -265,6 +294,8 @@ export function createAuthApp() {
           error,
           ret: tx?.ret ?? '/academy',
           eventKey: AUTH_EVENT_KEY,
+          // A no-JS visitor came here by full-page navigation, so this is their only window.
+          mode: tx?.mode ?? 'popup',
         }),
         nonce,
         status
