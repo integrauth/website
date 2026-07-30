@@ -156,11 +156,20 @@ reimplementing them.
    validation but never matches, since the RP sends the no-slash form; it fails as a generic
    `invalid_client_or_redirect`).
 
-   **One entry still to append: the website's `*.workers.dev` callback**, needed for the staging step
-   below. That hostname comes from the Cloudflare account's subdomain and is not knowable from either
-   repo — so the website's deploy now prints the complete ready-to-paste line into its GitHub Actions
-   run summary, under **"OIDC redirect URI (paste into the Lab)"**. Append it as a third entry, and
-   drop it again after the cutover.
+   **The `*.workers.dev` callback needed for staging is registered automatically.** The Lab's
+   `provision-cf.sh prepare` derives the account's workers.dev subdomain from the Cloudflare API
+   (using the `CF_TOKEN` it already has) and appends
+   `https://integrauth-website.<subdomain>.workers.dev/auth/callback` to the list at deploy time —
+   the same "derive it, write it into `[vars]`, never commit it" idiom the script already uses for the
+   Turnstile sitekey. It is idempotent, refuses to append if the list already holds 5 entries (which
+   would silently displace a production URI), and needs no second Lab deploy after the website's
+   first.
+
+   It is deliberately **best-effort**: a `CF_TOKEN` scoped without Workers Scripts:Read, or an account
+   with no workers.dev subdomain, makes it skip with a `::warning::` rather than fail the deploy — the
+   committed production URIs are unaffected either way. The website's own deploy prints its actual
+   callback into its run summary ("OIDC callback URL (cross-check against the Lab)") so there is
+   always a manual path and something to compare against.
 
    Both vars are inert until `IA_WEBSITE_OIDC_SECRET` exists: without it
    `websiteClientConfigFromEnv` returns null and the client is simply never seeded.
@@ -186,8 +195,8 @@ reimplementing them.
    Lab, which is where the sign-in form now lives.
 4. **Add the `IA_WEBSITE_OIDC_SECRET` GitHub Secret** (organisation-level, shared to both repos) —
    see §4 step 2. CI does the rest; nothing to set by hand in Cloudflare.
-5. **Append the workers.dev callback** to the Lab's `IA_WEBSITE_REDIRECT_URIS` once the website's
-   first deploy prints it — see §4 step 3.
+*(The workers.dev redirect URI no longer needs adding by hand — the Lab derives it from the CF API at
+deploy time. Only check for a `workers.dev subdomain` warning in its log if pre-cutover sign-in fails.)*
 
 ---
 

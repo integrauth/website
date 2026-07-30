@@ -111,10 +111,12 @@ OIDC_CLIENT_ID = "integrauth-website"
 #
 # ALSO REQUIRED, on the Lab side: this site's callback URL must appear VERBATIM in the Lab's
 # IA_WEBSITE_REDIRECT_URIS (comma-separated, max 5, exact string match at request time — no
-# host/port/scheme laxity, NO trailing slash). The two production entries are already committed
-# there; the `*.workers.dev` one for pre-cutover staging is printed ready-to-paste by this repo's
-# deploy workflow ("OIDC redirect URI (paste into the Lab)" in the run summary), because that hostname
-# comes from the Cloudflare account subdomain and is not knowable from the repo.
+# host/port/scheme laxity, NO trailing slash). Both halves are handled there already: the two
+# production entries are committed, and the `*.workers.dev` one for pre-cutover staging is derived
+# from the Cloudflare API by the Lab's provision-cf.sh at deploy time (that hostname depends on the
+# account subdomain, so it is not knowable from either repo). This repo's deploy prints its own
+# callback into the run summary for cross-checking if sign-in ever fails
+# `invalid_client_or_redirect`.
 
 [observability]
 enabled = true

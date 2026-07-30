@@ -154,36 +154,47 @@ jobs:
                  "'OIDC redirect URI' step below prints the exact line to paste."
           fi
 
-      # The one value that cannot be committed ahead of time: this Worker's *.workers.dev hostname
-      # is assigned by Cloudflare from the account's subdomain, so it is not knowable from the repo.
-      # The Lab matches redirect URIs by EXACT string equality, so it has to be registered verbatim.
-      # Printing the whole ready-to-paste line into the run summary turns "go dig the hostname out of
-      # the dashboard, then hand-assemble a comma-separated list" into one copy-paste.
-      - name: OIDC redirect URI (paste into the Lab)
+      # This Worker's own callback URL, reported for cross-checking. The Lab normally registers it
+      # ITSELF — its provision-cf.sh derives the account's workers.dev subdomain from the Cloudflare
+      # API and appends `<worker>.<subdomain>.workers.dev/auth/callback` to IA_WEBSITE_REDIRECT_URIS
+      # at deploy time — so this is a verification aid and a manual fallback, not the primary path.
+      # It earns its place because the derivation is deliberately best-effort (a narrowly-scoped
+      # CF_TOKEN or an account with no workers.dev subdomain both make it skip with a warning), and
+      # because the Lab matches redirect URIs by EXACT string equality, where a silent mismatch shows
+      # up only as a generic invalid_client_or_redirect.
+      - name: OIDC callback URL (cross-check against the Lab)
         if: always()
         run: |
           set -uo pipefail
           URL="${{ steps.deploy.outputs.url }}"
           {
-            echo "### OIDC configuration for \`integrauth/lab\`"
+            echo "### OIDC callback for this deploy"
             echo
-            echo "Paste into that repo's \`wrangler.toml\` under \`[vars]\`:"
+            if [ -n "$URL" ]; then
+              echo "This Worker's callback is:"
+              echo
+              echo '```'
+              echo "${URL}/auth/callback"
+              echo '```'
+              echo
+              echo "\`integrauth/lab\` appends this to \`IA_WEBSITE_REDIRECT_URIS\` automatically"
+              echo "during its own deploy. If sign-in fails with \`invalid_client_or_redirect\`,"
+              echo "check that the above appears **verbatim** in that list — and look for a"
+              echo "\`workers.dev subdomain\` warning in the Lab's deploy log."
+            else
+              echo "The workers.dev URL was not captured from this run — take it from the deploy log."
+            fi
+            echo
+            echo "Committed on the Lab side (production, already in its \`wrangler.toml\`):"
             echo
             echo '```toml'
-            if [ -n "$URL" ]; then
-              echo "IA_WEBSITE_REDIRECT_URIS = \"https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback,${URL}/auth/callback\""
-            else
-              echo '# workers.dev URL not captured from this run — take it from the deploy log'
-              echo 'IA_WEBSITE_REDIRECT_URIS = "https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback,https://<worker>.<subdomain>.workers.dev/auth/callback"'
-            fi
+            echo 'IA_WEBSITE_REDIRECT_URIS = "https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback"'
             echo 'IA_WEBSITE_BACKCHANNEL_LOGOUT_URI = "https://integrauth.com/auth/backchannel-logout"'
             echo '```'
             echo
-            echo "Comma-separated, **max 5** entries, matched by exact string equality at request"
-            echo "time — no trailing slash. \`/auth/callback/\` passes the Lab's registration check"
-            echo "but never matches, because this site sends the no-slash form."
-            echo
-            echo "Drop the workers.dev entry after the DNS cutover."
+            echo "Comma-separated, **max 5** entries, exact string equality, **no trailing slash**"
+            echo "(\`/auth/callback/\` passes the Lab's registration check but never matches, because"
+            echo "this site sends the no-slash form)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Best-effort smoke probe against the *.workers.dev URL this run just deployed to. Not
