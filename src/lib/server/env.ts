@@ -14,4 +14,19 @@ export interface Env {
    * where certs.ts falls back to an ephemeral per-isolate key instead.
    */
   ACADEMY_PRIVATE_JWK?: string;
+  /**
+   * Client secret for the `integrauth-website` OIDC client, shared with the Lab's
+   * `IA_WEBSITE_OIDC_SECRET`. A Wrangler secret; the Lab stores only its SHA-256, so the SAME RAW
+   * VALUE must be set on both sides. Unset until provisioned, which is why `rpConfigFromEnv`
+   * returns null rather than throwing — the site must keep serving pages either way.
+   */
+  IA_WEBSITE_OIDC_SECRET?: string;
+  /**
+   * The OpenID Provider's issuer identifier. Overridable so a local Lab checkout can be pointed
+   * at during development; defaults to https://lab.integrauth.com. Must match the `iss` claim
+   * byte for byte, so no trailing slash.
+   */
+  LAB_ISSUER?: string;
+  /** OIDC client_id registered at the Lab. Defaults to `integrauth-website`. */
+  OIDC_CLIENT_ID?: string;
 }

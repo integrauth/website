@@ -80,6 +80,27 @@ const MAX_NAME_LEN = 80;
  */
 export const ALLOWED_ORIGINS = ['https://integrauth.com', 'https://www.integrauth.com'] as const;
 
+/**
+ * Whether `origin` may make a state-changing request to us.
+ *
+ * Two ways to qualify, and the second is not a loosening: an Origin equal to the origin this very
+ * request was addressed to is BY DEFINITION same-origin, which is the strongest case there is. It
+ * is listed explicitly because ALLOWED_ORIGINS names only the two production hostnames, and
+ * without this branch every state-changing call 403s on the *.workers.dev URL (the whole
+ * pre-cutover staging plan, per wrangler.toml) and on http://localhost during local dev — the
+ * exact "can't sign in locally" symptom this repo hit before.
+ *
+ * It does not open a hole: `url.origin` comes from the request's own Host, and a browser sets Host
+ * from the URL it is fetching, so a cross-origin attacker page aimed at integrauth.com still
+ * presents ITS origin against a Host of integrauth.com and still fails. Spoofing Host instead
+ * gains nothing — the attacker would still need the victim's cookie, which the browser will only
+ * attach to the real host.
+ */
+export function isAllowedOrigin(origin: string, url: URL): boolean {
+  if (origin === url.origin) return true;
+  return (ALLOWED_ORIGINS as readonly string[]).includes(origin);
+}
+
 /** Methods that can change server state, and therefore need the CSRF guard. */
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -119,15 +140,21 @@ export function createApp() {
    * runs ahead of requireSession — a forged request should be rejected on its shape,
    * without us doing a session lookup for it.
    *
-   * WHY THIS IS NEEDED AT ALL (the session cookie makes the usual reasoning wrong):
-   * `__Secure-ia_session` is set with Domain=.integrauth.com, so every sibling
-   * subdomain — all ~30 of the free-tool subdomains, the product apps, the demos —
-   * is SAME-SITE as far as the browser is concerned. `SameSite=Lax` therefore does
-   * NOT stop them: a page on any of those origins can issue a credentialed POST to
-   * integrauth.com and the cookie rides along. And because Hono's `c.req.json()`
-   * parses the body regardless of what Content-Type was declared, an attacker
-   * didn't even need CORS — a form/fetch POST with `text/plain` is a CORS "simple
-   * request" (no preflight to fail) whose body our handlers would happily read.
+   * WHY THIS IS STILL NEEDED, now that the cookie is host-locked. An earlier design shared one
+   * `Domain=.integrauth.com` cookie across both apps, which made all ~30 sibling subdomains
+   * SAME-SITE in the browser's eyes and defeated `SameSite=Lax` outright. That design is gone
+   * (see session.ts's header) and `__Host-ia_web_session` cannot be read or written by a sibling,
+   * so `SameSite=Lax` now does most of this work on its own. This guard stays for two reasons
+   * that survive the redesign:
+   *
+   *   - `SameSite=Lax` still permits cookies on top-level cross-site GET navigations. Our
+   *     state-changing routes are all POST/PUT so Lax already covers them, but that is a property
+   *     of today's route list, not an invariant anyone will remember when adding a route.
+   *   - Hono's `c.req.json()` parses a body regardless of the declared Content-Type. Without the
+   *     media-type check below, a cross-origin form/fetch POST with `text/plain` is a CORS
+   *     "simple request" — no preflight to fail — whose body our handlers would happily read.
+   *     Requiring `application/json` forces any cross-origin attempt into a preflight that we
+   *     answer with no CORS headers at all.
    *
    * Two independent checks, either of which alone closes that hole:
    *
@@ -147,7 +174,7 @@ export function createApp() {
     }
 
     const origin = c.req.header('Origin');
-    if (!origin || !(ALLOWED_ORIGINS as readonly string[]).includes(origin)) {
+    if (!origin || !isAllowedOrigin(origin, new URL(c.req.url))) {
       return c.json({ error: 'forbidden_origin' }, 403);
     }
 
@@ -164,7 +191,10 @@ export function createApp() {
   app.use('*', guardStateChanging);
 
   const requireSession: MiddlewareHandler<AppEnv> = async (c, next) => {
-    const token = parseSessionCookie(c.req.header('Cookie'));
+    // `canIssueCookie` is deliberately left off: cookie re-issue is GET /auth/session's job, since
+    // that is the call the frontend always makes and can therefore always act on the result. See
+    // session.ts's COOKIE_REISSUE_AFTER_MS comment.
+    const token = parseSessionCookie(c.req.header('Cookie'), new URL(c.req.url));
     const session = await validateSession(c.env.DB, token);
     if (!session) {
       return c.json({ error: 'unauthorized' }, 401);

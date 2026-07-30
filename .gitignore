@@ -17,6 +17,11 @@ build/
 # Wrangler local dev/build cache
 .wrangler/
 
+# Wrangler local-dev secrets (IA_WEBSITE_OIDC_SECRET etc.) — also listed in .assetsignore, because
+# gitignoring a file does not stop `wrangler deploy` from publishing it as a static asset.
+.dev.vars
+.dev.vars.*
+
 # IDE and editors
 .vscode/
 .idea/

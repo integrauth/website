@@ -1,37 +1,115 @@
-// Read-only validator for the shared TRUE-SSO session cookie minted by lab.integrauth.com.
+// This site's OWN session store, backed by the shared D1 table `website_sessions`.
 //
-// This module NEVER creates, refreshes, or revokes a session — it only answers
-// "is this cookie currently valid, and if so, whose is it?" and (at most once an
-// hour per session) touches `last_seen_at` for idle-expiry bookkeeping.
-// Login/OTP/logout all happen on lab.integrauth.com; the `sessions` and `users`
-// tables are owned by that repo's migrations.
+// HISTORY, because the shape of this file only makes sense with it: an earlier design had
+// lab.integrauth.com mint ONE session cookie (`__Secure-ia_session`, `Domain=.integrauth.com`)
+// that both apps trusted, and this module merely *validated* it. That was rejected. Cookie
+// identity is `(name, domain, path)` and the `__Secure-` prefix only demands TLS — it does not
+// restrict WHO MAY SET the cookie (`__Host-` does, which is exactly why `__Host-` forbids a
+// `Domain` attribute). So any of the ~30 sibling `*.integrauth.com` hosts — the 27 free-tool
+// subdomains, the product apps, the demo sites — could have replied
+// `Set-Cookie: __Secure-ia_session=<attacker token>; Domain=.integrauth.com` and overwritten a
+// visitor's session: session fixation (the victim's progress, real name and certificates land in
+// the attacker's account) plus an unclearable forced-logout. It also meant the browser shipped the
+// session token to all ~30 of those hosts on every request.
+//
+// The replacement: each app holds its OWN host-locked cookie, and this site is an OIDC Relying
+// Party against the Lab's OpenID Provider (see oidc-rp.ts). This module therefore now MINTS,
+// validates and revokes sessions — but only ever rows in `website_sessions`, which exists for
+// exactly this purpose. It still never touches the Lab-owned `sessions` or `users` tables.
+//
+// Schema ownership stays with the `integrauth/lab` repo (migration 0052). Never run a migration
+// from this repo against this database.
 
-/** Name of the shared SSO cookie, set with Domain=.integrauth.com by the Lab. */
-export const SESSION_COOKIE = '__Secure-ia_session';
+/**
+ * Session cookie names. TWO of them, and the split is a security control, not a convenience.
+ *
+ * `__Host-` demands Secure + Path=/ + NO Domain attribute, and — the part that matters — a
+ * browser refuses a `__Host-`-prefixed `Set-Cookie` that carries a `Domain`. That is precisely
+ * what makes the cookie unwritable by sibling subdomains and closes the fixation hole described
+ * in the file header.
+ *
+ * `__Host-` also requires the Secure attribute, which a plain `http://localhost` dev server
+ * cannot satisfy in every browser, so local dev gets an unprefixed name. THE DEV NAME MUST NEVER
+ * BE ACCEPTED OVER HTTPS: `ia_web_session` carries no prefix, so in production a sibling
+ * subdomain could set it with `Domain=.integrauth.com` and we would be right back to session
+ * fixation — with the added insult of having built the OIDC flow to avoid it. `sessionCookieName()`
+ * below is the single place that decides, keyed off the request scheme, and callers must use it
+ * rather than picking a constant.
+ */
+export const SESSION_COOKIE_PROD = '__Host-ia_web_session';
+export const SESSION_COOKIE_DEV = 'ia_web_session';
 
-/** Idle-expiry window: a session with no activity for this long is treated as expired,
- *  even if it hasn't hit its absolute `expires_at` yet. 400 days, matching the Lab's
- *  own convention for long-lived "remember me" style sessions. */
+/**
+ * Idle-expiry window: a session untouched for this long is treated as expired even though its
+ * absolute `expires_at` is still in the future. 400 days, matching the Lab's own convention —
+ * and also the practical ceiling browsers clamp any cookie's real lifetime to, so asking for
+ * more in `Max-Age` buys nothing.
+ */
 export const IDLE_MS = 400 * 24 * 60 * 60 * 1000;
 
 /**
- * How stale `last_seen_at` must be before a successful validation bothers writing
- * a fresh one. See validateSession() for the tradeoff this buys.
+ * Absolute session lifetime. Deliberately very long (matching the Lab's own `ABSOLUTE_MS`): the
+ * product requirement is that signing in survives browser restarts and is not re-prompted every
+ * month. The real bound on a forgotten session is IDLE_MS above, not this; this is the backstop
+ * that guarantees no row lives forever.
  */
-export const LAST_SEEN_REFRESH_MS = 60 * 60 * 1000; // 1 hour
+export const ABSOLUTE_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * How old the browser's copy of the cookie may get before a validated request re-issues it.
+ *
+ * This mirrors the bug the Lab repo fixed in its migration 0051, and it is worth restating so it
+ * is not reintroduced here: the tempting condition is "refresh if the session has not been seen
+ * for a while", which is exactly backwards. That measures the gap since the LAST REQUEST, so a
+ * visitor who comes back daily never qualifies and is silently logged out when the browser hits
+ * its ~400-day cookie cap, while someone who visits twice a year refreshes forever. What has to
+ * be measured is the AGE OF THE ISSUED COOKIE, which is what `cookie_issued_at` records.
+ */
+export const COOKIE_REISSUE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * How stale `last_seen_at` may get before a successful validation bothers writing a fresh one.
+ *
+ * THE TRADEOFF: writing on every request turns each authenticated call — including pure reads
+ * like GET /progress, and the Academy frontend fans several out per page load — into a write
+ * against a database SHARED with the Lab app. Coarsening to an hour means `last_seen_at` can lag
+ * reality by up to an hour, i.e. a session could survive 400 days + 1 hour of true idleness
+ * rather than exactly 400 days: a 0.01% error against this window that changes no security
+ * property. The same throttle would be indefensible against a 15-minute idle window, so if
+ * IDLE_MS is ever shortened, revisit this constant in the same commit.
+ *
+ * The idle CHECK is not throttled — only the write is. Expiry decisions always use the exact
+ * stored value.
+ */
+export const LAST_SEEN_REFRESH_MS = 60 * 60 * 1000;
+
+/** Cap on `ua_summary`, which is only ever shown back to the account's owner in a device list. */
+const MAX_UA_SUMMARY_LEN = 180;
 
 export interface ValidatedSession {
   userId: string;
   sessionId: string;
+  /**
+   * True when the browser's cookie is old enough to be worth re-issuing AND the caller said it
+   * is in a position to set one (see `canIssueCookie`). Callers that cannot set a cookie must
+   * ignore this; callers that can should Set-Cookie and then call `markCookieIssued`.
+   */
+  shouldReissueCookie: boolean;
+}
+
+export interface ValidateSessionOptions {
+  /**
+   * Whether this caller can actually attach a `Set-Cookie` to its response. Defaults to false so
+   * that a route which merely reads the session cannot burn the re-issue window without acting on
+   * it — otherwise `cookie_issued_at` gets stamped forward by a request that sent no cookie at
+   * all, and the browser's copy quietly ages out anyway. Same opt-in shape the Lab uses.
+   */
+  canIssueCookie?: boolean;
 }
 
 /**
- * Only the columns validateSession() actually reads. `sessions` is a Lab-owned
- * table whose shape this repo does not control and whose full column set may
- * grow to hold things we have no business reading (device fingerprints, step-up
- * state, and whatever the Lab adds next), so the SELECT below names its columns
- * explicitly rather than using `SELECT *`. Note `token_hash` is absent: it's the
- * lookup key, so we already have it — reading it back tells us nothing.
+ * Only the columns validateSession() reads. `token_hash` is deliberately absent: it is the lookup
+ * key, so we already hold it, and reading it back tells us nothing.
  */
 interface SessionRow {
   id: string;
@@ -39,30 +117,55 @@ interface SessionRow {
   last_seen_at: string;
   expires_at: string;
   revoked_at: string | null;
+  cookie_issued_at: string | null;
+}
+
+export interface WebsiteSessionSummary {
+  id: string;
+  createdAt: string;
+  lastSeenAt: string;
+  uaSummary: string | null;
+  current: boolean;
+}
+
+/** Picks the cookie name valid for this request's scheme. See the constants above for why. */
+export function sessionCookieName(url: URL): string {
+  return url.protocol === 'https:' ? SESSION_COOKIE_PROD : SESSION_COOKIE_DEV;
+}
+
+/** True when this request is over TLS, i.e. when cookies may carry `Secure` / a `__Host-` prefix. */
+export function isSecureRequest(url: URL): boolean {
+  return url.protocol === 'https:';
 }
 
 /**
- * Parses the raw `Cookie` request header and extracts the value of SESSION_COOKIE,
- * or null if absent. Simple `; `-split / first-`=`-split parser — cookie values here
- * are opaque base64url tokens, no special character handling is needed beyond that.
+ * Extracts one named cookie from a raw `Cookie` header, or null. Simple `;`-split / first-`=`-split
+ * parse: every cookie this module reads is an opaque base64url token or our own JSON transaction
+ * blob, so there is nothing to unquote or percent-decode.
  */
-export function parseSessionCookie(cookieHeader: string | null | undefined): string | null {
+export function parseCookie(cookieHeader: string | null | undefined, name: string): string | null {
   if (!cookieHeader) return null;
-  const parts = cookieHeader.split(';');
-  for (const part of parts) {
+  for (const part of cookieHeader.split(';')) {
     const trimmed = part.trim();
     if (!trimmed) continue;
     const eq = trimmed.indexOf('=');
     if (eq === -1) continue;
-    const name = trimmed.slice(0, eq).trim();
-    if (name === SESSION_COOKIE) {
+    if (trimmed.slice(0, eq).trim() === name) {
       return trimmed.slice(eq + 1).trim();
     }
   }
   return null;
 }
 
-/** Hex-encodes the SHA-256 digest of `input`, matching how the Lab stores `token_hash`. */
+/** Convenience wrapper: reads the session cookie appropriate to `url`'s scheme. */
+export function parseSessionCookie(
+  cookieHeader: string | null | undefined,
+  url: URL
+): string | null {
+  return parseCookie(cookieHeader, sessionCookieName(url));
+}
+
+/** Hex-encodes the SHA-256 digest of `input` — how `token_hash` is stored. */
 export async function sha256Hex(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -74,33 +177,126 @@ export async function sha256Hex(input: string): Promise<string> {
   return hex;
 }
 
+/** base64url of `bytes`, no padding — used for session tokens and PKCE values alike. */
+export function base64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** 32 bytes of CSPRNG output, base64url-encoded: session tokens, `state`, `nonce`, PKCE verifier. */
+export function randomToken(byteLength = 32): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return base64Url(bytes);
+}
+
 /**
- * Validates a raw session token (the cookie value, NOT the hash) against D1.
- * Returns the associated { userId, sessionId } if the session is valid, else null.
+ * Builds a `Set-Cookie` for the session.
  *
- * On success, touches `last_seen_at` so idle-expiry tracking stays accurate — but
- * only when the stored value is already more than LAST_SEEN_REFRESH_MS stale. This
- * is the only write this module ever performs against the Lab-owned `sessions`
- * table, and it is a narrow, expected exception to "read-only" (the Lab's own
- * session code does the same touch on validated requests).
+ * `SameSite=Lax` rather than `Strict` on purpose. The OIDC callback arrives as a top-level
+ * cross-site GET redirect from lab.integrauth.com, and `Strict` withholds cookies on exactly
+ * that navigation — with `Strict` a user would complete the whole flow and land back logged out.
+ * `Lax` sends cookies on top-level GETs only, so it does not weaken CSRF posture for the
+ * state-changing requests that matter (which are POSTs, and are separately Origin-checked in
+ * api.ts).
+ */
+export function buildSessionCookie(url: URL, token: string, maxAgeSeconds: number): string {
+  const secure = isSecureRequest(url);
+  const parts = [
+    `${sessionCookieName(url)}=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(maxAgeSeconds)}`,
+  ];
+  if (secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/** Builds the `Set-Cookie` that clears the session cookie. Attributes must match the setter. */
+export function clearSessionCookie(url: URL): string {
+  const secure = isSecureRequest(url);
+  const parts = [`${sessionCookieName(url)}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  if (secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/**
+ * Condenses a User-Agent into something worth showing in a "your devices" list. Not a
+ * fingerprint and not security-relevant — a truncated, human-readable hint so the owner can tell
+ * "my laptop" from "someone else's phone" when revoking. Stored verbatim otherwise, which is why
+ * it is length-capped.
+ */
+export function summarizeUserAgent(ua: string | null | undefined): string | null {
+  if (!ua) return null;
+  const trimmed = ua.trim();
+  if (!trimmed) return null;
+  return trimmed.length > MAX_UA_SUMMARY_LEN ? trimmed.slice(0, MAX_UA_SUMMARY_LEN) : trimmed;
+}
+
+export interface CreatedSession {
+  /** The RAW token. Goes in the cookie and is never stored — only its SHA-256 lands in D1. */
+  token: string;
+  sessionId: string;
+  maxAgeSeconds: number;
+}
+
+/**
+ * Mints a brand-new session row and returns the raw token for the caller to put in a cookie.
  *
- * THE TRADEOFF, spelled out: writing on *every* request turned each authenticated
- * API call — including pure reads like GET /progress — into a write against a
- * database SHARED with the Lab app, and the Academy frontend fans out several
- * calls per page load. That's a lot of contention and a lot of billed D1 writes to
- * maintain a timestamp whose only consumer is a 400-DAY idle window. Coarsening it
- * to an hour means `last_seen_at` can lag reality by up to an hour, i.e. a session
- * could survive at most 400 days + 1 hour of true idleness instead of exactly 400
- * days. Against a 400-day window that is a 0.01% error and changes no security
- * property; the same throttle would be wrong for a 15-minute idle window, so if
- * the Lab ever shortens IDLE_MS, revisit this constant with it.
+ * `oidcSid` is the `sid` claim from the ID token that authorized this login. It is the join key
+ * OIDC Back-Channel Logout needs: when the Lab signs a user out everywhere it fans a logout token
+ * out to each RP holding that `sid`, and `revokeSessionsBySid` below is how this site honours it.
+ * Nullable in the schema, but we should always have one in practice — a null means back-channel
+ * logout can never reach this row.
+ */
+export async function createSession(
+  db: D1Database,
+  params: { userId: string; oidcSid: string | null; uaSummary: string | null }
+): Promise<CreatedSession> {
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const sessionId = crypto.randomUUID();
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const expiresIso = new Date(now + ABSOLUTE_MS).toISOString();
+
+  await db
+    .prepare(
+      `INSERT INTO website_sessions
+         (id, user_id, token_hash, oidc_sid, created_at, last_seen_at, expires_at, revoked_at, cookie_issued_at, ua_summary)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`
+    )
+    .bind(
+      sessionId,
+      params.userId,
+      tokenHash,
+      params.oidcSid,
+      nowIso,
+      nowIso,
+      expiresIso,
+      nowIso,
+      params.uaSummary
+    )
+    .run();
+
+  // The cookie's Max-Age is bounded by IDLE_MS, not ABSOLUTE_MS. A cookie that outlives the idle
+  // window is worse than useless: the browser keeps presenting a token the server will always
+  // reject, so the user looks signed in until the first request that needs the session fails.
+  return { token, sessionId, maxAgeSeconds: Math.floor(IDLE_MS / 1000) };
+}
+
+/**
+ * Validates a raw session token against D1, returning `{ userId, sessionId }` or null.
  *
- * The idle CHECK itself is unchanged and still uses the exact stored value — only
- * the write is throttled, never the expiry decision.
+ * On success this touches `last_seen_at` (throttled — see LAST_SEEN_REFRESH_MS) and reports
+ * whether the browser's cookie is due for re-issue.
  */
 export async function validateSession(
   db: D1Database,
-  token: string | null
+  token: string | null,
+  options: ValidateSessionOptions = {}
 ): Promise<ValidatedSession | null> {
   if (!token) return null;
 
@@ -108,7 +304,8 @@ export async function validateSession(
 
   const row = await db
     .prepare(
-      'SELECT id, user_id, last_seen_at, expires_at, revoked_at FROM sessions WHERE token_hash = ?'
+      `SELECT id, user_id, last_seen_at, expires_at, revoked_at, cookie_issued_at
+         FROM website_sessions WHERE token_hash = ?`
     )
     .bind(tokenHash)
     .first<SessionRow>();
@@ -124,16 +321,143 @@ export async function validateSession(
   const lastSeenAtMs = Date.parse(row.last_seen_at);
   if (Number.isFinite(lastSeenAtMs) && now - lastSeenAtMs > IDLE_MS) return null;
 
-  // An unparseable stored timestamp (!isFinite) is treated as "needs refreshing",
-  // so a corrupt value gets healed on the next request rather than sticking around.
-  const needsRefresh = !Number.isFinite(lastSeenAtMs) || now - lastSeenAtMs > LAST_SEEN_REFRESH_MS;
-  if (needsRefresh) {
+  // An unparseable stored timestamp counts as "needs refreshing", so a corrupt value heals on the
+  // next request instead of sticking around forever.
+  const needsLastSeenWrite =
+    !Number.isFinite(lastSeenAtMs) || now - lastSeenAtMs > LAST_SEEN_REFRESH_MS;
+
+  const cookieIssuedMs = row.cookie_issued_at ? Date.parse(row.cookie_issued_at) : NaN;
+  const cookieIsStale =
+    !Number.isFinite(cookieIssuedMs) || now - cookieIssuedMs > COOKIE_REISSUE_AFTER_MS;
+  const shouldReissueCookie = Boolean(options.canIssueCookie) && cookieIsStale;
+
+  // One statement for both timestamps when both are due — this is a write against a database the
+  // Lab also uses, so it is worth not doing twice.
+  if (needsLastSeenWrite || shouldReissueCookie) {
     const nowIso = new Date(now).toISOString();
-    await db
-      .prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ?')
-      .bind(nowIso, row.id)
-      .run();
+    if (shouldReissueCookie) {
+      await db
+        .prepare('UPDATE website_sessions SET last_seen_at = ?, cookie_issued_at = ? WHERE id = ?')
+        .bind(nowIso, nowIso, row.id)
+        .run();
+    } else {
+      await db
+        .prepare('UPDATE website_sessions SET last_seen_at = ? WHERE id = ?')
+        .bind(nowIso, row.id)
+        .run();
+    }
   }
 
-  return { userId: row.user_id, sessionId: row.id };
+  return { userId: row.user_id, sessionId: row.id, shouldReissueCookie };
+}
+
+/** Revokes one session by id. Idempotent: re-revoking keeps the original `revoked_at`. */
+export async function revokeSession(db: D1Database, sessionId: string): Promise<void> {
+  await db
+    .prepare('UPDATE website_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
+    .bind(new Date().toISOString(), sessionId)
+    .run();
+}
+
+/**
+ * Revokes every session belonging to `userId`, optionally sparing one.
+ *
+ * `exceptSessionId` exists because "sign out my other devices" should not log the user out of the
+ * device they are asking from — the same self-service-safe shape the Lab's own revoke-all has.
+ */
+export async function revokeSessionsByUser(
+  db: D1Database,
+  userId: string,
+  exceptSessionId?: string
+): Promise<number> {
+  const nowIso = new Date().toISOString();
+  const result = exceptSessionId
+    ? await db
+        .prepare(
+          'UPDATE website_sessions SET revoked_at = ? WHERE user_id = ? AND id != ? AND revoked_at IS NULL'
+        )
+        .bind(nowIso, userId, exceptSessionId)
+        .run()
+    : await db
+        .prepare(
+          'UPDATE website_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL'
+        )
+        .bind(nowIso, userId)
+        .run();
+  return result.meta?.changes ?? 0;
+}
+
+/**
+ * Revokes every session logged in under a given OP `sid`. This is the entire point of the
+ * `oidc_sid` column: it is how OIDC Back-Channel Logout reaches this site when the user signs out
+ * at the Lab. Returns the number of rows actually revoked, which the logout route logs — a zero
+ * is normal (this browser may never have signed in here) and must not be reported as an error, or
+ * the Lab will retry a logout that already has nothing to do.
+ */
+export async function revokeSessionsBySid(db: D1Database, sid: string): Promise<number> {
+  const result = await db
+    .prepare(
+      'UPDATE website_sessions SET revoked_at = ? WHERE oidc_sid = ? AND revoked_at IS NULL'
+    )
+    .bind(new Date().toISOString(), sid)
+    .run();
+  return result.meta?.changes ?? 0;
+}
+
+/**
+ * Lists a user's live sessions for the account panel's device list.
+ *
+ * Applies the SAME liveness rules `validateSession` enforces, rather than just `revoked_at IS
+ * NULL` — otherwise the panel shows sessions that any real request would reject, which is the
+ * exact defect the Lab repo fixed in its own `listActiveSessionsByUser`. The idle cut-off is
+ * computed here rather than in SQL so both paths derive from one IDLE_MS.
+ */
+export async function listSessions(
+  db: D1Database,
+  userId: string,
+  currentSessionId: string,
+  limit = 50
+): Promise<WebsiteSessionSummary[]> {
+  const nowIso = new Date().toISOString();
+  const idleCutoffIso = new Date(Date.now() - IDLE_MS).toISOString();
+
+  const result = await db
+    .prepare(
+      `SELECT id, created_at, last_seen_at, ua_summary
+         FROM website_sessions
+        WHERE user_id = ?
+          AND revoked_at IS NULL
+          AND expires_at > ?
+          AND last_seen_at > ?
+        ORDER BY last_seen_at DESC
+        LIMIT ?`
+    )
+    .bind(userId, nowIso, idleCutoffIso, limit)
+    .all<{ id: string; created_at: string; last_seen_at: string; ua_summary: string | null }>();
+
+  return (result.results ?? []).map((row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at,
+    uaSummary: row.ua_summary,
+    current: row.id === currentSessionId,
+  }));
+}
+
+/**
+ * Confirms a session belongs to a user before acting on it.
+ *
+ * Used by the revoke-one-device route: without this check the session id — which the panel hands
+ * to the browser — would be an IDOR letting any signed-in learner revoke a stranger's session.
+ */
+export async function sessionBelongsToUser(
+  db: D1Database,
+  sessionId: string,
+  userId: string
+): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT id FROM website_sessions WHERE id = ? AND user_id = ?')
+    .bind(sessionId, userId)
+    .first<{ id: string }>();
+  return Boolean(row);
 }

@@ -21,6 +21,17 @@
 .github
 .wrangler
 
+# --- local secrets (never publish) ---
+# `.dev.vars` is wrangler's standard file for local-dev secrets — it is where IA_WEBSITE_OIDC_SECRET
+# and friends live while running `npm run worker:dev`. It is gitignored, but that protects the repo,
+# not the deploy: `wrangler deploy` uploads the working tree, so a developer deploying from their own
+# machine would publish their live client secret at https://integrauth.com/.dev.vars. Same reasoning
+# for `.env`. Both are listed here so the leak is impossible rather than merely unlikely.
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+
 # --- build/dev tooling, not part of the site ---
 node_modules
 src

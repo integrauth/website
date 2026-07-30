@@ -35,12 +35,17 @@ workers_dev = true
 binding = "ASSETS"
 directory = "."
 
-# Only /api/academy/* is routed to the Worker; every other request is answered directly by
-# Cloudflare's asset server without a Worker invocation (faster, and no per-asset Worker
-# request billed for ~200 static files incl. 43 logos). Security headers for those static
+# Only /api/academy/* and /auth/* are routed to the Worker; every other request is answered
+# directly by Cloudflare's asset server without a Worker invocation (faster, and no per-asset
+# Worker request billed for ~200 static files incl. 43 logos). Security headers for those static
 # responses come from the `_headers` file at the repo root instead of from security.ts —
 # keep the two in sync when either changes.
-run_worker_first = ["/api/academy/*"]
+#
+# KEEP IN SYNC with the path prefixes src/worker.ts dispatches on. A prefix the Worker handles but
+# that is missing here never reaches the Worker at all — the asset server answers it first, and the
+# symptom is a plain 404 on a route that looks correctly implemented. /auth/* is the OIDC Relying
+# Party surface (login start, callback, session, logout, back-channel logout).
+run_worker_first = ["/api/academy/*", "/auth/*"]
 
 # Serve the repo's custom 404.html for unmatched paths. WITHOUT this, the default is "none",
 # which returns a bare bodyless 404 — i.e. the custom 404 page GitHub Pages serves today would
@@ -75,6 +80,36 @@ database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 # widget's allowed-domains list. If the widget is ever re-created, update this value AND the lab
 # repo's wrangler.toml together (both must carry the same site key).
 PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAD3VSnt3hqHZSCXw"
+
+# --- OIDC Relying Party (see src/lib/server/oidc-rp.ts) ---
+# This site authenticates users by redirecting to the Lab's OpenID Provider and exchanging an
+# authorization code — it does NOT share a session cookie with the Lab (that design was rejected;
+# src/lib/server/session.ts's header explains why at length).
+#
+# Both values are non-secret identifiers, hence [vars] rather than Wrangler secrets. The issuer must
+# match the `iss` claim byte for byte, so no trailing slash.
+LAB_ISSUER = "https://lab.integrauth.com"
+OIDC_CLIENT_ID = "integrauth-website"
+
+# NOT here, and must never be committed: IA_WEBSITE_OIDC_SECRET — the client secret for the
+# `integrauth-website` OIDC client. Set it as a Wrangler secret:
+#
+#   npx wrangler secret put IA_WEBSITE_OIDC_SECRET
+#
+# THE SAME RAW VALUE must be set in the `integrauth/lab` repo's Worker (same env var name). The Lab
+# stores only its SHA-256, so it cannot tell you the value back — if it is ever lost, it has to be
+# regenerated and set on BOTH sides in the same change. Until it is set, `rpConfigFromEnv()` returns
+# null and the /auth routes answer 503 `sign_in_unavailable`; the rest of the site is unaffected,
+# which is deliberate so the Worker can be deployed before the secret is provisioned.
+#
+# ALSO REQUIRED, on the Lab side: this site's callback URL must appear VERBATIM in the Lab's
+# IA_WEBSITE_REDIRECT_URIS (a comma-separated list, max 5 entries, exact string match at request
+# time — no host/port/scheme laxity). Register every origin this Worker answers on:
+#   https://integrauth.com/auth/callback
+#   https://www.integrauth.com/auth/callback
+#   https://<name>.<subdomain>.workers.dev/auth/callback   (for the pre-cutover staging step)
+# and set IA_WEBSITE_BACKCHANNEL_LOGOUT_URI to https://integrauth.com/auth/backchannel-logout so
+# signing out at the Lab also signs the user out here.
 
 [observability]
 enabled = true
