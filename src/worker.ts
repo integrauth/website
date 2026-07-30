@@ -22,13 +22,16 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       return await route(request, env, ctx);
-    } catch {
+    } catch (error) {
       // Last-resort catch. Both sub-apps register their own `onError` (api.ts returns JSON;
       // auth.ts renders the closing page so a popup can report the failure to its opener), so this
       // only fires for a throw that escapes routing itself or comes from env.ASSETS.fetch — and
       // without it, such a
       // throw renders Cloudflare's default error page, which carries NONE of the security headers
-      // below (no HSTS, no nosniff, no COOP, no frame-deny). Nothing about the error is echoed.
+      // below (no HSTS, no nosniff, no COOP, no frame-deny). Nothing about the error is echoed to
+      // the client — but it IS logged, or a recurring assets/routing failure would be uniform
+      // opaque 500s with nothing in `wrangler tail` to diagnose them by.
+      console.error('unhandled error in worker routing:', error);
       return withSecurityHeaders(
         new Response(JSON.stringify({ error: 'internal_error' }), {
           status: 500,
@@ -63,7 +66,9 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
       return secured;
     }
 
-    if (url.pathname === '/auth' || url.pathname.startsWith('/auth/')) {
+    // No bare-`/auth` clause: `run_worker_first = ["/auth/*"]` does not match the bare path, so the
+    // asset server answers it (with the 404 page) and it can never reach this code anyway.
+    if (url.pathname.startsWith('/auth/')) {
       const response = await authApp.fetch(request, env, ctx);
       const routeCacheControl = response.headers.get('Cache-Control');
 

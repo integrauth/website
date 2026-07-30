@@ -15,7 +15,8 @@
 // The replacement: each app holds its OWN host-locked cookie, and this site is an OIDC Relying
 // Party against the Lab's OpenID Provider (see oidc-rp.ts). This module therefore now MINTS,
 // validates and revokes sessions — but only ever rows in `website_sessions`, which exists for
-// exactly this purpose. It still never touches the Lab-owned `sessions` or `users` tables.
+// exactly this purpose. The Lab-owned `sessions` table is never touched at all, and the Lab-owned
+// `users` table only ever via the deliberate READ-ONLY join in `validateSession` (status + email).
 //
 // Schema ownership stays with the `integrauth/lab` repo (migration 0052). Never run a migration
 // from this repo against this database.
@@ -33,8 +34,9 @@
  * BE ACCEPTED OVER HTTPS: `ia_web_session` carries no prefix, so in production a sibling
  * subdomain could set it with `Domain=.integrauth.com` and we would be right back to session
  * fixation — with the added insult of having built the OIDC flow to avoid it. `sessionCookieName()`
- * below is the single place that decides, keyed off the request scheme, and callers must use it
- * rather than picking a constant.
+ * below is the single place that decides, keyed off the request HOSTNAME (an exact dev-host
+ * allowlist — scheme-keying was the original bug: it served the prefix-less name to plaintext
+ * http://integrauth.com), and callers must use it rather than picking a constant.
  */
 export const SESSION_COOKIE_PROD = '__Host-ia_web_session';
 export const SESSION_COOKIE_DEV = 'ia_web_session';
@@ -94,7 +96,8 @@ export interface ValidatedSession {
   /**
    * True when the browser's cookie is old enough to be worth re-issuing AND the caller said it
    * is in a position to set one (see `canIssueCookie`). Callers that cannot set a cookie must
-   * ignore this; callers that can should Set-Cookie and then call `markCookieIssued`.
+   * ignore this; a caller that can should Set-Cookie — `validateSession` has already stamped
+   * `cookie_issued_at` forward on its behalf when this is true.
    */
   shouldReissueCookie: boolean;
 }

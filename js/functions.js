@@ -739,17 +739,16 @@ function initAcademy() {
   /**
    * Monotonic generation counter for progress writes.
    *
-   * Every sync captures the generation it was issued under; a reset BUMPS it. A response is applied
-   * only if its generation is still current, which closes two real races that were both visible to
-   * the learner:
+   * Every sync captures the generation it was issued under; ONLY a reset bumps it, so what it
+   * closes is exactly the reset-vs-in-flight-response race: the older sync's response carries the
+   * PRE-reset epoch and the full pre-reset progress. Since its epoch no longer matches what we
+   * stored, applyServerProgress read it as authoritative, replaced local state with the progress
+   * that was just deleted, and wrote the OLD epoch back — so the reset visibly undid itself, and
+   * the next sync was then rejected as stale and cleared it again, flickering.
    *
-   *   - Reset vs. an in-flight sync. The older sync's response carries the PRE-reset epoch and the
-   *     full pre-reset progress. Since its epoch no longer matches what we stored, applyServerProgress
-   *     read it as authoritative, replaced local state with the progress that was just deleted, and
-   *     wrote the OLD epoch back — so the reset visibly undid itself, and the next sync was then
-   *     rejected as stale and cleared it again, flickering.
-   *   - Two overlapping syncs whose responses arrive out of order, where the older one moves the
-   *     saved reading position backwards.
+   * It does NOT serialize two overlapping ordinary syncs (no bump between them, so both responses
+   * apply) — those are safe anyway: read-marks and quiz masks merge by union, and the saved
+   * position is guarded by its own timestamp comparison.
    */
   let acadSyncGeneration = 0;
 
@@ -877,18 +876,31 @@ function initAcademy() {
    * equal, applyServerProgress takes its union branch (nothing local is lost) and the follow-up sync
    * uploads the local additions under an epoch the server will accept.
    */
+  let acadClaimInFlight = false;
   function claimAnonymousProgress() {
+    // Single-flight: on a boot where the cache said signed-out but the server says signed-in, BOTH
+    // ways in (the confirmed academy-auth-changed listener and ready().then(firstSync)) arrive
+    // here. The second run would only duplicate the GET and the union apply.
+    if (acadClaimInFlight) return;
     if (!window.AcademyAuth || typeof window.AcademyAuth.getProgress !== 'function') {
       scheduleSync();
       return;
     }
+    acadClaimInFlight = true;
+    // Same supersession rule as scheduleSync: a reset clicked while this GET is in flight bumps the
+    // generation, and applying the pre-reset response after it would visibly undo the reset (the
+    // exact flicker the generation counter exists to close on the ordinary sync path).
+    const generation = acadSyncGeneration;
     window.AcademyAuth.getProgress()
       .then(function (server) {
+        acadClaimInFlight = false;
+        if (generation !== acadSyncGeneration) return; // superseded — see acadSyncGeneration
         if (server && typeof server.epoch === 'number') saveEpoch(server.epoch);
         applyServerProgress(server);
         scheduleSync();
       })
       .catch(function (err) {
+        acadClaimInFlight = false;
         handleSyncError(err);
         scheduleSync();
       });
@@ -1119,11 +1131,34 @@ function initAcademy() {
     }
   }
 
-  function showHub(focusId) {
+  // `dropPosition` says whether arriving at the hub should retire the learner's saved reading
+  // position, and it is passed by the ONE kind of caller entitled to: an explicit "back to all
+  // tracks" action, plus a track reset (whose saved position likely points inside the track that
+  // was just cleared). Every other way of landing here — deep links like the navbar's
+  // /academy#acadExam "Certificates" link, the profile nudge, hub-widget chaining, the tour, the
+  // browser's Back button, a fresh boot with no hash — keeps it: merely LOOKING at the hub is not
+  // "I am done with my lesson", and dropping the position on those paths meant that checking your
+  // certificates destroyed "continue where you left off" on that device (worse, a fresh boot's
+  // tombstone was dated newer than the server's stored position, so this device then refused to
+  // adopt where the learner's OTHER device left off).
+  function showHub(focusId, dropPosition) {
     reader.hidden = true;
     hub.hidden = false;
     lessons.forEach(function (s) { s.classList.remove('is-active'); });
     if (location.hash) history.replaceState(null, '', location.pathname);
+    if (dropPosition) dropSavedPosition();
+    updateProgress();
+    const focusEl = focusId ? document.getElementById(focusId) : null;
+    if (focusEl) {
+      focusEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      focusEl.classList.add('acad-hub-pulse');
+      setTimeout(function () { focusEl.classList.remove('acad-hub-pulse'); }, 2200);
+    } else {
+      window.scrollTo({ top: 0 });
+    }
+  }
+
+  function dropSavedPosition() {
     // Drop the saved lesson, but leave a TOMBSTONE timestamp behind rather than clearing both.
     //
     // The obvious move is to remove both keys, and it is wrong in a way that only shows up for a
@@ -1143,20 +1178,11 @@ function initAcademy() {
       localStorage.removeItem(KEY_POS);
       localStorage.setItem(KEY_POS_AT, new Date().toISOString());
     } catch (e) {}
-    updateProgress();
-    const focusEl = focusId ? document.getElementById(focusId) : null;
-    if (focusEl) {
-      focusEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      focusEl.classList.add('acad-hub-pulse');
-      setTimeout(function () { focusEl.classList.remove('acad-hub-pulse'); }, 2200);
-    } else {
-      window.scrollTo({ top: 0 });
-    }
   }
 
   // Guided tour: teaches newcomers how to get from lesson 1 to the certificate.
   const ACAD_TOUR = [
-    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 133 byte-sized lessons and hands-on labs — all client-side, nothing to sign up for. Here’s how to get from your first lesson to your certificate.' },
+    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 133 byte-sized lessons and hands-on labs — free, and no account needed to learn (only the final exam and certificate ask you to sign in). Here’s how to get from your first lesson to your certificate.' },
     { selector: '.acad-track-card', title: '1. Pick a track', text: 'Click any track card — or a lesson link inside it — to start reading. Each lesson is a 3–5 minute read.' },
     { title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
     { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
@@ -1164,8 +1190,8 @@ function initAcademy() {
     // Question count must match `N` in lab-exam's draw (js/academy-labs.js) — it was left saying 25
     // after the exam grew to 50, which is also what made a legacy saved pass unclaimable: its raw
     // correct-answer count had been scored against a different denominator.
-    { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Score 80%+ to unlock a certificate you can download.' },
-    { selector: '.acad-hub-foot', title: 'Your progress', text: 'Everything lives in your browser — reset a single track, or replay this tour anytime from the button up top.' }
+    { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Sign in with a free account, score 80%+, and download a certificate anyone can verify.' },
+    { selector: '.acad-hub-foot', title: 'Your progress', text: 'Progress saves in this browser — and syncs to your account across devices when you sign in. Reset a single track, or replay this tour anytime from the button up top.' }
   ];
   let acadTourActive = false;
   let acadTourStep = 0;
@@ -1341,7 +1367,9 @@ function initAcademy() {
       e.preventDefault();
       const id = gotoBtn.getAttribute('data-goto');
       const HUB_SECTIONS = { __flows__: 'acadFlows', __challenge__: 'acadChallenge', __exam__: 'acadExam' };
-      if (id === '__hub__') showHub();
+      // Only the explicit "back to all tracks" action retires the saved position — chaining into
+      // the hub widgets (__flows__/__challenge__/__exam__) is exploration, not "I am done reading".
+      if (id === '__hub__') showHub(null, true);
       else if (HUB_SECTIONS[id]) showHub(HUB_SECTIONS[id]);
       else showLesson(id);
       return;
@@ -1473,7 +1501,9 @@ function initAcademy() {
     saveRead(read);
     saveQuizStore(store);
     pushResetToServer({ scope: 'track', lessonIds: lessonIds, trackIds: [track] });
-    showHub();
+    // Drop the saved position too: it very likely points inside the track that was just cleared,
+    // and resuming into a lesson the learner deliberately reset is the wrong welcome back.
+    showHub(null, true);
   }
 
   // Tells the server about a reset — the one progress change the union-merge sync cannot carry.
@@ -1487,6 +1517,7 @@ function initAcademy() {
   // A no-op when signed out: there is no server-side progress to delete, and the local clear the
   // caller already did is the entire operation.
   function pushResetToServer(payload) {
+    const hadPendingSync = !!acadSyncTimer;
     if (acadSyncTimer) { clearTimeout(acadSyncTimer); acadSyncTimer = null; }
     // Invalidate any sync ALREADY on the wire as well. Cancelling the timer only stops one that has
     // not left yet; a request in flight would still come back carrying the pre-reset epoch and the
@@ -1498,21 +1529,40 @@ function initAcademy() {
     if (!window.AcademyAuth || !window.AcademyAuth.getSession().loggedIn) return;
     if (typeof window.AcademyAuth.resetProgress !== 'function') return;
     const generation = acadSyncGeneration;
-    window.AcademyAuth.resetProgress(payload)
-      .then(function (server) {
-        if (generation !== acadSyncGeneration) return;
-        applyServerProgress(server);
-      })
-      .catch(function (err) {
-        // A FAILED reset used to be silent, and silence was the worst possible outcome: the local
-        // marks were already cleared, the server still held everything, and the epoch never moved —
-        // so the very next lesson the learner opened triggered a union sync that pulled every
-        // checkmark and the full progress bar straight back, with nothing on screen to explain it.
-        // Say so instead, and offer the retry, since the learner's local state and the server's have
-        // genuinely diverged until one of them wins.
-        handleSyncError(err);
-        showResetFailedToast(payload);
-      });
+
+    const doReset = function () {
+      window.AcademyAuth.resetProgress(payload)
+        .then(function (server) {
+          if (generation !== acadSyncGeneration) return;
+          applyServerProgress(server);
+        })
+        .catch(function (err) {
+          // A FAILED reset used to be silent, and silence was the worst possible outcome: the
+          // local marks were already cleared, the server still held everything, and the epoch
+          // never moved — so the very next lesson the learner opened triggered a union sync that
+          // pulled every checkmark and the full progress bar straight back, with nothing on screen
+          // to explain it. Say so instead, and offer the retry, since the learner's local state
+          // and the server's have genuinely diverged until one of them wins.
+          handleSyncError(err);
+          showResetFailedToast(payload);
+        });
+    };
+
+    if (!hadPendingSync) {
+      doReset();
+      return;
+    }
+    // The cancelled sync was not necessarily ABOUT the track being reset: the debounce window is
+    // 800ms, so it may have been carrying a just-earned read mark from a DIFFERENT track that never
+    // reached the server. The reset's response is epoch-bumped and applied as authoritative
+    // wholesale, so if that mark is simply dropped here it is gone for good. Flush it first — from
+    // the CURRENT local snapshot, which the caller has already stripped of everything being reset,
+    // so the reset target cannot ride along and resurrect itself — then reset, sequentially, so the
+    // union write cannot race the delete server-side. Best-effort: a failed flush must not block
+    // the reset the learner actually asked for.
+    window.AcademyAuth.syncProgress(localSyncSnapshot())
+      .catch(function () {})
+      .then(doReset);
   }
 
   /**

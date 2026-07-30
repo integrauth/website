@@ -18,7 +18,8 @@
 #              wrangler.toml (committed, non-secret).
 #
 # NOT required: RESEND_APIKEY (this Worker never sends email — all OTP email goes out through the
-# Lab's own Resend integration; this site only calls the Lab's API cross-origin for that).
+# Lab's own Resend integration, where the credentials are collected; this site never calls the
+# Lab's API at all, it only signs users in against the Lab's OpenID Provider by redirect).
 #
 # Provisioned automatically by this workflow (not a GitHub input): the ACADEMY_PRIVATE_JWK Worker
 # secret (an ES256 P-256 private key, JWK JSON, used to sign Academy certificates) is generated
@@ -72,8 +73,11 @@ jobs:
       - name: No stray control bytes in source
         run: |
           set -euo pipefail
+          # `-a` is load-bearing: without it grep classifies a NUL-containing file as binary and its
+          # PCRE matcher never reports it — i.e. the guard misses the ONE byte from the original
+          # incident most reliably, while catching the others. Verified empirically both ways.
           bad=$(git ls-files -z -- '*.ts' '*.js' '*.json' '*.html' '*.css' '*.yml' '*.toml' \
-            | xargs -0 grep -lP '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]' 2>/dev/null \
+            | xargs -0 grep -laP '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]' 2>/dev/null \
             | grep -v '\.min\.\|node_modules' || true)
           if [ -n "$bad" ]; then
             echo "::error::Source files contain raw control bytes (use \\x escapes instead):"
@@ -175,7 +179,7 @@ jobs:
                  "sign_in_unavailable. Add it as a GitHub Secret (organisation-level, shared to this"\
                  "repo AND integrauth/lab, so both get the same value) and re-run. Also make sure"\
                  "this Worker's /auth/callback URL is in the Lab's IA_WEBSITE_REDIRECT_URIS — the"\
-                 "'OIDC redirect URI' step below prints the exact line to paste."
+                 "'OIDC callback URL (cross-check against the Lab)' step below prints it."
           fi
 
       # This Worker's own callback URL, reported for cross-checking. The Lab normally registers it
@@ -275,7 +279,14 @@ jobs:
 
           # 1. The JWKS route must NEVER publish the private half. `"d"` in an EC JWK is the private
           #    scalar; leaking it lets anyone forge certificates in any learner's name, permanently.
+          # An empty response must FAIL, not pass: a probe that greps nothing finds nothing, and a
+          # network hiccup would print OK for an invariant it never actually checked.
           jwks=$(curl -sS -m 20 "$URL/api/academy/.well-known/jwks.json" || true)
+          if [ -z "$jwks" ]; then
+            echo "::error::could not fetch $URL/api/academy/.well-known/jwks.json — the private-key"\
+                 "leak probe did not run, which is a failure, not a pass."
+            exit 1
+          fi
           if printf '%s' "$jwks" | grep -q '"d"'; then
             echo "::error::$URL/api/academy/.well-known/jwks.json contains a \"d\" member — the"\
                  "PRIVATE key half is being published. Do not leave this deployed."
@@ -299,8 +310,16 @@ jobs:
           # 3. The post-login return path must not be an open redirect. A tab is the interesting
           #    payload: the URL parser strips tab/CR/LF before parsing, so `/<TAB>/evil.com` used to
           #    resolve to https://evil.com/ while passing a naive single-slash check.
-          loc=$(curl -sS -m 20 -D - -o /dev/null "$URL/auth/start?mode=redirect&return=/%09/evil.example" 2>/dev/null \
-                  | tr -d '\r' | grep -i '^location:' || true)
+          # Same rule as the JWKS probe: a fetch that returned nothing checked nothing. An absent
+          # Location header on a REAL response is fine (503 sign_in_unavailable renders a page, no
+          # redirect, nothing reflected) — but only if we actually got headers back.
+          hdrs=$(curl -sS -m 20 -D - -o /dev/null "$URL/auth/start?mode=redirect&return=/%09/evil.example" 2>/dev/null || true)
+          if [ -z "$hdrs" ]; then
+            echo "::error::could not fetch $URL/auth/start — the open-redirect probe did not run,"\
+                 "which is a failure, not a pass."
+            exit 1
+          fi
+          loc=$(printf '%s' "$hdrs" | tr -d '\r' | grep -i '^location:' || true)
           if printf '%s' "$loc" | grep -qi 'evil.example'; then
             echo "::error::/auth/start reflected a hostile return path into Location ($loc) —"\
                  "safeReturnPath is not rejecting control characters. This is an open redirect."

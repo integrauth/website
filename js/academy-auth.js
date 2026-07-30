@@ -162,15 +162,57 @@
 
     if (session && session.loggedIn && session.userId) {
       if (owner && owner !== session.userId) wipeLocalProgress();
+      restoreExamStash(session.userId);
       try { localStorage.setItem(OWNER_KEY, session.userId); } catch (e) {}
       return;
     }
     // Signed out. Only wipe if this progress was owned by an account — anonymous progress on a
     // browser that has never signed in is the visitor's own and must survive.
     if (owner) {
+      stashExamForOwner(owner);
       wipeLocalProgress();
       try { localStorage.removeItem(OWNER_KEY); } catch (e) {}
     }
+  }
+
+  /**
+   * The one thing the signed-out wipe must NOT destroy: a passing exam result that never reached
+   * the server.
+   *
+   * The exact loss: a learner passes, `POST /exam/attempts` 401s because the session ended
+   * server-side between grading and recording (revoke-all from another device, a back-channel
+   * logout from signing out at the Lab) — and the confirmed signed-out answer that follows runs the
+   * wipe above, taking `acad_exam` with it. The full 50-question sitting is then unrecoverable:
+   * signing back in finds no local pass for the claim path to offer, and the "Try again" button
+   * 401s forever.
+   *
+   * So a passing `acad_exam` is moved aside here, BOUND TO THE ACCOUNT THAT EARNED IT, and put back
+   * only when that same account signs back in — at which point the normal claim path sees it and
+   * offers "save this result to your account". A different account signing in does not see it, does
+   * not restore it, and cannot claim it (that cross-learner claim is the exact hole the wipe exists
+   * to close); their stash entry is simply left in place in case the earner returns. Only a
+   * passing record is worth stashing — everything else is either synced already or worthless.
+   */
+  var EXAM_STASH_KEY = 'acad_exam_stash_v1';
+
+  function stashExamForOwner(owner) {
+    var exam = null;
+    try { exam = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { return; }
+    if (!exam || !exam.passed) return;
+    try { localStorage.setItem(EXAM_STASH_KEY, JSON.stringify({ owner: owner, exam: exam })); } catch (e) {}
+  }
+
+  function restoreExamStash(userId) {
+    var stash = null;
+    try { stash = JSON.parse(localStorage.getItem(EXAM_STASH_KEY) || 'null'); } catch (e) { return; }
+    if (!stash || stash.owner !== userId || !stash.exam) return;
+    try {
+      // Never clobber a fresher record: an exam sat while signed in outranks a stashed one.
+      if (!localStorage.getItem('acad_exam')) {
+        localStorage.setItem('acad_exam', JSON.stringify(stash.exam));
+      }
+      localStorage.removeItem(EXAM_STASH_KEY);
+    } catch (e) {}
   }
 
   function wipeLocalProgress() {
@@ -876,12 +918,32 @@
       var action = actionEl.getAttribute('data-acad-auth-action');
       if (action === 'signout') {
         e.preventDefault();
-        signOut().then(function () { window.location.reload(); }).catch(function () { /* best-effort */ });
+        signOut().then(function () { window.location.reload(); }).catch(signOutFailed);
       } else if (action === 'signout-all') {
         e.preventDefault();
         confirmSignOutEverywhere();
       }
       // 'profile' / 'certificates' / 'manage-account' are plain links — no JS needed.
+    });
+  }
+
+  /**
+   * A failed sign-out must be LOUD, and must not pretend. The tempting alternative — clear the
+   * local cache first so the tab at least LOOKS signed out — is the dangerous one on the machine
+   * where sign-out matters most: the shared one. The session cookie is still valid, so the learner
+   * who saw "signed out" and walked away actually left their account open; the next visitor's page
+   * load probes /auth/session and is straight back in it. Truthful failure + retry is the only
+   * honest option.
+   */
+  function signOutFailed(err) {
+    return authConfirm({
+      title: 'Sign-out failed',
+      message: 'The server could not be reached (' + describeApiError(err) + '), so you are STILL ' +
+        'SIGNED IN on this device. Check your connection and try again.',
+      confirmLabel: 'Try again',
+      cancelLabel: 'Not now'
+    }).then(function (retry) {
+      if (retry) return signOut().then(function () { window.location.reload(); }).catch(signOutFailed);
     });
   }
 
@@ -1095,14 +1157,10 @@
         mk('button', {
           type: 'button', class: 'acad-lab-btn',
           onclick: function () {
-            // Reload either way: signOut() clears the local cache before the request, so even a
-            // failed round trip leaves this tab signed out and the reload makes that visible.
-            // Without the second handler this is an unhandled rejection and the page just sits
-            // there still showing the account panel.
-            signOut().then(
-              function () { window.location.reload(); },
-              function () { window.location.reload(); }
-            );
+            // Success reloads into the signed-out page; failure is loud (see signOutFailed) —
+            // this tab is genuinely still signed in when the round trip fails, and reloading
+            // into a signed-in page while claiming otherwise would be the worst of both.
+            signOut().then(function () { window.location.reload(); }).catch(signOutFailed);
           }
         }, 'Sign out'),
         mk('button', {
@@ -1146,10 +1204,14 @@
     wireAccountPanel();
 
     // Render from cache first (instant, no flash of the wrong state), then confirm with the
-    // server. `force` so listeners get one event to draw their initial state from.
-    // Render from the cache, but do NOT reconcile progress ownership on it: the cache is a guess,
-    // and on a fresh profile it reads as signed-out. See reconcileProgressOwner.
-    saveCachedSession(getSession(), true, false);
+    // server. Fired directly rather than through saveCachedSession, for two reasons: the cache is
+    // a guess, so no reconciling progress ownership on it (see reconcileProgressOwner) — and no
+    // writing it BACK to the store either. The value came from the store, so a rewrite persists
+    // nothing new, and it is not a no-op in the one case that matters: a corrupt/truncated stored
+    // value parses to null, getSession() then answers {loggedIn:false}, and writing that back
+    // raises a storage event that every other open tab treats as a server-confirmed sign-out —
+    // wiping local progress while the session cookie is still perfectly valid.
+    fireChanged(getSession(), false);
 
     // Only ask the server if there is a server to ask. On GitHub Pages, before the DNS cutover,
     // /auth/session is a 404 — probing first keeps a failed fetch out of the console on every page

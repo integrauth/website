@@ -287,7 +287,15 @@ export function createAuthApp() {
     const nonce = crypto.randomUUID();
     const tx = readTxCookie(c.req.header('Cookie') ?? null, url);
 
-    const fail = (error: string, status = 400) => {
+    // `clearTx` decides whether this failure may destroy the `__Host-ia_oidc_tx` cookie, and the
+    // default is NO for a reason. This cookie is `SameSite=Lax`, so it rides along on any top-level
+    // cross-site GET to this URL — including one an attacker navigates a victim's browser to while
+    // the victim is still typing their code at the provider. A failure path that both (a) is
+    // reachable by such an unbound request and (b) clears the cookie hands that attacker a login
+    // kill switch: the victim's real callback arrives moments later and dies `no_transaction`.
+    // So only failures that PROVED binding (the state matched, and the response genuinely belongs
+    // to this transaction) opt into clearing; unbound failures leave the transaction alone.
+    const fail = (error: string, status = 400, clearTx = false) => {
       const response = htmlResponse(
         closingPage({
           nonce,
@@ -301,7 +309,7 @@ export function createAuthApp() {
         nonce,
         status
       );
-      response.headers.append('Set-Cookie', clearTxCookie(url));
+      if (clearTx) response.headers.append('Set-Cookie', clearTxCookie(url));
       return response;
     };
 
@@ -310,38 +318,35 @@ export function createAuthApp() {
     if (!tx) return fail('no_transaction');
 
     // `state` is validated FIRST — before the provider's own error parameter, before anything else
-    // in the response is acted on. The order matters and the tempting order is the wrong one.
-    //
-    // `fail()` clears the transaction cookie, and that cookie is `SameSite=Lax`, so it rides along
-    // on a top-level cross-site GET navigation. If the `error` parameter were handled first, any
-    // third-party page could navigate a victim's browser to /auth/callback?error=access_denied —
-    // no `state`, no knowledge of the transaction, nothing — and destroy whatever login was in
-    // flight while they were typing their code at the provider. The real callback arriving moments
-    // later would then fail `no_transaction`. Checking the binding first means an unbound request
-    // cannot touch the transaction at all.
+    // in the response is acted on — and it is the gate for `clearTx` above. The two rules together
+    // are what make an unbound request harmless: any third-party page can navigate a victim's
+    // browser to /auth/callback?error=access_denied (top-level GET, so the Lax cookie rides along),
+    // and neither handling `error` first nor clearing the cookie on that path may be allowed to
+    // destroy the login the victim is mid-way through at the provider. Every failure from this
+    // point DOWN has proved it holds the transaction's own state, so those may retire it.
     const state = url.searchParams.get('state') ?? '';
     if (!state || !timingSafeEqual(state, tx.state)) return fail('state_mismatch');
 
     // The provider reports user-visible refusals (a denied consent screen, an invalid request) as
     // redirect parameters, not as a failed exchange. Surface its code rather than a generic one.
     const providerError = url.searchParams.get('error');
-    if (providerError) return fail(providerError);
+    if (providerError) return fail(providerError, 400, true);
 
-    // Mix-up defence. Only checked when present: the provider does not currently return `iss` on
-    // the authorization response, and rejecting its absence would break every login. With a single
-    // hardcoded provider there is no second issuer to be confused with, so this is belt-and-braces
-    // that costs nothing and starts working for free if the Lab adds the parameter.
+    // Mix-up defence (and live, not aspirational: the Lab adds `iss` to every authorization
+    // response redirect). With a single hardcoded provider there is no second issuer to be
+    // confused with, so this is belt-and-braces — but it costs nothing. Only checked when present
+    // so a provider that stopped sending it would not break every login.
     const iss = url.searchParams.get('iss');
-    if (iss && iss.replace(/\/+$/, '') !== config.issuer) return fail('issuer_mismatch');
+    if (iss && iss.replace(/\/+$/, '') !== config.issuer) return fail('issuer_mismatch', 400, true);
 
     const code = url.searchParams.get('code') ?? '';
-    if (!code) return fail('missing_code');
+    if (!code) return fail('missing_code', 400, true);
 
     let identity;
     try {
       identity = await exchangeCode(config, code, tx);
     } catch (error) {
-      return fail(error instanceof OidcError ? error.code : 'exchange_failed');
+      return fail(error instanceof OidcError ? error.code : 'exchange_failed', 400, true);
     }
 
     const created = await createSession(c.env.DB, {

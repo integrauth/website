@@ -3,12 +3,15 @@
 > Updated 2026-07-30. Everything below reflects verified repo state, not intent.
 > `docs/` and `*.md` are excluded from asset publishing (`.assetsignore`), so this file is never served.
 >
-> **Read §8 and §9 first.** Two separate adversarial passes over code this document had already
-> called verified each found real defects: §8 a total sign-in outage, an open redirect and a security
-> control that never ran; §9 two silent data-loss paths, a logout that could fail to revoke, and a
-> sign-in error that hung the popup for five minutes. What was missed, and why, is more useful to you
-> than the parts that were right — and the pattern itself is the warning: every round of "this is
-> verified" has so far been followed by a round that found more.
+> **Read §8, §9 and §10 first.** THREE separate adversarial passes over code this document had
+> already called verified each found real defects: §8 a total sign-in outage, an open redirect and a
+> security control that never ran; §9 two silent data-loss paths, a logout that could fail to revoke,
+> and a sign-in error that hung the popup for five minutes; §10 an incomplete §8 fix (the login-kill
+> DoS was still reachable), a residual instance of the §9 reset race, a destroyed-passing-exam path,
+> a CI guard that could not detect the very byte it was written for, and a documented staging flag
+> that was dead code. What was missed, and why, is more useful to you than the parts that were right
+> — and the pattern itself is the warning: every round of "this is verified" has so far been followed
+> by a round that found more.
 
 ---
 
@@ -65,13 +68,17 @@ Two consequences that surprise people:
 | `8b1887f` | `academy_progress_epoch` (migration 0053) + RTBF wiring; derive the workers.dev callback |
 | `7bacd5b` | **Percent-decode the Basic client credential** — see §8, this was a total sign-in outage |
 | `7502afd` | "Sign out everywhere" now reaches this site; refuse to invent the shared secret |
+| `c1960dd` | Revoke FIRST, then fan out; bound the fan-out (§9 items 1 and 8) |
+| `2b28903` | Logout token `exp` — the §9 owner decision |
+| *(HEAD)* | Round-3 fixes (§10): wire the dead `IA_WEBSITE_PRECUTOVER` flag, truncation-bound test, exact-`exp` assertion, comment corrections |
 
 `main` still carries `__Host-lab_session`, which is why the revert cost nothing: the shared-cookie
 version was never merged or deployed, so there were no live sessions to migrate and no wide-domain
 cookie stranded in browsers for ~400 days.
 
 Verified independently at each step. Final state: `npm run typecheck` clean (1011 files, 0 errors),
-`npm test` at **93 files / 1597 tests, 0 failures**, `npm run dryrun` clean.
+`npm test` at **93 files / 1602 tests, 0 failures** (count grows with each round's regression
+tests — re-run rather than trust this line), `npm run dryrun` clean.
 
 ### `integrauth/website` — branch `claude/academy-login-otp-sync-scxtmc`
 
@@ -83,10 +90,17 @@ Verified independently at each step. Final state: `npm run typecheck` clean (101
 | `bfc22aa` | Merge of `origin/main` |
 | `b92040f` | **OIDC Relying Party + this site's own session store** |
 | `fe5ffe8` | **Sign-in client rewrite, account-scoped progress, reset channel** |
+| `ab43e26` | Callback summary reframed as a cross-check (the Lab derives it) |
+| `44850d6` | Open redirect closed + Worker surface hardened (§8) |
+| `12a0ebb` | The account-scoping control that never ran + client sync races (§8) |
+| `c164cbb` | Stop losing learner progress; make sign-in failures visible (§9) |
+| `2306dd5` | The four owner decisions (§9) |
+| *(HEAD)* | Round-3 fixes (§10): tx-cookie DoS residue, bump-before-delete, exam-pass stash, CI guard `-a`, and the rest of the §10 table |
 
-Asset versions: `styles.min.css?v=5.56`, `functions.min.js?v=5.53`, `academy-auth.min.js?v=1.2`,
-`academy-labs.min.js?v=5.52`, `acad-build` = `academy-version.txt` = `5.54`. All four minified
-assets are current against their sources.
+Asset versions (as of round 3): `styles.min.css?v=5.56`, `functions.min.js?v=5.56`,
+`academy-auth.min.js?v=1.5`, `academy-labs.min.js?v=5.54`, `acad-build` = `academy-version.txt` =
+`5.58`. All four minified assets are current against their sources — but these numbers go stale
+with every deploy, so verify against the HTML rather than trusting this line.
 
 ---
 
@@ -143,12 +157,13 @@ reimplementing them.
    `invalid_client` with no way to compare the two.
 
    Both CI workflows now mirror it into their Worker on every deploy, so rotating is "change the
-   GitHub Secret, redeploy both". Neither side ever generates it: a value either CI invented would be
-   one the other does not know. The Lab's `provision-cf.sh` still has a generate-as-last-resort path
-   so a solo deploy is not blocked, but it now emits a loud `::warning::` when it fires, because a
-   generated value is masked out of the log and unreadable from Wrangler afterwards — nobody could
-   then tell the website what to match. Recovery is clean if that happens (the Lab re-syncs its stored
-   SHA-256 on the next request naming the client), just manual on both sides.
+   GitHub Secret, redeploy both". Neither side ever generates it — **including the Lab's
+   `provision-cf.sh`, which REFUSES rather than falling back**: when the GitHub Secret is absent it
+   warns loudly and leaves the secret unset (sign-in answers 503 until it exists), because a
+   generated value is masked out of the log and unreadable from Wrangler afterwards, so nobody could
+   ever tell the website what to match — a seeded client with an unknowable secret 401s
+   `invalid_client` forever. (An earlier version of this document described a generate-as-last-resort
+   path; that path was removed, and the refusal is the load-bearing behavior.)
 
    `ACADEMY_PRIVATE_JWK` is different — it is ours alone, auto-generates on first deploy, and is
    **never rotated** (rotating it invalidates the signature on every certificate ever issued).
@@ -187,6 +202,15 @@ reimplementing them.
    reset a track and confirm it stays reset on the other profile → exam → certificate → `/verify` →
    sign out everywhere → delete the account at the Lab and confirm the Academy rows are gone.
    Production is untouched throughout. **Do a manual sign-in click-through here** — see §6.
+
+   **To test Lab-side logout reaching the Academy during this window, set `IA_WEBSITE_PRECUTOVER=1`
+   on the LAB deploy** (a repo Variable/env for its workflow). Back-channel logout takes exactly ONE
+   URI per client, and the committed one points at `https://integrauth.com/...` — which is served by
+   GitHub Pages until DNS cutover, so every logout token would be delivered into a host that cannot
+   receive it and "sign out at the Lab ends the Academy session" would silently fail on staging. The
+   flag makes the Lab's provisioner repoint that URI at the website's workers.dev origin for that
+   deploy only. **Unset it at DNS cutover** — the script's own comment explains why forgetting to
+   unset is the worse failure, which is also why it defaults off.
 6. **Then, as ONE step**: merge the frontend to main, add the `routes` block, cut DNS. Splitting these
    is a failure mode: the frontend calls `/api/academy/*`, which does not exist until the Worker owns
    the domain. (The `isApiAvailable()` probe softens this from "site breaks" to "accounts quietly
@@ -207,6 +231,9 @@ reimplementing them.
    any more: the Lab's provisioner now warns and leaves it unset instead of generating a value that
    could never be matched (Lab `7502afd`). Until it is set, sign-in answers 503 and everything else
    works.
+5. **Set `IA_WEBSITE_PRECUTOVER=1` on the Lab's deploy for the staging window** if you want Lab-side
+   sign-out to reach the Academy's workers.dev origin before DNS cutover (see §4 step 5) — and
+   **unset it at cutover**.
 *(The workers.dev redirect URI no longer needs adding by hand — the Lab derives it from the CF API at
 deploy time. Only check for a `workers.dev subdomain` warning in its log if pre-cutover sign-in fails.)*
 
@@ -268,7 +295,7 @@ exercised against the actual production schema. Suite results at that point:
 | Adversarial API probes (`adversarial.sh`) | 72/72 |
 | Account-scoping in a real browser (`owner-test.js`) | 22/22 — and 8 failures against the pre-fix build |
 | Open-redirect payloads (`srp-test.js`) | 29 payloads neutralised, 6 legitimate paths preserved |
-| Lab `npm test` | 93 files / 1597 tests |
+| Lab `npm test` | 93 files / 1602 tests (as of round 3) |
 
 The adversarial suite covers what the first pass did not: cross-user IDOR on every route, disabled and
 erased accounts, the public verify oracle's leakage, oversized and malformed payloads, the total-row
@@ -408,7 +435,8 @@ All four open items below were decided and implemented; none is outstanding.
 - **No `jti` replay cache on `/auth/backchannel-logout`.** Now bounded by the token's own 120-second
   `exp` as well as our 5-minute `maxTokenAge`, and a replay only re-revokes an already-revoked
   session (idempotent). BCL 1.0 makes the cache a MAY; adding one would need a table in a database
-  this repo does not own, for no behaviour change.
+  this repo does not own, for no behaviour change. (Since round 3 the receiver does REQUIRE a `jti`
+  to be present — §2.6 makes the member itself REQUIRED — it just keeps no cache behind it.)
 - **Exam panel's read-count is snapshotted at mount**, so after a partial cross-device pull the hub
   bar and the exam panel can disagree until a reload. Cosmetic.
 
@@ -425,3 +453,62 @@ Both times, a test that "passed" was measuring its own fixture:
 
 Every fix in the table above was verified by reverting it and watching the test go red. Where a test
 does **not** discriminate, that is stated rather than counted as coverage.
+
+---
+
+## 10. The third re-audit (2026-07-30, after the owner decisions) — what §9 still missed
+
+Seven independent audit slices over both branches: website server, website client JS, HTML/copy/asset
+consistency, config/CI, the lab delta, the cross-repo OIDC contract compared value-by-value, and
+docs-vs-code truthfulness. **No criticals or highs.** The cross-repo contract passed all 12 points
+character-for-character (client id, scope, redirect URIs, Basic-auth round-trip incl. `+ / = % é`,
+ID-token claims vs verification, logout-token claims incl. the new `exp`, JWKS, duplicated
+constants, D1 table ownership, issuer/endpoint paths, logout directionality). What follows is what
+still needed fixing.
+
+### Fixed in this round
+
+| # | Where | What was wrong |
+|---|---|---|
+| 1 | `website` `deploy.yml` control-byte gate | The guard §8 item 7 added **could not detect NUL** — grep without `-a` classifies a NUL-containing file as binary and its PCRE matcher never reports it, so the one byte from the original incident most reliably sailed through CI while the others were caught. Verified empirically both ways; now `grep -laP`. |
+| 2 | `website` `deploy.yml` smoke probes | The JWKS private-key-leak probe and the open-redirect probe printed OK when the **fetch itself failed** (empty response → grep finds nothing). An empty response now fails the step; "the probe did not run" is a failure, not a pass. |
+| 3 | `website` `auth.ts` `/auth/callback` | §8 item 5's fix was **incomplete**: `state` was validated first, but `fail()` still cleared the transaction cookie unconditionally — so an unbound cross-site navigation reaching `state_mismatch` destroyed the victim's in-flight login anyway, the exact DoS the comment claimed was closed. Only failures that proved binding (state matched) may clear the cookie now. |
+| 4 | `website` `api.ts` `/progress/reset` | Deleted **then** bumped the epoch. An old-epoch sync mid-flight through its own round trips could land its union writes in that gap (guard still sees the old epoch), and the bump then stamped the resurrected rows at the new epoch — the exact unrecoverable state the epoch machinery exists to prevent, §9's in-statement guard notwithstanding. Bump-first: late writes fail the guard, early ones are swept by the deletes. |
+| 5 | `website` `academy-auth.js` + labs | **A passing exam was permanently destroyed** if the session died between grading and recording (revoke-all elsewhere, Lab-side sign-out): the 401 → confirmed-signed-out → security wipe took `acad_exam` with it, the remount destroyed the retry panel, and signing back in found nothing to claim. A passing record is now stashed **bound to the earning userId** (`acad_exam_stash_v1`) and restored only when that account returns; another account neither sees nor can claim it. |
+| 6 | `website` `academy-auth.js` sign-out | A failed sign-out was silent (navbar `catch(noop)`), and the account-panel comment claimed cache-clear-first — which would be the *dangerous* behavior on the shared machine where sign-out matters most (looks signed out, cookie still valid). Now: clear on success only, loud themed retry dialog on failure, saying plainly "you are STILL SIGNED IN". |
+| 7 | `website` `academy-auth.js` boot | `init()` wrote the cached session back to localStorage — a no-op except when the stored value was corrupt, where it broadcast `{loggedIn:false}` as a *confirmed* sign-out to every other tab, wiping progress while the cookie was still valid. Boot now renders without writing the store. |
+| 8 | `website` `functions.js` sync | `claimAnonymousProgress()` ignored `acadSyncGeneration` (a reset clicked mid-claim let the stale response apply) and could run twice concurrently from its two entry points. Now generation-checked and single-flight. |
+| 9 | `website` `functions.js` reset | The reset cancelled the pending debounced sync outright — which may have been carrying a <800ms-old read mark from a **different** track; the epoch-bumped reset response then replaced local state wholesale and the mark was gone for good. The pending payload is now flushed first (from the post-reset local snapshot, so the reset target cannot ride along), then the reset runs. |
+| 10 | `website` `functions.js` `showHub` | The position tombstone (§8 item 2) fired on EVERY arrival at the hub — so the navbar's Certificates deep link, the profile nudge, hub-widget chaining, browser Back and a plain boot all destroyed "continue where you left off" (and a fresh boot's tombstone out-dated the server's position, blocking cross-device resume). Only the explicit back-out and a track reset drop it now (`showHub(focusId, dropPosition)`). |
+| 11 | `website` `oidc-rp.ts` | Hardening: `requiredClaims: ['exp','iat','sub']` on ID-token verify (OIDC Core §2 makes `exp` REQUIRED; jose validates it only when present), `azp`-when-present must name us (§3.1.3.7 step 5), and logout tokens must carry the §2.6-REQUIRED `jti`. |
+| 12 | `website` `academy-labs.js` | Certificate-history load failure blanked the panel — indistinguishable from "no certificates" for a learner who has some. Now shows the error and a retry. |
+| 13 | `lab` `provision-cf.sh` | **`IA_WEBSITE_PRECUTOVER` was dead code** — `point_website_backchannel_at_workers_dev` was defined and never called from any dispatch path, so the documented staging flag silently did nothing and every staging logout token went to GitHub Pages. Now wired into `cmd_prepare`. The file's header comment also still *instructed* generating the shared secret; fixed to describe the refusal. |
+| 14 | `lab` tests | The fan-out truncation bound had **zero coverage** (a regression dropping it passed CI); a new test seeds 46 live sids and asserts exactly 40 deliveries plus the truncation audit's real numbers. The `exp` test asserted `<= 300` — the TTL could have silently grown 2.5×; now asserts exactly 120. |
+| 15 | both | Doc/comment rot: §4's phantom "generate-as-last-resort" path (above), the missing `IA_WEBSITE_PRECUTOVER` step, CLAUDE.md's stale `#acadResetAll` and "paste the workers.dev line" claims and `btn-primary` naming, the lab wrangler.toml "STILL TO ADD" block, `session.ts`'s "keyed off the request scheme" and phantom `markCookieIssued`, `api.ts`'s "shared SSO cookie", `oidc-rp.ts`'s "sends this without an `exp`", `auth.ts`'s "provider does not return `iss`" (it does), the overbroad "no CORS anywhere" claim in lab `security.ts`, stale tour copy ("all client-side, nothing to sign up for"), dead `markOthersNotBest` + the unroutable bare-`/auth` clause, the `__proto__` write-only quiz-row sink, the JWKS preflight that omitted `Access-Control-Allow-Headers`, the silent last-resort catch in `worker.ts`, and privacy.html never mentioning the downloadable certificate JWT. All fixed. |
+
+### Round-3 verification
+
+All prior suites re-run green against the fixed tree: epoch 26/26, epoch-guard 13/13, adversarial
+72/72, smoke 54/54, owner-scoping 22/22, position/claim 8/8, auth-UI 35/35, dropdown 28/28, Lab
+`npm test` 93 files / 1602. New discriminating coverage: an 11-assertion browser suite for the
+exam-pass stash (`exam-stash-test.js`, scratchpad — including that a different account neither
+receives nor consumes it), live HTTP probes showing the tx cookie SURVIVES unbound callback
+failures and is CLEARED on bound ones, the lab truncation test (46 sids → exactly 40 deliveries +
+the audit's real numbers), and the empirical `grep -lP`-misses-NUL / `-laP`-catches-it check. The
+reset bump-before-delete ordering is NOT observable over HTTP (both orders answer identically) —
+it is verified by code reading plus the raw-SQL epoch-guard section, and stated here rather than
+counted as test coverage.
+
+### Audited clean this round (so the next reader knows it was looked at)
+
+PKCE/nonce/state handling, cookie attributes and `__Host-` usage, CSRF origin guards both sides,
+`safeReturnPath`, certificate JWT claims and JWKS `d`-stripping, serial unbiased generation and
+normalization, epoch-guard SQL parameter order, exam-attempt validation constants matching the
+client, issuance idempotency + name-lock race handling, the public verify oracle, session-store
+fail-closed paths, popup handshake on every error path, `_headers` vs `security.ts` (byte-identical
+on all six shared headers incl. COOP), `.assetsignore` against the full 208-file tree, minified
+assets byte-identical to fresh builds, navbar/footer byte-identical across all 11 pages, terms.html
+zero dead anchors, stat-chip counts exact (133/12/99 verified against the DOM), migrations 0045–0053
+matching the website store's expectations column-for-column, erasure cascading all 8 tables, and the
+FAQ JSON-LD (whose four wording deltas are deliberate self-contained adaptations, now documented in
+CLAUDE.md rather than "fixed").

@@ -408,10 +408,12 @@ export async function exchangeCode(
 /**
  * Verifies an ID token's signature and claims, returning the identity it asserts.
  *
- * `jwtVerify` covers signature, `iss`, `aud`, `exp` and `iat`. The `nonce` check is ours to make
- * and is the one that matters most here: it is what binds this ID token to the authorization
- * request WE started, and without it a token replayed from another login would sail through every
- * other check.
+ * `jwtVerify` covers signature, `iss` and `aud`, and validates `exp`/`iat` — but only when they are
+ * present, which is why `requiredClaims` pins them: OIDC Core §2 makes `exp` REQUIRED in an ID
+ * token, and without the pin a token minted without one would verify here and then never expire.
+ * The `nonce` check is ours to make and is the one that matters most: it is what binds this ID
+ * token to the authorization request WE started, and without it a token replayed from another
+ * login would sail through every other check.
  */
 export async function verifyIdToken(
   config: RpConfig,
@@ -424,6 +426,7 @@ export async function verifyIdToken(
       issuer: config.issuer,
       audience: config.clientId,
       algorithms: ['ES256'],
+      requiredClaims: ['exp', 'iat', 'sub'],
     });
     claims = verified.payload;
   } catch (error) {
@@ -432,12 +435,17 @@ export async function verifyIdToken(
 
   // OIDC Core §3.1.3.7 steps 3-5. `jwtVerify`'s `audience` option is satisfied when our client id is
   // merely CONTAINED in a multi-valued `aud`, which is not the same as the token being meant for us.
-  // The spec's answer is that a multi-valued `aud` REQUIRES an `azp` naming the intended party. The
-  // Lab only ever mints single-audience ID tokens today, so this cannot fire — it is here because
-  // the day that changes, the failure is silent acceptance of a token issued for somebody else.
+  // The spec's answer is that a multi-valued `aud` REQUIRES an `azp` naming the intended party — and
+  // when `azp` is present at all, step 5 says to verify it names US. The Lab only ever mints
+  // single-audience ID tokens without `azp` today, so neither branch can fire — they are here
+  // because the day that changes, the failure is silent acceptance of a token issued for somebody
+  // else.
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (audiences.length > 1 && claims.azp !== config.clientId) {
     throw new OidcError('invalid_id_token', 'multi-audience id_token without a matching azp');
+  }
+  if (claims.azp !== undefined && claims.azp !== config.clientId) {
+    throw new OidcError('invalid_id_token', 'id_token azp names a different client');
   }
 
   const nonce = typeof claims.nonce === 'string' ? claims.nonce : '';
@@ -473,8 +481,11 @@ export interface LogoutTokenClaims {
  *     accepting it would let a captured ID token log the user out.
  *   - at least one of `sub`/`sid` must be present, or there is nothing to act on.
  *
- * The provider sends this without an `exp` claim (per spec), so `maxTokenAge` supplies the bound
- * that stops an intercepted token from being replayed indefinitely.
+ * The Lab stamps a two-minute `exp` on every logout token (jose enforces it), and `maxTokenAge` is
+ * this side's own independent bound — belt and braces, since either alone stops an intercepted
+ * token from being replayed indefinitely. `jti` is pinned via `requiredClaims` because §2.6 makes
+ * it REQUIRED; there is deliberately no replay cache behind it (revocation is idempotent), so the
+ * pin is spec conformance, not replay defence.
  */
 export async function verifyLogoutToken(
   config: RpConfig,
@@ -488,6 +499,7 @@ export async function verifyLogoutToken(
       algorithms: ['ES256'],
       typ: 'logout+jwt',
       maxTokenAge: LOGOUT_TOKEN_MAX_AGE,
+      requiredClaims: ['iat', 'jti'],
     });
     claims = verified.payload;
   } catch (error) {

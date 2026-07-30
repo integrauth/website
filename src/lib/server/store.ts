@@ -300,7 +300,12 @@ export async function listQuizProgress(
     .prepare('SELECT track_id, revealed_mask FROM academy_quiz_progress WHERE user_id = ?')
     .bind(userId)
     .all<{ track_id: string; revealed_mask: number }>();
-  const out: Record<string, number> = {};
+  // Null-prototype, because track ids are caller-chosen strings the server cannot validate against
+  // a curriculum it does not hold: on a plain object a stored key of `__proto__` would hit the
+  // Object.prototype accessor and silently vanish from every response (write-only row). No
+  // pollution was possible either way — the values are validated integers — but the row should at
+  // least round-trip.
+  const out: Record<string, number> = Object.create(null);
   for (const row of results) out[row.track_id] = row.revealed_mask;
   return out;
 }
@@ -561,22 +566,12 @@ export async function getCertificateByAttemptId(
     .first<CertificateRow>();
 }
 
-export async function markOthersNotBest(
-  db: D1Database,
-  userId: string,
-  exceptId: string
-): Promise<void> {
-  await db
-    .prepare('UPDATE academy_certificates SET is_best = 0 WHERE user_id = ? AND id != ?')
-    .bind(userId, exceptId)
-    .run();
-}
-
 /**
  * Recomputes `is_best` across ALL of a learner's certificates from the stored rows.
  *
- * Preferred over `markOthersNotBest` for anything concurrent, because it needs no opinion from the
- * caller about which row won. Two DIFFERENT attempts certified at the same moment each read the same
+ * This replaced a caller-decides `markOthersNotBest(userId, winnerId)` helper, which was wrong for
+ * anything concurrent because it needed an opinion from the caller about which row won. Two
+ * DIFFERENT attempts certified at the same moment each read the same
  * "current best" score before inserting, so each concluded it had won and demoted the other — and
  * the learner ended up with NO certificate flagged best and no badge in their history. Deciding the
  * winner from the table instead makes the operation idempotent and self-correcting: whichever

@@ -1,6 +1,7 @@
 // Hono app mounted at /api/academy/* by src/worker.ts.
 //
-// Auth: every route requires the shared SSO session cookie EXCEPT two public ones
+// Auth: every route requires this site's own session cookie (minted at OIDC
+// callback time — see auth.ts/session.ts) EXCEPT two public ones
 // — the certificate-verification lookup (GET /certificates/verify/:serial), which
 // by design needs no cookie because anyone holding a serial should be able to
 // confirm it's real, and the JWKS endpoint (GET /.well-known/jwks.json), which
@@ -330,6 +331,12 @@ export function createApp() {
   app.options('/.well-known/jwks.json', (c) => {
     c.header('Access-Control-Allow-Origin', '*');
     c.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    // Echo whatever headers the preflight asks about — that is the entire point of this route (a
+    // preflight only fires when a request carries non-safelisted headers, so answering it without
+    // allowing them would fail exactly the clients it exists for). Harmless to grant: the resource
+    // is a public GET of public key material, and no header changes what it returns.
+    const requested = c.req.header('Access-Control-Request-Headers');
+    if (requested) c.header('Access-Control-Allow-Headers', requested);
     c.header('Access-Control-Max-Age', '86400');
     return c.body(null, 204);
   });
@@ -585,11 +592,10 @@ export function createApp() {
     const { scope, lessonIds, trackIds } = body as Record<string, unknown>;
     const userId = c.get('userId');
 
-    if (scope === 'all') {
-      await deleteLessonProgress(c.env.DB, userId);
-      await deleteQuizProgress(c.env.DB, userId);
-      await clearLastPosition(c.env.DB, userId);
-    } else if (scope === 'track') {
+    if (scope !== 'all' && scope !== 'track') {
+      return c.json({ error: 'invalid_scope' }, 400);
+    }
+    if (scope === 'track') {
       const lessonsOk =
         lessonIds === undefined ||
         (Array.isArray(lessonIds) &&
@@ -603,6 +609,24 @@ export function createApp() {
       if (!lessonsOk || !tracksOk) {
         return c.json({ error: 'invalid_reset_scope' }, 400);
       }
+    }
+
+    // The epoch bump comes BEFORE the deletes, and the order is load-bearing. The in-statement
+    // guard on every merge write compares against the CURRENT epoch — so with delete-then-bump, a
+    // sync that passed the route pre-check at the old epoch and is mid-flight through its own
+    // round trips could land its writes in the gap after our deletes and before our bump, where
+    // the old epoch is still current: the guard passes, the deleted rows come back, and the bump
+    // then stamps the world as if that never happened — the unrecoverable state this machinery
+    // exists to prevent. Bump-first closes both halves: an old-epoch write executing after the
+    // bump fails the in-statement guard, and one that squeaked in before it is swept by the
+    // deletes that follow.
+    await bumpProgressEpoch(c.env.DB, userId);
+
+    if (scope === 'all') {
+      await deleteLessonProgress(c.env.DB, userId);
+      await deleteQuizProgress(c.env.DB, userId);
+      await clearLastPosition(c.env.DB, userId);
+    } else {
       if (Array.isArray(lessonIds)) {
         await deleteLessonProgress(c.env.DB, userId, lessonIds as string[]);
       }
@@ -612,11 +636,8 @@ export function createApp() {
       // A track reset also drops the saved position, which may well be inside the track that just
       // got cleared — leaving it would send the learner straight back to a lesson they reset.
       await clearLastPosition(c.env.DB, userId);
-    } else {
-      return c.json({ error: 'invalid_scope' }, 400);
     }
 
-    await bumpProgressEpoch(c.env.DB, userId);
     return c.json(await currentProgress(c.env, userId));
   });
 

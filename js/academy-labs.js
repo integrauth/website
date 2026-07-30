@@ -7140,7 +7140,16 @@ AcadLabs.register('lab-exam', {
           ]));
         });
         certHistoryHost.appendChild(h.panel(null, panelKids));
-      }).catch(function () { certHistoryHost.innerHTML = ''; });
+      }).catch(function (err) {
+        // A blank host on failure is indistinguishable from "no certificates" — for a learner who
+        // HAS some, that reads as their certificates being gone. Say what actually happened.
+        if (err && err.status === 401) { certHistoryHost.innerHTML = ''; return; } // signed out: genuinely nothing to list
+        certHistoryHost.innerHTML = '';
+        certHistoryHost.appendChild(h.panel(null, [
+          h.note('Couldn’t load your certificates right now (' + describeErr(err) + ').'),
+          h.el('div', { 'class': 'acad-lab-row' }, [h.button('Try again', '', renderCertHistory)])
+        ]));
+      });
     }
 
     // Save a text artifact via a Blob object URL — the PNG download can use a data: URL
