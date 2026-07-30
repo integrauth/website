@@ -7032,6 +7032,19 @@ AcadLabs.register('lab-exam', {
     var saved;
     try { saved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { saved = null; }
 
+    // `acad_exam.best` is a raw correct-answer COUNT, so it only means something alongside the
+    // number of questions it was scored out of — which grade() now stores as `total`. Records
+    // written by older builds have no `total`, and the exam has not always been N questions long
+    // (it used to be 25), so their percentage is genuinely unknowable. Dividing such a count by
+    // today's N is what turned a real 22/25 pass into a claimed 44% — a permanent, publicly
+    // verifiable certificate reading "score of 44%" beside an 80% pass mark (and, since the
+    // server started requiring `passed === (score >= 80)`, a flat rejection). Never guess the
+    // denominator: no `total`, no claim.
+    var savedPct = (saved && saved.best != null && saved.total > 0)
+      ? Math.round((saved.best / saved.total) * 100)
+      : null;
+    var claimable = savedPct != null && savedPct >= PASS * 100;
+
     // Claim a pre-existing LOCAL pass — from before this account existed, or from a
     // browser session that finished the exam before ever signing in — as this account's
     // official, server-recorded certificate. Only offered when the server has NO passing
@@ -7039,19 +7052,30 @@ AcadLabs.register('lab-exam', {
     // appearing forever once claimed or once a fresh exam attempt is recorded normally).
     var claimHost = h.el('div');
     root.appendChild(claimHost);
-    if (saved && saved.passed && saved.best != null) {
+    if (saved && saved.passed) {
       authApi.listExamAttempts().then(function (attempts) {
         var hasServerPass = (attempts || []).some(function (a) { return a.passed; });
         if (hasServerPass) return;
-        var claimPct = Math.round((saved.best / N) * 100);
+        if (!claimable) {
+          claimHost.appendChild(h.panel(null, [
+            h.note('This device remembers you passing before you signed in, but not what the score was out of — so there is no score we can honestly print on a certificate. Retake the exam below and the result is saved to your account.')
+          ]));
+          return;
+        }
         claimHost.appendChild(h.panel(null, [
-          h.el('p', null, 'We found a passing score (' + claimPct + '%) saved on this device from before you signed in.'),
+          h.el('p', null, 'We found a passing score (' + savedPct + '%, ' + saved.best + '/' + saved.total + ') saved on this device from before you signed in.'),
           h.el('div', { 'class': 'acad-lab-row' }, [
             h.button('Save it to my account', 'primary', function () {
               claimHost.innerHTML = '';
               claimHost.appendChild(h.note('Saving…'));
-              authApi.recordExamAttempt({ score: claimPct, passed: true, questionIds: ['legacy-local-pass'] })
+              authApi.recordExamAttempt({ score: savedPct, passed: true, questionIds: ['legacy-local-pass'] })
                 .then(function (attempt) {
+                  // The pass now lives on the server, so drop the local copy: leaving it in
+                  // place lets the offer come back on a later render (the server-pass check
+                  // is the only thing suppressing it) and invites a second claim of the same
+                  // sitting.
+                  try { localStorage.removeItem('acad_exam'); } catch (e) { /* noop */ }
+                  saved = null;
                   claimHost.innerHTML = '';
                   var certHost = h.el('div', { 'class': 'acad-cert-flow' });
                   claimHost.appendChild(certHost);
@@ -7072,8 +7096,10 @@ AcadLabs.register('lab-exam', {
     var kids = [
       h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning The Absolute Basics through Identity Architecture — at least ' + GUAR + ' from every track. Pick the best answer for each, then submit to see your score.')
     ];
+    // Print the denominator the score was actually earned against, never today's N — an older
+    // record's count came from a different-length exam (see the `savedPct` note above).
     if (saved && saved.best != null) {
-      kids.push(h.note('Your best local attempt: ' + saved.best + '/' + N + (saved.passed ? ' — passed ✓' : '')));
+      kids.push(h.note('Your best local attempt: ' + saved.best + (saved.total > 0 ? '/' + saved.total : '') + (saved.passed ? ' — passed ✓' : '')));
     }
     kids.push(h.el('div', { 'class': 'acad-lab-row' }, [h.button('Start the exam', 'primary', start)]));
     intro.appendChild(h.panel(null, kids));
@@ -7117,6 +7143,48 @@ AcadLabs.register('lab-exam', {
       }).catch(function () { certHistoryHost.innerHTML = ''; });
     }
 
+    // Save a text artifact via a Blob object URL — the PNG download can use a data: URL
+    // straight off the canvas, but the JWT arrives as a plain string.
+    function saveTextFile(text, filename) {
+      var url = URL.createObjectURL(new Blob([text], { type: 'application/jwt' }));
+      var a = document.createElement('a');
+      a.download = filename;
+      a.href = url;
+      a.click();
+      // Revoked on a timer rather than immediately: some browsers cancel the download when the
+      // object URL is released in the same tick as the synthetic click.
+      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+    }
+
+    // The signed JWT alongside the PNG. It is the only form of the certificate a third party can
+    // check WITHOUT trusting our /verify page — the signature validates against the public key at
+    // /api/academy/.well-known/jwks.json — and nothing in the UI used to offer it, so the whole
+    // ES256 + JWKS apparatus was unreachable. The issue response already carries the JWT; history
+    // rows don't (the list endpoint omits it to stay small), so those fetch it by serial.
+    function jwtDownloadRow(cert) {
+      var msg = h.el('span', { 'class': 'acad-lab-note' });
+      var btn = h.button('⬇ Signed certificate (JWT)', '', function () {
+        btn.disabled = true;
+        msg.textContent = 'Preparing…';
+        var pending = cert.jwt
+          ? Promise.resolve(cert.jwt)
+          : authApi.getCertificateJwt(cert.serial).then(function (res) { return res && res.jwt; });
+        pending.then(function (jwt) {
+          if (!jwt) throw new Error('no jwt in response');
+          saveTextFile(jwt, 'IntegrAuth-Academy-Certificate-' + cert.serial + '.jwt');
+          btn.disabled = false;
+          msg.textContent = '';
+        }).catch(function (err) {
+          btn.disabled = false;
+          msg.textContent = 'Couldn’t fetch the signed file (' + describeErr(err) + ').';
+        });
+      });
+      return [
+        h.el('div', { 'class': 'acad-lab-row' }, [btn, msg]),
+        h.el('p', { 'class': 'acad-lab-blurb' }, 'The signed file lets anyone verify this certificate offline against our public key — no lookup on this site needed.')
+      ];
+    }
+
     function viewCert(cert) {
       var existing = root.querySelector('.acad-cert-view');
       if (existing) existing.parentNode.removeChild(existing);
@@ -7128,7 +7196,7 @@ AcadLabs.register('lab-exam', {
         a.href = canvas.toDataURL('image/png');
         a.click();
       });
-      var wrap = h.panel('Certificate — ' + cert.serial, [canvas, h.el('div', { 'class': 'acad-lab-row' }, [dl])]);
+      var wrap = h.panel('Certificate — ' + cert.serial, [canvas, h.el('div', { 'class': 'acad-lab-row' }, [dl])].concat(jwtDownloadRow(cert)));
       wrap.classList.add('acad-cert-view');
       root.appendChild(wrap);
       wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -7201,10 +7269,18 @@ AcadLabs.register('lab-exam', {
       quiz.forEach(function (item, qi) { if (item.opts[chosen[qi]] && item.opts[chosen[qi]].correct) rawScore++; });
       var pct = Math.round(rawScore / quiz.length * 100);
       var passed = rawScore / quiz.length >= PASS;
-      // persist best (local-only hint shown before starting; the server holds the real history)
+      // Persist best (local-only hint shown before starting; the server holds the real history).
+      // `total` is what makes the record meaningful later — a bare count cannot be turned into a
+      // percentage, so a record without one is not claimable at all (see `savedPct` above).
+      // The previous record is only carried forward when it was scored out of the SAME number of
+      // questions: raw counts from different-length exams are not comparable, and OR-ing a
+      // denominator-less `passed` flag onto a fresh, countable score is precisely how a record
+      // ends up claiming a pass that its own numbers contradict.
       var prevSaved = null; try { prevSaved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) {}
-      var best = prevSaved && prevSaved.best != null ? Math.max(prevSaved.best, rawScore) : rawScore;
-      try { localStorage.setItem('acad_exam', JSON.stringify({ best: best, passed: (prevSaved && prevSaved.passed) || passed })); } catch (e) {}
+      var comparable = !!(prevSaved && prevSaved.best != null && prevSaved.total === quiz.length);
+      var best = comparable ? Math.max(prevSaved.best, rawScore) : rawScore;
+      var bestPassed = passed || (comparable && !!prevSaved.passed);
+      try { localStorage.setItem('acad_exam', JSON.stringify({ best: best, total: quiz.length, passed: bestPassed })); } catch (e) {}
       showResult(quiz, chosen, rawScore, pct, passed);
     }
 
@@ -7357,7 +7433,8 @@ AcadLabs.register('lab-exam', {
       });
       host.appendChild(h.panel('Your certificate', [
         canvas,
-        h.el('div', { 'class': 'acad-lab-row' }, [dl]),
+        h.el('div', { 'class': 'acad-lab-row' }, [dl])
+      ].concat(jwtDownloadRow(cert)).concat([
         h.el('p', { 'class': 'acad-lab-blurb' }, [
           'Certificate ID: ', h.el('strong', null, cert.serial),
           ' — anyone can check it at ',
@@ -7365,7 +7442,7 @@ AcadLabs.register('lab-exam', {
           '.'
         ]),
         h.note('Saved to your account — come back anytime and download it again from your certificate history above.')
-      ]));
+      ])));
     }
 
     function drawCertificate(canvas, name, pct, certIdStr, issuedIso) {
@@ -7417,9 +7494,32 @@ AcadLabs.register('lab-exam', {
       ctx.fillStyle = '#64748b'; ctx.font = '400 20px Inter, Arial, sans-serif';
       ctx.fillText('This certifies that', W / 2, 262);
 
-      // name
-      ctx.fillStyle = '#1e1b4b'; ctx.font = '700 50px Georgia, serif';
-      ctx.fillText(name, W / 2, 330);
+      // name — the server accepts up to 80 characters per name field, so a holder name can be 161
+      // characters long. At the base size that ran straight through the underline below and out
+      // through the border frame, off the edge of the PNG. So: shrink until it fits, and only if
+      // even the floor overflows, truncate with an ellipsis. A name that already fits reaches
+      // neither loop, so ordinary certificates render exactly as before.
+      //   * fit width = the widest body line on the certificate (~660px), NOT the 480px
+      //     decorative underline — what must not be crossed is the border frame, and holding
+      //     names to the underline's span truncated ones that could be drawn in full.
+      //   * floor = 24px, keeping the name at least as large as the 20px body copy; smaller than
+      //     that it reads as fine print rather than the subject of the certificate.
+      var NAME_MAX_W = 660;
+      var NAME_BASE = 50, NAME_MIN = 24;
+      function nameFont(px) { return '700 ' + px + 'px Georgia, serif'; }
+      var nameSize = NAME_BASE, shownName = name || '';
+      ctx.fillStyle = '#1e1b4b'; ctx.font = nameFont(nameSize);
+      while (nameSize > NAME_MIN && ctx.measureText(shownName).width > NAME_MAX_W) {
+        nameSize -= 2;
+        ctx.font = nameFont(nameSize);
+      }
+      if (ctx.measureText(shownName).width > NAME_MAX_W) {
+        while (shownName.length > 1 && ctx.measureText(shownName + '…').width > NAME_MAX_W) {
+          shownName = shownName.slice(0, -1);
+        }
+        shownName += '…';
+      }
+      ctx.fillText(shownName, W / 2, 330);
       var ug = ctx.createLinearGradient(W / 2 - 240, 0, W / 2 + 240, 0);
       ug.addColorStop(0, 'rgba(99,102,241,0.15)'); ug.addColorStop(0.5, '#6366f1'); ug.addColorStop(1, 'rgba(99,102,241,0.15)');
       ctx.strokeStyle = ug; ctx.lineWidth = 2;

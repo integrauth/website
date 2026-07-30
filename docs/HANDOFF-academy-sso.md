@@ -2,6 +2,10 @@
 
 > Updated 2026-07-30. Everything below reflects verified repo state, not intent.
 > `docs/` and `*.md` are excluded from asset publishing (`.assetsignore`), so this file is never served.
+>
+> **Read §8 first.** A second adversarial pass over code this document had already called verified
+> found a total sign-in outage, an open redirect, and a security control that never ran. §8 lists what
+> was missed and why, which is more useful to you than the parts that were right.
 
 ---
 
@@ -55,14 +59,16 @@ Two consequences that surprise people:
 | `aeb5334` | Emails rebranded generic "IntegrAuth" + shared logo |
 | `e8c2aec` | **SSO redesign**: host-lock the cookie again, seed a first-party OIDC client |
 | `e0fd207` | `website_sessions` (migration 0052) for the RP's own sessions |
-| latest | `academy_progress_epoch` (migration 0053) + its RTBF wiring |
+| `8b1887f` | `academy_progress_epoch` (migration 0053) + RTBF wiring; derive the workers.dev callback |
+| `7bacd5b` | **Percent-decode the Basic client credential** — see §8, this was a total sign-in outage |
+| `7502afd` | "Sign out everywhere" now reaches this site; refuse to invent the shared secret |
 
 `main` still carries `__Host-lab_session`, which is why the revert cost nothing: the shared-cookie
 version was never merged or deployed, so there were no live sessions to migrate and no wide-domain
 cookie stranded in browsers for ~400 days.
 
-Verified independently at each step: `npm run typecheck` clean, `npm test` at 93 files / 1583 tests
-before migration 0053's additions.
+Verified independently at each step. Final state: `npm run typecheck` clean (1011 files, 0 errors),
+`npm test` at **93 files / 1597 tests, 0 failures**, `npm run dryrun` clean.
 
 ### `integrauth/website` — branch `claude/academy-login-otp-sync-scxtmc`
 
@@ -194,9 +200,25 @@ reimplementing them.
 3. **`RESEND_APIKEY` is unnecessary here.** This Worker never sends email; all of it stays with the
    Lab, which is where the sign-in form now lives.
 4. **Add the `IA_WEBSITE_OIDC_SECRET` GitHub Secret** (organisation-level, shared to both repos) —
-   see §4 step 2. CI does the rest; nothing to set by hand in Cloudflare.
+   see §4 step 2. CI does the rest; nothing to set by hand in Cloudflare. Neither repo will invent one
+   any more: the Lab's provisioner now warns and leaves it unset instead of generating a value that
+   could never be matched (Lab `7502afd`). Until it is set, sign-in answers 503 and everything else
+   works.
 *(The workers.dev redirect URI no longer needs adding by hand — the Lab derives it from the CF API at
 deploy time. Only check for a `workers.dev subdomain` warning in its log if pre-cutover sign-in fails.)*
+
+**Two decisions that are the owner's, not mine, and are deliberately left as they are:**
+
+- **Exam scores are client-asserted.** There is no server-side answer key, so a determined learner can
+  mint a genuine, publicly verifiable certificate from the browser console. The server now enforces
+  internal consistency (`passed` must match `score >= 80`; a question list must be a real 50-question
+  sitting) and `/verify` says plainly that the exam is unproctored and browser-scored — but the claim
+  is only as good as the client. Making it real means keeping the answer key server-side and grading
+  `POST /exam/attempts` there, which is a feature, not a fix.
+- **The first sign-in per learner shows the Lab's consent screen** inside the popup, because nothing
+  pre-seeds an `oauth_grants` row; later logins self-approve. Pre-consenting a first-party client is
+  defensible and would make every sign-in a silent popup, but it is a product decision about consent,
+  so it was not made unilaterally.
 
 ---
 
@@ -230,8 +252,26 @@ aimed at "Sign in" was observed landing on the account menu's "Sign out". Now pi
 **Known accepted limitations**, documented in the code rather than hidden: exam scores are
 **client-asserted** (no server-side answer key exists, so anyone can mint a "verified" certificate
 from the console — `/verify` copy must not overstate what a certificate proves), and there is no rate
-limiting on `/api/academy/*` (needs a Durable Object or KV; the per-user daily caps in `api.ts` are
-abuse backstops, not rate limits).
+limiting on `/api/academy/*` (needs a Durable Object or KV; the per-user daily caps and the total-row
+ceilings in `api.ts` are abuse backstops, not rate limits).
+
+**Re-verified on 2026-07-30, against the real Worker runtime and the real Lab schema.** The local D1
+is now seeded by applying all 53 Lab migrations rather than a hand-written subset, so the Worker is
+exercised against the actual production schema. Suite results at that point:
+
+| Suite | Result |
+|---|---|
+| Reset-epoch semantics (`epoch-test.sh`) | 26/26 |
+| Adversarial API probes (`adversarial.sh`) | 72/72 |
+| Account-scoping in a real browser (`owner-test.js`) | 22/22 — and 8 failures against the pre-fix build |
+| Open-redirect payloads (`srp-test.js`) | 29 payloads neutralised, 6 legitimate paths preserved |
+| Lab `npm test` | 93 files / 1597 tests |
+
+The adversarial suite covers what the first pass did not: cross-user IDOR on every route, disabled and
+erased accounts, the public verify oracle's leakage, oversized and malformed payloads, the total-row
+ceilings, the epoch's narrowed back-compat, exam-attempt consistency, name-charset refusal, and
+`no-store` on every `/auth/*` response. Kept in the session scratchpad, not the repo — this project has
+no test runner for the front end, and adding one was out of scope.
 
 ---
 
@@ -260,3 +300,60 @@ abuse backstops, not rate limits).
 - **Local dev**: `npm run worker:dev`, never bare `wrangler dev`. The assets directory is the repo
   root, so wrangler's own `.wrangler/` state sits inside the tree it watches and it reload-loops
   forever (measured: 250+ reloads/minute before, 1 after).
+- **`ALLOW_EPHEMERAL_CERT_KEY=1` must be in your `.dev.vars`** or certificate issuance and the JWKS
+  route 500 locally. That is the fail-closed behaviour working, not a bug — see §8.
+
+---
+
+## 8. The 2026-07-30 re-audit — what the first pass missed
+
+Everything above was believed complete and verified once already. A second, deliberately adversarial
+pass over the same code found the following, which is worth reading before trusting any part of this
+system on the basis that it "was checked".
+
+**Two would have been outages or vulnerabilities in production:**
+
+1. **Sign-in could never have worked at all.** RFC 6749 §2.3.1 requires a client to percent-encode
+   the client id and secret before forming the HTTP Basic credential, and the RP does. The Lab's
+   `parseBasicAuth` never decoded it, hashing the transmitted bytes verbatim. `openssl rand -base64 32`
+   — the generator this project documents — emits 44 characters **always ending in `=`**, sent as
+   `%3D`, so `POST /oidc/token` would have answered `401 invalid_client` on **every login, for every
+   user, deterministically**. It survived the first pass because every existing website-client test
+   authenticated with `client_secret_post`; the Basic path had zero coverage. Fixed in Lab `7bacd5b`
+   with five regression tests covering `+`, `/` and `=`. Proven: the new tests fail on the old code.
+2. **An open redirect on a first-party HTTPS origin.** `safeReturnPath` rejected `\n` and `\r` but not
+   TAB, and the WHATWG URL parser strips all three *before* parsing — so `?return=/%09/evil.com` passed
+   the single-slash check and resolved to `https://evil.com/`, reachable both as a `302 Location` and
+   through the popup page's `location.replace`, including on a failure path that needs no login at all.
+   The lesson is that enumerating the two separators everyone remembers is the wrong shape of check.
+
+**One defeated a security control that was believed to be working:** the `acad_owner` account-scoping
+wipe **never ran**. It was an `initAcademy()` listener, registered from jQuery's asynchronously-resolved
+ready callback, while the event it needed fires synchronously during `academy-auth.js`'s deferred
+execution — so it always missed it, deterministically. And `initAcademy()` no-ops off academy.html, so
+a sign-in from any other page's navbar reconciled nothing. On a shared browser that meant learner A's
+progress synced into learner B's account and A's passing exam record was offered to B as claimable.
+Moving it into `academy-auth.js` fixed it; a browser test now asserts both directions, and fails 8/22
+against the pre-fix build.
+
+**Notable also-founds:** the certificate signing key failed *open* (an ephemeral per-isolate keypair
+whenever `ACADEMY_PRIVATE_JWK` was unset, publishing a different public key per isolate);
+`/auth/session` returned the caller's email and device list with no `Cache-Control`; `/progress/sync`
+could grow the shared D1 without bound; the epoch's back-compat allowance re-admitted exactly the
+resurrection it existed to prevent; a `mode=popup` sign-in failure returned raw JSON into a popup
+window, leaving the opener to time out after five minutes; and "sign out everywhere" did not reach
+this site at all, despite three separate places claiming it did — which mattered because the Lab's
+400-day session names revoke-all as its safety valve.
+
+**Also corrected: comments that asserted things the code did not do.** Two are worth calling out
+because they would have caused harm rather than confusion — one claimed the session cookie was still
+shared across `*.integrauth.com`, the other that `SameSite=Lax` had made the CSRF Origin check
+redundant. Both false (siblings are same-site; `__Host-` prevents a sibling *writing* our cookie, not
+*spending* it), and together they would have justified deleting a load-bearing control. Treat a
+confident comment in this codebase as a claim to verify, not as evidence.
+
+**A fix of mine was itself wrong first, and only a test caught it.** The first version of the
+ownership reconciliation ran against the localStorage session cache, which on a fresh browser profile
+reads as signed-out — so it wiped *legitimate* progress, including a passing exam record, on page
+load. It now runs only on a server-confirmed session. This is the clearest argument in this document
+for testing both directions of a destructive guard: the security assertion passed the whole time.

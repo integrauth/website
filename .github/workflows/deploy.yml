@@ -242,3 +242,44 @@ jobs:
                  "route answering anything else means the auth gate is not being applied."
             exit 1
           fi
+
+          # --- BLOCKING probes for the three invariants whose failure is silent ---
+          #
+          # Each of these was a real defect found by re-audit on 2026-07-30, and none of them would
+          # have produced a visible symptom in normal use. They are `::error::` + exit 1, unlike the
+          # warnings above, because "quietly wrong" is exactly the failure mode being guarded.
+
+          # 1. The JWKS route must NEVER publish the private half. `"d"` in an EC JWK is the private
+          #    scalar; leaking it lets anyone forge certificates in any learner's name, permanently.
+          jwks=$(curl -sS -m 20 "$URL/api/academy/.well-known/jwks.json" || true)
+          if printf '%s' "$jwks" | grep -q '"d"'; then
+            echo "::error::$URL/api/academy/.well-known/jwks.json contains a \"d\" member — the"\
+                 "PRIVATE key half is being published. Do not leave this deployed."
+            exit 1
+          fi
+          echo "OK: JWKS publishes no private key material"
+
+          # 2. Nothing under /auth/* may be cacheable. /auth/session returns the caller's own email
+          #    and device list; a 200 with no Cache-Control is eligible for heuristic freshness in a
+          #    shared proxy, i.e. one user's identity served to another.
+          cc=$(curl -sS -m 20 -D - -o /dev/null "$URL/auth/session" 2>/dev/null | tr -d '\r' \
+                 | grep -i '^cache-control:' || true)
+          if printf '%s' "$cc" | grep -qi 'no-store'; then
+            echo "OK: /auth/session is no-store"
+          else
+            echo "::error::/auth/session did not send Cache-Control: no-store (got: '${cc:-none}')."\
+                 "That response carries the caller's email and session list."
+            exit 1
+          fi
+
+          # 3. The post-login return path must not be an open redirect. A tab is the interesting
+          #    payload: the URL parser strips tab/CR/LF before parsing, so `/<TAB>/evil.com` used to
+          #    resolve to https://evil.com/ while passing a naive single-slash check.
+          loc=$(curl -sS -m 20 -D - -o /dev/null "$URL/auth/start?mode=redirect&return=/%09/evil.example" 2>/dev/null \
+                  | tr -d '\r' | grep -i '^location:' || true)
+          if printf '%s' "$loc" | grep -qi 'evil.example'; then
+            echo "::error::/auth/start reflected a hostile return path into Location ($loc) —"\
+                 "safeReturnPath is not rejecting control characters. This is an open redirect."
+            exit 1
+          fi
+          echo "OK: hostile return path was not reflected into the redirect"

@@ -732,6 +732,24 @@ function initAcademy() {
   }
 
   let acadSyncTimer = null;
+
+  /**
+   * Monotonic generation counter for progress writes.
+   *
+   * Every sync captures the generation it was issued under; a reset BUMPS it. A response is applied
+   * only if its generation is still current, which closes two real races that were both visible to
+   * the learner:
+   *
+   *   - Reset vs. an in-flight sync. The older sync's response carries the PRE-reset epoch and the
+   *     full pre-reset progress. Since its epoch no longer matches what we stored, applyServerProgress
+   *     read it as authoritative, replaced local state with the progress that was just deleted, and
+   *     wrote the OLD epoch back — so the reset visibly undid itself, and the next sync was then
+   *     rejected as stale and cleared it again, flickering.
+   *   - Two overlapping syncs whose responses arrive out of order, where the older one moves the
+   *     saved reading position backwards.
+   */
+  let acadSyncGeneration = 0;
+
   // Debounced (not per-keystroke-chatty) — fires on every read-mark/quiz-reveal via the
   // patched saveRead/saveQuizStore above, on login (academy-auth-changed), and once at
   // boot if a session is already cached. No-ops silently when logged out.
@@ -741,8 +759,12 @@ function initAcademy() {
     if (acadSyncTimer) clearTimeout(acadSyncTimer);
     acadSyncTimer = setTimeout(function () {
       acadSyncTimer = null;
+      const generation = acadSyncGeneration;
       window.AcademyAuth.syncProgress(localSyncSnapshot())
-        .then(applyServerProgress)
+        .then(function (server) {
+          if (generation !== acadSyncGeneration) return; // superseded — see acadSyncGeneration
+          applyServerProgress(server);
+        })
         .catch(handleSyncError);
     }, 800);
   }
@@ -789,33 +811,92 @@ function initAcademy() {
     if (document.visibilityState === 'hidden') flushPendingSync();
   });
 
-  // Local progress (acad_read/acad_quiz/acad_pos/acad_pos_at/acad_exam) lives in this
-  // BROWSER, not tied to any account — so on a shared/kiosk machine, if learner A signs
-  // out and learner B signs in next on the same browser, B's very first debounced sync
-  // would upload A's read-lessons and quiz-reveals as B's own. Worse, A's saved acad_exam
-  // record (best score + passed flag) would still be sitting in localStorage, so
-  // lab-exam's "claim this local pass as your certificate" offer (academy-labs.js) would
-  // hand B a real, permanently-verifiable certificate (see /verify) for an exam A took —
-  // one click away from a false credential in B's name. acad_owner pins this browser's
-  // local progress to the userId that produced it: a mismatch means the state on this
-  // device belongs to someone else and must be thrown away before sync — or the exam
-  // panel's remount below — ever gets a chance to read or upload it. No owner recorded
-  // yet means the existing local progress predates any sign-in on this browser, which is
-  // the intentional "carry my anonymous progress into my new account" path — it's simply
-  // claimed (stamped), not wiped.
+  // Account-scoping of local progress (the acad_owner check) DELIBERATELY does not live here any
+  // more. It is in academy-auth.js's reconcileProgressOwner, which that file calls before it fires
+  // this event — read its comment for the full reasoning. In short, a listener here could not do the
+  // job: this event's first, forced firing happens while academy-auth.js's deferred script runs,
+  // whereas initAcademy() is invoked from jQuery's asynchronously-resolved ready callback, so this
+  // listener was always registered too late to see it; and initAcademy() no-ops entirely off
+  // academy.html, so a sign-in or sign-out from any other page's navbar reconciled nothing.
+  //
+  // What is left here is the reaction: re-read whatever storage now says and redraw.
+  document.addEventListener('academy-progress-wiped', function () {
+    // academy-auth.js has already cleared the keys. readSet()/quizStore() read localStorage on every
+    // call, so there is no cached copy to invalidate — but the marks already PAINTED into the DOM
+    // would otherwise keep showing the previous account's work until a navigation. Same repaint the
+    // authoritative branch of applyServerProgress does, and for the same reason.
+    repaintProgressMarks();
+  });
+
+  /**
+   * Drops every progress mark drawn into the page and redraws from whatever localStorage now says.
+   * Used whenever local progress is REPLACED wholesale rather than added to: a post-reset
+   * authoritative server response, and an account switch that wiped this browser's copy.
+   */
+  function repaintProgressMarks() {
+    document.querySelectorAll('.acad-quiz-check, .acad-quiz-progress, .acad-lab-gate')
+      .forEach(function (el) { el.remove(); });
+    if (window.AcadLabs && typeof window.AcadLabs.remountAll === 'function') {
+      try { window.AcadLabs.remountAll(); } catch (e) {}
+    }
+    updateProgress();
+    const activeLesson = lessons.filter(function (s) { return s.classList.contains('is-active'); })[0];
+    if (activeLesson) {
+      if (isQuizLesson(activeLesson)) syncQuizProgress(activeLesson);
+      buildChips(trackOf(activeLesson), activeLesson.id);
+    }
+  }
+
+  /**
+   * True when this browser holds Academy progress that has never been synced to any account.
+   *
+   * `acad_epoch` is written by every sync and by every reset, so its ABSENCE means this device has
+   * never talked to the progress API — i.e. whatever is stored locally was earned anonymously.
+   */
+  function hasUnsyncedLocalProgress() {
+    let epochSeen = null;
+    try { epochSeen = localStorage.getItem(KEY_EPOCH); } catch (e) { return false; }
+    if (epochSeen !== null) return false;
+    return readSet().size > 0 || Object.keys(quizStore()).length > 0;
+  }
+
+  /**
+   * First sync after signing in, for a device carrying anonymous progress.
+   *
+   * The plain path would DESTROY that progress rather than claim it. A device that has never synced
+   * sends epoch 0; if the account has ever been reset its server epoch is higher, so the server
+   * rightly rejects the payload as stale and answers with post-reset truth plus the real epoch — and
+   * `applyServerProgress` then treats a differing epoch as authoritative and REPLACES local state.
+   * Correct for a genuinely stale device, exactly wrong for a first sign-in, where "carry my
+   * anonymous progress into my account" is a promised feature.
+   *
+   * So: learn the account's current epoch first, adopt it, and only then merge. With the epochs now
+   * equal, applyServerProgress takes its union branch (nothing local is lost) and the follow-up sync
+   * uploads the local additions under an epoch the server will accept.
+   */
+  function claimAnonymousProgress() {
+    if (!window.AcademyAuth || typeof window.AcademyAuth.getProgress !== 'function') {
+      scheduleSync();
+      return;
+    }
+    window.AcademyAuth.getProgress()
+      .then(function (server) {
+        if (server && typeof server.epoch === 'number') saveEpoch(server.epoch);
+        applyServerProgress(server);
+        scheduleSync();
+      })
+      .catch(function (err) {
+        handleSyncError(err);
+        scheduleSync();
+      });
+  }
+
   document.addEventListener('academy-auth-changed', function (e) {
     const session = e.detail && e.detail.session;
+    updateProgress();
     if (session && session.loggedIn) {
-      let owner = null;
-      try { owner = localStorage.getItem(KEY_OWNER); } catch (err) {}
-      if (owner && owner !== session.userId) clearLocalProgress();
-      try { localStorage.setItem(KEY_OWNER, session.userId); } catch (err) {}
-      updateProgress();
-      scheduleSync();
-    } else {
-      clearLocalProgress();
-      try { localStorage.removeItem(KEY_OWNER); } catch (err) {}
-      updateProgress();
+      if (hasUnsyncedLocalProgress()) claimAnonymousProgress();
+      else scheduleSync();
     }
     // The exam panel (academy-labs.js's lab-exam) renders its sign-in wall / unlocked
     // exam / claim-a-local-pass offer by reading window.AcademyAuth.getSession() and
@@ -1056,7 +1137,10 @@ function initAcademy() {
     { title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
     { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
     { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in five real-world scenarios, then pick the fix.' },
-    { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 25-question exam pulled from every track. Score 80%+ to unlock a certificate you can download.' },
+    // Question count must match `N` in lab-exam's draw (js/academy-labs.js) — it was left saying 25
+    // after the exam grew to 50, which is also what made a legacy saved pass unclaimable: its raw
+    // correct-answer count had been scored against a different denominator.
+    { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Score 80%+ to unlock a certificate you can download.' },
     { selector: '.acad-hub-foot', title: 'Your progress', text: 'Everything lives in your browser — reset a single track, or replay this tour anytime from the button up top.' }
   ];
   let acadTourActive = false;
@@ -1380,11 +1464,56 @@ function initAcademy() {
   // caller already did is the entire operation.
   function pushResetToServer(payload) {
     if (acadSyncTimer) { clearTimeout(acadSyncTimer); acadSyncTimer = null; }
+    // Invalidate any sync ALREADY on the wire as well. Cancelling the timer only stops one that has
+    // not left yet; a request in flight would still come back carrying the pre-reset epoch and the
+    // full pre-reset progress, and be applied as authoritative — undoing the reset in front of the
+    // learner. See acadSyncGeneration.
+    // Bumped BEFORE the signed-out early returns, so a logged-out reset still invalidates anything
+    // a previous signed-in moment left in flight.
+    acadSyncGeneration++;
     if (!window.AcademyAuth || !window.AcademyAuth.getSession().loggedIn) return;
     if (typeof window.AcademyAuth.resetProgress !== 'function') return;
+    const generation = acadSyncGeneration;
     window.AcademyAuth.resetProgress(payload)
-      .then(applyServerProgress)
-      .catch(handleSyncError);
+      .then(function (server) {
+        if (generation !== acadSyncGeneration) return;
+        applyServerProgress(server);
+      })
+      .catch(function (err) {
+        // A FAILED reset used to be silent, and silence was the worst possible outcome: the local
+        // marks were already cleared, the server still held everything, and the epoch never moved —
+        // so the very next lesson the learner opened triggered a union sync that pulled every
+        // checkmark and the full progress bar straight back, with nothing on screen to explain it.
+        // Say so instead, and offer the retry, since the learner's local state and the server's have
+        // genuinely diverged until one of them wins.
+        handleSyncError(err);
+        showResetFailedToast(payload);
+      });
+  }
+
+  /**
+   * Tells the learner a reset did not reach the server, and offers to try again.
+   *
+   * Reuses the live-update toast's styling rather than inventing a second notification component.
+   */
+  function showResetFailedToast(payload) {
+    const existing = document.getElementById('acadResetFailedToast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.id = 'acadResetFailedToast';
+    toast.className = 'acad-update-toast';
+    toast.setAttribute('role', 'status');
+    toast.innerHTML =
+      '<span>Your progress was cleared on this device, but we couldn’t reach the server — ' +
+      'it may come back when you next open a lesson.</span>' +
+      '<button type="button" class="acad-page-btn" id="acadResetRetry">Try again</button>' +
+      '<button type="button" class="acad-update-dismiss" aria-label="Dismiss">×</button>';
+    document.body.appendChild(toast);
+    toast.querySelector('#acadResetRetry').addEventListener('click', function () {
+      toast.remove();
+      pushResetToServer(payload);
+    });
+    toast.querySelector('.acad-update-dismiss').addEventListener('click', function () { toast.remove(); });
   }
 
   document.querySelectorAll('.acad-reset-track').forEach(function (btn) {
@@ -1697,14 +1826,23 @@ function initAcademy() {
   // resumed position) would otherwise never see the profile nudge until they change
   // tracks or refocus the tab — check once at boot too.
   maybeShowProfileNudge();
-  // Same reasoning for progress sync: pull down (and push up) this account's canonical
-  // progress once at boot, not just on a later login/track-change. academy-auth.min.js
-  // loads AFTER this file, so window.AcademyAuth is typically not defined yet at this
-  // exact line (scheduleSync() no-ops safely when so) — the academy-auth-changed
-  // listener registered above is what actually fires the first sync in that case, once
-  // AcademyAuth's own boot-time refreshSession() resolves. This direct call only helps
-  // in the (currently hypothetical) case both scripts are ever reordered.
-  scheduleSync();
+  // Same reasoning for progress sync: pull down (and push up) this account's canonical progress once
+  // at boot, not just on a later login/track-change.
+  //
+  // But WAIT for AcademyAuth.ready() first. `getSession()` returns a localStorage cache, which is
+  // only a guess about who is signed in; the first sync WRITES, so doing it against a guess is how a
+  // previous learner's local progress ends up in this learner's account on a shared browser. ready()
+  // resolves once identity has been settled with the server — or once we know there is no server to
+  // ask, pre-cutover — and reconcileProgressOwner has therefore already run. Rendering still uses the
+  // cache immediately; only the write waits.
+  if (window.AcademyAuth && typeof window.AcademyAuth.ready === 'function') {
+    window.AcademyAuth.ready().then(scheduleSync);
+  } else {
+    // academy-auth.min.js loads AFTER this file, so AcademyAuth is typically not defined at this
+    // line yet. The academy-auth-changed listener above fires the first sync in that case, once
+    // AcademyAuth's own boot-time refresh resolves — which is itself after reconciliation.
+    scheduleSync();
+  }
   // Boot routing is resolved (hub or lesson is now the visible one) — drop the loader.
   dismissBootLoader();
 }

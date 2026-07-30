@@ -240,26 +240,27 @@ export function createAuthApp() {
       // Sign-in genuinely cannot work yet (no client secret provisioned). Say so plainly rather
       // than bouncing the user to a provider that will reject an unseeded client.
       //
-      // Rendered as a page rather than JSON when this was a real navigation. `mode=redirect` is
-      // what the navbar's plain <a href> uses, which is the path a visitor with JavaScript disabled
-      // takes — and showing them `{"error":"sign_in_unavailable"}` as a raw document would be a
-      // dead end. The popup path keeps the JSON: its caller is fetch(), not a human.
-      if (mode === 'redirect') {
-        const nonce = crypto.randomUUID();
-        return htmlResponse(
-          closingPage({
-            nonce,
-            ok: false,
-            error: 'sign_in_unavailable',
-            ret,
-            eventKey: AUTH_EVENT_KEY,
-            mode: 'redirect',
-          }),
+      // BOTH modes get the HTML closing page, and the popup mode especially. An earlier version
+      // returned raw JSON here on the grounds that "its caller is fetch(), not a human" — which is
+      // simply false: `signIn()` in academy-auth.js does `window.open(startUrl('popup'))`, so this
+      // response is rendered as a document in a popup window. The learner saw
+      // `{"error":"sign_in_unavailable"}` as a page, and — because only the closing page writes the
+      // localStorage handshake — the opener was told nothing at all and sat on "Continue in the
+      // pop-up…" until its five-minute timeout. The closing page reports the failure immediately
+      // and closes itself, so `mode` only decides the wording.
+      const nonce = crypto.randomUUID();
+      return htmlResponse(
+        closingPage({
           nonce,
-          503
-        );
-      }
-      return c.json({ error: 'sign_in_unavailable' }, 503);
+          ok: false,
+          error: 'sign_in_unavailable',
+          ret,
+          eventKey: AUTH_EVENT_KEY,
+          mode,
+        }),
+        nonce,
+        503
+      );
     }
     const tx = newTransaction(ret, mode);
     const challenge = await s256(tx.verifier);

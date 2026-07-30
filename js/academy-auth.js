@@ -103,14 +103,96 @@
   }
 
   /**
+   * localStorage keys holding Academy progress. DUPLICATED from functions.js (KEY_READ, KEY_QUIZ,
+   * KEY_POS, KEY_POS_AT, KEY_EXAM, KEY_OWNER) — keep the two lists equal.
+   *
+   * They live here as well as there because ownership reconciliation has to happen in THIS file. See
+   * reconcileProgressOwner.
+   */
+  var PROGRESS_KEYS = ['acad_read', 'acad_quiz', 'acad_pos', 'acad_pos_at', 'acad_exam', 'acad_epoch'];
+  var OWNER_KEY = 'acad_owner';
+
+  /**
+   * Makes sure this browser's local Academy progress belongs to whoever is signed in right now.
+   *
+   * WHY THIS LIVES IN academy-auth.js AND NOT IN initAcademy(). It used to be a listener inside
+   * initAcademy() in functions.js, and it never ran, for two independent reasons:
+   *
+   *   1. Ordering. init() below runs synchronously while this deferred script executes, and fires
+   *      the forced `academy-auth-changed` there and then. initAcademy() registers its listener from
+   *      jQuery's ready callback, which jQuery resolves ASYNCHRONOUSLY — so the boot event had
+   *      always already fired before anything was listening. Not a race: deterministic.
+   *   2. Scope. initAcademy() returns early unless `#acadReader` exists, i.e. on academy.html only.
+   *      This file loads on all 11 pages and puts a sign-in control in every navbar, so an account
+   *      switch or sign-out performed from the home page's navbar reconciled nothing at all.
+   *
+   * What that cost, concretely, on a shared machine: learner A studies and passes the exam; learner
+   * B signs in from the home-page navbar; nothing is wiped and acad_owner still says A; B opens
+   * /academy, where the cached and server identities now agree so no transition event fires either;
+   * the boot sync then uploads A's 133 read lessons into B's account, and the exam panel reads A's
+   * surviving acad_exam and offers B "we found a passing score saved on this device" — one click
+   * from a real, publicly verifiable certificate in B's name for an exam B never sat.
+   *
+   * Called from saveCachedSession BEFORE the change event fires, so no listener can act on — or sync
+   * — progress that has not yet been reconciled.
+   *
+   * ONLY EVER CALLED WITH A SERVER-CONFIRMED SESSION, never with the localStorage cache. That
+   * distinction is load-bearing in the destructive direction: on a fresh browser profile the cache is
+   * empty, so a cache-derived session reads as SIGNED OUT, and reconciling against it wiped a
+   * perfectly valid learner's progress on page load — a returning learner whose cookie outlived their
+   * cached session snapshot would have lost everything, including a passing exam record. Waiting for
+   * /auth/session costs nothing that matters (the first sync waits on ready() anyway) and removes the
+   * whole class. Where there is no server to ask at all, nothing is confirmed and nothing is wiped,
+   * which is the right answer for an account-free deployment.
+   *
+   * An ABSENT acad_owner means progress earned before signing in, which is deliberately treated as
+   * claimable rather than wiped: carrying anonymous progress into a new account is a feature.
+   */
+  function reconcileProgressOwner(session) {
+    var owner = null;
+    try { owner = localStorage.getItem(OWNER_KEY); } catch (e) { return; }
+
+    if (session && session.loggedIn && session.userId) {
+      if (owner && owner !== session.userId) wipeLocalProgress();
+      try { localStorage.setItem(OWNER_KEY, session.userId); } catch (e) {}
+      return;
+    }
+    // Signed out. Only wipe if this progress was owned by an account — anonymous progress on a
+    // browser that has never signed in is the visitor's own and must survive.
+    if (owner) {
+      wipeLocalProgress();
+      try { localStorage.removeItem(OWNER_KEY); } catch (e) {}
+    }
+  }
+
+  function wipeLocalProgress() {
+    for (var i = 0; i < PROGRESS_KEYS.length; i++) {
+      try { localStorage.removeItem(PROGRESS_KEYS[i]); } catch (e) {}
+    }
+    // Tell whoever is rendering to re-read from storage. functions.js keeps parsed copies of these
+    // in memory, and clearing the keys underneath it would otherwise leave the ✓ marks and the
+    // progress bar showing the previous account's work until a reload.
+    try {
+      document.dispatchEvent(new CustomEvent('academy-progress-wiped'));
+    } catch (e) {}
+  }
+
+  /**
    * Stores a session snapshot, and fires `academy-auth-changed` only if the identity really moved.
+   *
    * `force` exists for the boot path, where listeners need one event to render their initial state
    * even though nothing has "changed" yet.
+   *
+   * `confirmed` means "this identity came from the server" (a /auth/session answer, or another tab's
+   * answer relayed by a storage event) as opposed to "this is what our localStorage cache guessed".
+   * Only a confirmed session may reconcile progress ownership — see reconcileProgressOwner.
    */
-  function saveCachedSession(session, force) {
+  function saveCachedSession(session, force, confirmed) {
     var previous = loadCachedSession();
     memSession = session;
     writeStore(SESSION_KEY, JSON.stringify(session));
+    // Before the event, always — see reconcileProgressOwner.
+    if (confirmed) reconcileProgressOwner(session);
     if (force || !sameIdentity(previous, session)) fireChanged(session);
   }
 
@@ -140,13 +222,15 @@
     sessionPromise = authFetch('/session')
       .then(function (data) {
         var out = normalizeSession(data);
-        saveCachedSession(out);
+        // Confirmed: this identity IS the server's answer.
+        saveCachedSession(out, false, true);
         return out;
       })
       .catch(function (err) {
         if (err && err.status === 401) {
           var out = { loggedIn: false };
-          saveCachedSession(out);
+          // A 401 is the server speaking too — confirmed signed out.
+          saveCachedSession(out, false, true);
           return out;
         }
         return loadCachedSession() || { loggedIn: false };
@@ -171,6 +255,11 @@
       if (!incoming) return;
       var previous = memSession;
       memSession = incoming;
+      // Reconcile before the event here too: this is the path a sign-in performed in ANOTHER tab
+      // arrives by, so it is just as capable of handing this tab a different account as our own
+      // refresh is. Runs unconditionally rather than only on a fired change, because this tab's
+      // acad_owner may be stale even when the identity it is being told about matches its cache.
+      reconcileProgressOwner(incoming);
       if (!sameIdentity(previous, incoming)) fireChanged(incoming);
       return;
     }
@@ -211,7 +300,24 @@
     // read mark. Not set by default — keepalive requests share a small per-origin budget, and
     // spending it on ordinary calls would starve the one case that needs it.
     if (opts.keepalive) init.keepalive = true;
-    return fetch('/api/academy' + path, init).then(parseResponse);
+    return fetch('/api/academy' + path, init).then(parseResponse).catch(noteUnauthorized);
+  }
+
+  /**
+   * Re-checks identity whenever the API says we are not who we think we are, then rethrows.
+   *
+   * Centralised here because doing it per-caller meant it was done in exactly ONE place (the progress
+   * sync) and forgotten everywhere else. The consequence was that a session which had ended
+   * server-side — an idle timeout, a revoke-all from another device, a back-channel logout — left the
+   * navbar and the exam panel cheerfully signed in, since nothing flipped the cached session. A
+   * learner could sit the whole 50-question final exam and only discover on submit that they were
+   * signed out. `refreshSession` de-duplicates concurrent calls, so a burst of 401s costs one request.
+   */
+  function noteUnauthorized(err) {
+    if (err && err.status === 401) {
+      try { refreshSession(); } catch (e) {}
+    }
+    throw err;
   }
 
   function authFetch(path, opts) {
@@ -370,7 +476,7 @@
 
   function signOut() {
     return authFetch('/logout', { method: 'POST' }).then(function (out) {
-      saveCachedSession({ loggedIn: false });
+      saveCachedSession({ loggedIn: false }, false, true);
       return out;
     });
   }
@@ -385,7 +491,7 @@
    */
   function signOutEverywhere() {
     return authFetch('/logout-all', { method: 'POST' }).then(function (out) {
-      saveCachedSession({ loggedIn: false });
+      saveCachedSession({ loggedIn: false }, false, true);
       return out;
     });
   }
@@ -393,7 +499,7 @@
   function revokeSession(sessionId) {
     return authFetch('/sessions/revoke', { method: 'POST', body: { sessionId: sessionId } })
       .then(function (out) {
-        if (out && out.self) saveCachedSession({ loggedIn: false });
+        if (out && out.self) saveCachedSession({ loggedIn: false }, false, true);
         else refreshSession();
         return out;
       });
@@ -954,6 +1060,21 @@
    * Boot
    * --------------------------------------------------------------------- */
 
+  /**
+   * Resolves once identity has been settled with the SERVER (or once we know there is no server to
+   * ask). Never rejects.
+   *
+   * Exists because the cached session is only a guess. Anything that WRITES on the learner's behalf —
+   * above all the first progress sync — must wait for this, not for `getSession()`. Otherwise on a
+   * slow link the debounced boot sync fires against a stale cached identity and uploads whatever
+   * local progress is lying around under the current cookie, which on a shared browser means the
+   * previous learner's work lands in this learner's account. Rendering may still use the cache
+   * immediately; only writes need to wait.
+   */
+  var readyResolve;
+  var readyPromise = new Promise(function (resolve) { readyResolve = resolve; });
+  function ready() { return readyPromise; }
+
   function init() {
     wireNavAuth();
     wireBenefitsInfo();
@@ -961,14 +1082,21 @@
 
     // Render from cache first (instant, no flash of the wrong state), then confirm with the
     // server. `force` so listeners get one event to draw their initial state from.
-    saveCachedSession(getSession(), true);
+    // Render from the cache, but do NOT reconcile progress ownership on it: the cache is a guess,
+    // and on a fresh profile it reads as signed-out. See reconcileProgressOwner.
+    saveCachedSession(getSession(), true, false);
 
     // Only ask the server if there is a server to ask. On GitHub Pages, before the DNS cutover,
     // /auth/session is a 404 — probing first keeps a failed fetch out of the console on every page
     // load of the currently-live site.
-    isApiAvailable().then(function (available) {
-      if (available) refreshSession();
-    });
+    isApiAvailable()
+      .then(function (available) {
+        return available ? refreshSession() : null;
+      })
+      // Settle either way: a failed probe or a failed refresh still means "this is as good as our
+      // knowledge gets", and leaving the promise pending would stall syncing forever.
+      .catch(function () {})
+      .then(function () { readyResolve(getSession()); });
   }
 
   if (document.readyState === 'loading') {
@@ -979,6 +1107,7 @@
 
   window.AcademyAuth = {
     getSession: getSession,
+    ready: ready,
     refreshSession: refreshSession,
     isApiAvailable: isApiAvailable,
     signIn: signIn,
