@@ -533,15 +533,26 @@ export function createApp() {
       }
     }
 
+    // Every write below re-checks `serverEpoch` INSIDE its own statement. The gate above is a read
+    // followed by several awaited round trips, so a `POST /progress/reset` from another device can
+    // land in between — and the union writes would then resurrect the deleted rows stamped at the
+    // NEW epoch, where no later sync could ever detect or correct them. Re-checking in the statement
+    // means a raced write simply does nothing; the client is told the truth on its next sync.
     if (Array.isArray(readLessons) && readLessons.length > 0) {
-      await unionLessonProgress(c.env.DB, userId, readLessons as string[], nowIso);
+      await unionLessonProgress(c.env.DB, userId, readLessons as string[], nowIso, serverEpoch);
     }
     // One batched round-trip for all tracks, not one awaited statement per track —
     // the union/OR semantics are per-row and unchanged, but a full-curriculum sync
     // no longer costs up to MAX_TRACK_IDS serial D1 hops.
-    await unionQuizMasks(c.env.DB, userId, quizEntries, nowIso);
+    await unionQuizMasks(c.env.DB, userId, quizEntries, nowIso, serverEpoch);
     if (lastPositionInput) {
-      await setLastPosition(c.env.DB, userId, lastPositionInput.lessonId, lastPositionInput.updatedAt);
+      await setLastPosition(
+        c.env.DB,
+        userId,
+        lastPositionInput.lessonId,
+        lastPositionInput.updatedAt,
+        serverEpoch
+      );
     }
 
     // Return the new canonical merged truth so the caller can overwrite its local cache.
@@ -789,7 +800,6 @@ export function createApp() {
     const expSec = iatSec + 10 * 365 * 24 * 60 * 60; // 10-year validity for the JWT artifact
 
     const jwt = await signCertificateJwt(c.env, {
-      sub: userId,
       iat: iatSec,
       exp: expSec,
       jti: serial,

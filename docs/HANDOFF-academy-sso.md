@@ -390,23 +390,25 @@ Two of these were silent data loss for a signed-in learner. One made logout able
 | 12 | `website` `src/lib/server/api.ts` | The name-filter docstring cited combining characters as its motivation; `\p{C}` contains no `\p{M}`. Homoglyph/combining-mark spoofing is **not** blocked — now stated plainly as an accepted risk, and the regex rewritten with explicit `\u` escapes. |
 | 13 | `website` `js/academy-auth.js` | Double-clicking Sign in leaked a 2.5s poll and a stale `storage` listener for the page's life (the guard was checked synchronously but the sentinel assigned after an `await`); a sign-in timeout closed the overlay **silently**; a failed `/auth/session` probe was memoised, disabling accounts for the whole page after one transient blip; account-panel revoke/sign-out had no `.catch`. |
 
-### Known and deliberately NOT fixed
+### Resolved by the owner, 2026-07-30
 
-- **No `jti` replay cache on `/auth/backchannel-logout`.** The Lab's own demo RP has one, and the OP's
-  comment justifies omitting `exp` on the grounds that "the receiver's `jti` cache bounds replay" —
-  true of the demo RP, false of this one. Impact is re-revoking already-revoked sessions (idempotent),
-  the 5-minute `maxTokenAge` still bounds it, and BCL 1.0 makes the cache a MAY. Adding it needs a
-  table, i.e. a Lab migration. Recorded rather than silently accepted.
-- **Epoch read-then-write TOCTOU.** A `/progress/sync` that passes the epoch gate can land its union
-  writes after a concurrent `/progress/reset` bumped the epoch, leaving the reset permanently partial.
-  Needs the union made conditional inside the statement. Requires two devices racing within one
-  request; the client-side ordering guard covers the same-device case.
-- **Certificate JWT `sub` is the Lab's internal user id.** Learners forward these to employers, so
-  that publishes a stable cross-application identifier. Using the serial (already the `jti`) instead
-  would be better. Left alone because it changes an artifact format that may already be relied on —
-  **owner's call**.
-- **`terms.html` has four dead in-page anchors** (`#products`, `#mobile`, `#ppno`, `#dmca`).
-  Pre-existing on `main`, unrelated to this work, and the right target for each is a content decision.
+All four open items below were decided and implemented; none is outstanding.
+
+| Item | Decision | What shipped |
+|---|---|---|
+| Certificate JWT `sub` | Use the serial | `sub` is now the `IA-XXXX-XXXX-XXXX` serial (same value as `jti`). No account identifier reaches the third parties a learner forwards a certificate to. The `sub` field was **removed from `CertificateClaims`** rather than merely documented, so it cannot be reintroduced without deliberately editing `signCertificateJwt`. Done before launch, which is the only time this was free — after launch it would invalidate issued certificates. |
+| Back-channel logout replay | Add `exp` to the token | The Lab stamps a 120-second `exp` on every logout token, which `jwtVerify` enforces at the receiver. This fixes the issuer's own reasoning rather than patching one receiver: the old comment justified omitting `exp` by pointing at a `jti` cache that only the demo RP has. Our 5-minute `maxTokenAge` stays as the half we control. No migration, no new table. |
+| Progress reset race | Guard inside the statement | The epoch check now rides in the `WHERE` of each merge write (`unionLessonProgress`, `unionQuizMasks`, `setLastPosition`), so a sync that passed the route's pre-check cannot land writes after a concurrent reset. No migration. In the quiz upsert the `WHERE` is load-bearing twice: it is also what makes SQLite able to parse `ON CONFLICT` after an `INSERT..SELECT`. |
+| `terms.html` dead anchors | Remove them | All nine anchors pointing at `#products`/`#mobile`/`#ppno`/`#dmca` unwrapped. They were Termly leftovers wrapping only empty `<bdt>` markers, so the rendered text is byte-identical (verified: 51,710 chars before and after) and no in-page anchor in the file is dead any more. |
+
+**On testing the reset-race guard.** The HTTP-level suite passes with or without it, because the route's pre-check already rejects a stale epoch — the guard exists for the race the pre-check cannot see, and a race is not reproducible from a shell. `epoch-guard-test.sh` therefore also drives the exact statements the store issues, against the real local D1, with an epoch the server has moved past: the write inserts nothing at a superseded epoch and inserts normally at the current one. Where a test does not discriminate, that is said out loud rather than counted.
+
+### Still known and deliberately NOT fixed
+
+- **No `jti` replay cache on `/auth/backchannel-logout`.** Now bounded by the token's own 120-second
+  `exp` as well as our 5-minute `maxTokenAge`, and a replay only re-revokes an already-revoked
+  session (idempotent). BCL 1.0 makes the cache a MAY; adding one would need a table in a database
+  this repo does not own, for no behaviour change.
 - **Exam panel's read-count is snapshotted at mount**, so after a partial cross-device pull the hub
   bar and the exam panel can disagree until a reload. Cosmetic.
 

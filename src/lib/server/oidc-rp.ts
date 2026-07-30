@@ -63,7 +63,18 @@ const TX_TTL_SECONDS = 15 * 60;
 const TX_COOKIE_PROD = '__Host-ia_oidc_tx';
 const TX_COOKIE_DEV = 'ia_oidc_tx';
 
-/** Max age accepted on a back-channel logout token, bounding replay of a captured one. */
+/**
+ * Max age accepted on a back-channel logout token.
+ *
+ * This is a SECOND bound, not the only one: the Lab now stamps a two-minute `exp` on every logout
+ * token, which `jwtVerify` enforces, so the effective window is that shorter one. We keep our own
+ * ceiling anyway because it is the half we control — a provider that stopped setting `exp` should
+ * not silently hand us unbounded replay.
+ *
+ * We deliberately keep no single-use `jti` cache. A replay here re-revokes an already-revoked
+ * session, which is idempotent, so the cache would buy nothing that the two bounds above do not,
+ * at the cost of a table in a database this repo does not own. BCL 1.0 makes it a MAY.
+ */
 const LOGOUT_TOKEN_MAX_AGE = '5 minutes';
 
 export interface RpConfig {

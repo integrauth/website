@@ -140,6 +140,27 @@ export async function lockProfileNameIfAbsent(
 }
 
 // ---------------------------------------------------------------------------
+// The epoch guard on merge writes
+// ---------------------------------------------------------------------------
+
+/**
+ * SQL fragment that makes a merge write conditional on the caller still being on the server's
+ * CURRENT reset epoch, evaluated inside the same statement as the write.
+ *
+ * The route layer already checks the epoch before it writes, and that check is not sufficient: it
+ * is a read, then several awaited D1 round trips, then a write. A `POST /progress/reset` from the
+ * learner's other device can land in that gap — deleting the rows and bumping the epoch — after
+ * which the first request's union writes arrive and resurrect progress under the NEW epoch. Nothing
+ * downstream can ever correct that, because every future sync now agrees with the server's epoch:
+ * the reset is permanently, silently partial.
+ *
+ * Re-checking in the statement closes it without a transaction (D1 has no interactive ones) and
+ * without a migration. A row missing from academy_progress_epoch means "never reset", i.e. epoch 0,
+ * which is why COALESCE is needed rather than a plain join.
+ */
+const EPOCH_STILL_CURRENT = `(SELECT COALESCE((SELECT epoch FROM academy_progress_epoch WHERE user_id = ?), 0)) = ?`;
+
+// ---------------------------------------------------------------------------
 // academy_lesson_progress
 // ---------------------------------------------------------------------------
 
@@ -152,13 +173,17 @@ export async function unionLessonProgress(
   db: D1Database,
   userId: string,
   lessonIds: string[],
-  nowIso: string
+  nowIso: string,
+  expectedEpoch: number
 ): Promise<void> {
   if (lessonIds.length === 0) return;
   const stmt = db.prepare(
-    'INSERT OR IGNORE INTO academy_lesson_progress (user_id, lesson_id, read_at) VALUES (?, ?, ?)'
+    `INSERT OR IGNORE INTO academy_lesson_progress (user_id, lesson_id, read_at)
+     SELECT ?, ?, ? WHERE ${EPOCH_STILL_CURRENT}`
   );
-  await db.batch(lessonIds.map((lessonId) => stmt.bind(userId, lessonId, nowIso)));
+  await db.batch(
+    lessonIds.map((lessonId) => stmt.bind(userId, lessonId, nowIso, userId, expectedEpoch))
+  );
 }
 
 /**
@@ -249,17 +274,22 @@ export async function unionQuizMasks(
   db: D1Database,
   userId: string,
   entries: Array<[trackId: string, mask: number]>,
-  nowIso: string
+  nowIso: string,
+  expectedEpoch: number
 ): Promise<void> {
   if (entries.length === 0) return;
+  // The WHERE clause is doing double duty: it is the epoch guard, AND it is what lets SQLite parse
+  // an upsert attached to an INSERT..SELECT at all (without a WHERE the ON CONFLICT is ambiguous).
   const stmt = db.prepare(
     `INSERT INTO academy_quiz_progress (user_id, track_id, revealed_mask, updated_at)
-     VALUES (?, ?, ?, ?)
+     SELECT ?, ?, ?, ? WHERE ${EPOCH_STILL_CURRENT}
      ON CONFLICT(user_id, track_id) DO UPDATE SET
        revealed_mask = revealed_mask | excluded.revealed_mask,
        updated_at = excluded.updated_at`
   );
-  await db.batch(entries.map(([trackId, mask]) => stmt.bind(userId, trackId, mask, nowIso)));
+  await db.batch(
+    entries.map(([trackId, mask]) => stmt.bind(userId, trackId, mask, nowIso, userId, expectedEpoch))
+  );
 }
 
 export async function listQuizProgress(
@@ -362,18 +392,19 @@ export async function setLastPosition(
   db: D1Database,
   userId: string,
   lessonId: string,
-  updatedAtIso: string
+  updatedAtIso: string,
+  expectedEpoch: number
 ): Promise<void> {
   await db
     .prepare(
       `INSERT INTO academy_last_position (user_id, lesson_id, updated_at)
-       VALUES (?, ?, ?)
+       SELECT ?, ?, ? WHERE ${EPOCH_STILL_CURRENT}
        ON CONFLICT(user_id) DO UPDATE SET
          lesson_id = excluded.lesson_id,
          updated_at = excluded.updated_at
        WHERE excluded.updated_at >= academy_last_position.updated_at`
     )
-    .bind(userId, lessonId, updatedAtIso)
+    .bind(userId, lessonId, updatedAtIso, userId, expectedEpoch)
     .run();
 }
 

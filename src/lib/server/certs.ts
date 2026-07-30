@@ -46,9 +46,9 @@ export const CERT_AUDIENCE = 'https://integrauth.com/verify';
  * `users` table; it just never leaves it via this path.)
  */
 export interface CertificateClaims {
-  sub: string;
   iat: number;
   exp: number;
+  /** The certificate's public serial. Used as BOTH `jti` and `sub` — see signCertificateJwt. */
   jti: string;
   name: string;
   score: number;
@@ -168,6 +168,18 @@ export async function getPublicJwks(env: Env): Promise<{ keys: JWK[] }> {
  * Signs a compact ES256 JWS for an Academy certificate. `claims.jti` is the
  * certificate's public `serial` — mint it with generateCertificateSerial() below
  * before calling this.
+ *
+ * `sub` IS THE SERIAL, deliberately, and there is no way to pass anything else.
+ *
+ * The subject of this credential is the certificate, not the person: a learner forwards this JWT to
+ * employers, so any account identifier in it becomes a stable, cross-application handle for that
+ * learner held by arbitrary third parties. An earlier version put the Lab's internal `user_id` here,
+ * which is exactly that. The serial is already the public, verifiable name for this credential (it
+ * is what /verify takes and what `jti` carries), so using it costs nothing and there is nothing left
+ * in a certificate that identifies the holder beyond the name they chose to print on it.
+ *
+ * The parameter is absent from CertificateClaims rather than merely documented, so a future caller
+ * cannot reintroduce a user id without deliberately changing this function.
  */
 export async function signCertificateJwt(env: Env, claims: CertificateClaims): Promise<string> {
   const { privateKey, kid } = await getSigningMaterial(env);
@@ -175,7 +187,7 @@ export async function signCertificateJwt(env: Env, claims: CertificateClaims): P
     .setProtectedHeader({ alg: 'ES256', typ: 'JWT', kid })
     .setIssuer(CERT_ISSUER)
     .setAudience(CERT_AUDIENCE)
-    .setSubject(claims.sub)
+    .setSubject(claims.jti)
     .setJti(claims.jti)
     .setIssuedAt(claims.iat)
     .setExpirationTime(claims.exp)
