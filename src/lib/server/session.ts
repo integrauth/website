@@ -157,7 +157,7 @@ export interface WebsiteSessionSummary {
 const DEV_COOKIE_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
 
 /** True when this request is addressed to a local development host. */
-function isLocalDevHost(url: URL): boolean {
+export function isLocalDevHost(url: URL): boolean {
   return DEV_COOKIE_HOSTS.has(url.hostname);
 }
 

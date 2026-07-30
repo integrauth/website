@@ -174,8 +174,17 @@ const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
  * Abuse backstops, NOT rate limits. Enforced with a single `SELECT COUNT(*)` over
- * the last 24 hours per user, so they are cheap, exact, and stateless (no DO, no
- * KV, no in-isolate counters that concurrency would defeat).
+ * the last 24 hours per user, so they are cheap and stateless (no DO, no KV, no
+ * in-isolate counters that concurrency would defeat).
+ *
+ * NOT exact under concurrency, and the earlier version of this comment claiming otherwise was
+ * wrong. These are check-then-insert: N requests issued together each read a count below the limit
+ * and each then inserts, so the cap can be overshot by roughly the concurrency factor. That is
+ * tolerable HERE — the overshoot is bounded per 24-hour window, certificate issuance is idempotent
+ * per attempt, and the point is to stop a scripted account writing unbounded rows, which it still
+ * does. It would NOT be tolerable for the progress tables, whose ceiling has no window to bound it,
+ * which is why that one is additionally re-checked inside each insert (see MAX_LESSON_ROWS_SQL in
+ * store.ts). Do not describe either as exact.
  *
  * What they are for: both guarded endpoints are authenticated INSERTs with no
  * natural bound, into a D1 instance SHARED with the sister Lab app — a single
@@ -854,7 +863,13 @@ export function createApp() {
 
     // NOW lock the name — the certificate exists, so the thing the lock protects is real. No-op if
     // already locked. See the comment where `holderName` is built for why this is not done earlier.
-    await lockProfileNameIfAbsent(c.env.DB, userId, nowIso);
+    //
+    // The exact printed name is passed so the lock pins THAT, not whatever the profile says by the
+    // time we get here: `PUT /profile` is still accepted during every await above (the lock is what
+    // stops it, and it does not exist yet), so a rename landing mid-issuance would otherwise leave
+    // the locked profile permanently disagreeing with a public certificate. See
+    // lockProfileNameIfAbsent.
+    await lockProfileNameIfAbsent(c.env.DB, userId, nowIso, { firstName, lastName });
 
     // Settle which certificate is "best" by recomputing from the stored rows rather than acting on
     // the pre-insert guess. Two DIFFERENT attempts issued concurrently would each read the same

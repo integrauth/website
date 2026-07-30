@@ -29,7 +29,7 @@
 // it again.
 
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
-import { base64Url, parseCookie, randomToken, isSecureRequest } from './session';
+import { base64Url, parseCookie, randomToken, isSecureRequest, isLocalDevHost } from './session';
 import type { Env } from './env';
 
 /** The provider's issuer identifier. Must equal the `iss` claim exactly, so no trailing slash. */
@@ -59,7 +59,16 @@ const BACKCHANNEL_LOGOUT_EVENT = 'http://schemas.openid.net/event/backchannel-lo
  */
 const TX_TTL_SECONDS = 15 * 60;
 
-/** Transaction-cookie names, split by scheme for the same reason the session cookie is. */
+/**
+ * Transaction-cookie names, split by HOST for the same reason the session cookie is — see
+ * DEV_COOKIE_HOSTS in session.ts. The earlier comment here said "by scheme", which described neither
+ * cookie accurately: keying on the scheme is the exact bug session.ts documents at length, because
+ * it serves the unprefixed name to a plaintext request on a REAL hostname, and an unprefixed cookie
+ * is one any sibling `*.integrauth.com` host can write with `Domain=`. That mattered less for this
+ * cookie than for the session (a planted transaction fails the `state` comparison rather than
+ * authenticating anyone), but there is no reason for the two to disagree, and a comment pointing at
+ * the discarded rule is how the discarded rule comes back.
+ */
 const TX_COOKIE_PROD = '__Host-ia_oidc_tx';
 const TX_COOKIE_DEV = 'ia_oidc_tx';
 
@@ -107,7 +116,7 @@ export interface IdTokenIdentity {
 }
 
 export function txCookieName(url: URL): string {
-  return isSecureRequest(url) ? TX_COOKIE_PROD : TX_COOKIE_DEV;
+  return isLocalDevHost(url) ? TX_COOKIE_DEV : TX_COOKIE_PROD;
 }
 
 /**
@@ -510,11 +519,22 @@ export async function verifyLogoutToken(
     throw new OidcError('logout_token_has_nonce', 'logout_token must not carry a nonce claim');
   }
 
+  // BCL 1.0 §2.4: `events` is a JSON object whose sole member is the back-channel-logout event URI,
+  // and THAT member's value is itself a JSON object. Checking only for the key's presence accepted
+  // shapes the spec does not permit — an array, or the URI mapped to a string or null — which is the
+  // kind of leniency that lets a subtly non-conforming provider look fine here and fail elsewhere.
+  // Arrays are excluded explicitly because `typeof [] === 'object'` in JS.
   const events = claims.events;
+  const eventsIsObject = typeof events === 'object' && events !== null && !Array.isArray(events);
+  const eventValue = eventsIsObject
+    ? (events as Record<string, unknown>)[BACKCHANNEL_LOGOUT_EVENT]
+    : undefined;
   const hasEvent =
-    typeof events === 'object' &&
-    events !== null &&
-    Object.prototype.hasOwnProperty.call(events, BACKCHANNEL_LOGOUT_EVENT);
+    eventsIsObject &&
+    Object.prototype.hasOwnProperty.call(events, BACKCHANNEL_LOGOUT_EVENT) &&
+    typeof eventValue === 'object' &&
+    eventValue !== null &&
+    !Array.isArray(eventValue);
   if (!hasEvent) {
     throw new OidcError('logout_token_missing_event', 'logout_token lacked the back-channel event');
   }

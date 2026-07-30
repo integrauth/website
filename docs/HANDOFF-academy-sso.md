@@ -3,15 +3,18 @@
 > Updated 2026-07-30. Everything below reflects verified repo state, not intent.
 > `docs/` and `*.md` are excluded from asset publishing (`.assetsignore`), so this file is never served.
 >
-> **Read §8, §9 and §10 first.** THREE separate adversarial passes over code this document had
+> **Read §8, §9, §10 and §11 first.** FOUR separate adversarial passes over code this document had
 > already called verified each found real defects: §8 a total sign-in outage, an open redirect and a
 > security control that never ran; §9 two silent data-loss paths, a logout that could fail to revoke,
 > and a sign-in error that hung the popup for five minutes; §10 an incomplete §8 fix (the login-kill
 > DoS was still reachable), a residual instance of the §9 reset race, a destroyed-passing-exam path,
 > a CI guard that could not detect the very byte it was written for, and a documented staging flag
-> that was dead code. What was missed, and why, is more useful to you than the parts that were right
-> — and the pattern itself is the warning: every round of "this is verified" has so far been followed
-> by a round that found more.
+> that was dead code; §11 a cross-account progress leak through an in-flight sync, three separate
+> holes in §10's own exam-stash fix, a provisioner that would regenerate never-rotate secrets, and a
+> "sign out everywhere" that failed silently. What was missed, and why, is more useful to you than
+> the parts that were right — and the pattern itself is the warning: every round of "this is
+> verified" has so far been followed by a round that found more. Treat "nothing pending" as true as
+> of the last audit, never as a property of the code.
 
 ---
 
@@ -70,7 +73,8 @@ Two consequences that surprise people:
 | `7502afd` | "Sign out everywhere" now reaches this site; refuse to invent the shared secret |
 | `c1960dd` | Revoke FIRST, then fan out; bound the fan-out (§9 items 1 and 8) |
 | `2b28903` | Logout token `exp` — the §9 owner decision |
-| *(HEAD)* | Round-3 fixes (§10): wire the dead `IA_WEBSITE_PRECUTOVER` flag, truncation-bound test, exact-`exp` assertion, comment corrections |
+| `e71b634` | Round-3 fixes (§10): wire the dead `IA_WEBSITE_PRECUTOVER` flag, truncation-bound test, exact-`exp` assertion, comment corrections |
+| *(HEAD)* | Round-4 fixes (§11): fail closed when the secret list is unreadable, fan out to every active sid, order the truncation, refuse a blind D1 create |
 
 `main` still carries `__Host-lab_session`, which is why the revert cost nothing: the shared-cookie
 version was never merged or deployed, so there were no live sessions to migrate and no wide-domain
@@ -95,11 +99,12 @@ tests — re-run rather than trust this line), `npm run dryrun` clean.
 | `12a0ebb` | The account-scoping control that never ran + client sync races (§8) |
 | `c164cbb` | Stop losing learner progress; make sign-in failures visible (§9) |
 | `2306dd5` | The four owner decisions (§9) |
-| *(HEAD)* | Round-3 fixes (§10): tx-cookie DoS residue, bump-before-delete, exam-pass stash, CI guard `-a`, and the rest of the §10 table |
+| `1779edf` | Round-3 fixes (§10): tx-cookie DoS residue, bump-before-delete, exam-pass stash, CI guard `-a`, and the rest of the §10 table |
+| *(HEAD)* | Round-4 fixes (§11): the cross-account sync leak, three exam-stash holes, the name-lock race, in-statement row ceiling, and the rest of the §11 tables |
 
-Asset versions (as of round 3): `styles.min.css?v=5.56`, `functions.min.js?v=5.56`,
-`academy-auth.min.js?v=1.5`, `academy-labs.min.js?v=5.54`, `acad-build` = `academy-version.txt` =
-`5.58`. All four minified assets are current against their sources — but these numbers go stale
+Asset versions (as of round 4): `styles.min.css?v=5.56`, `functions.min.js?v=5.57`,
+`academy-auth.min.js?v=1.6`, `academy-labs.min.js?v=5.54`, `acad-build` = `academy-version.txt` =
+`5.59`. All four minified assets are current against their sources — but these numbers go stale
 with every deploy, so verify against the HTML rather than trusting this line.
 
 ---
@@ -512,3 +517,88 @@ zero dead anchors, stat-chip counts exact (133/12/99 verified against the DOM), 
 matching the website store's expectations column-for-column, erasure cascading all 8 tables, and the
 FAQ JSON-LD (whose four wording deltas are deliberate self-contained adaptations, now documented in
 CLAUDE.md rather than "fixed").
+
+---
+
+## 11. The fourth re-audit (2026-07-30) — what §10 still missed
+
+Six parallel adversarial slices, cut by failure DIMENSION this time (OIDC RP, API data plane, client
+sync/state, migrations + cross-repo contract, lab server, concurrency/races) rather than by file, so
+the same code was walked along different axes than in rounds 1–3. Two slices found nothing: the
+**migrations and the OP↔RP contract are clean** (all 12 contract points still match
+character-for-character), and the **OIDC RP has no high or medium defect**. Everything else below is
+real, was verified against the code before being touched, and is fixed.
+
+The headline is that round 3's own fixes were incomplete in three places. A fix is not a fact.
+
+### Fixed — website
+
+| # | Severity | What was wrong | Why it mattered |
+|---|---|---|---|
+| 1 | **High** | `acadSyncGeneration` was bumped by a reset but NOT by the ownership wipe, so an in-flight sync response landed after sign-out and rewrote the previous learner's progress — including `acad_epoch` | The restored epoch made `hasUnsyncedLocalProgress()` answer false, so the NEXT learner's sign-in skipped the claim path and plain-synced learner A's lessons into learner B's account, where the union made them permanent. The exact cross-account contamination the owner-scoping was built to stop |
+| 2 | Medium | `restoreExamStash` deleted the stash even when it declined to restore | A worthless anonymous *failing* sitting in `acad_exam` blocked the restore, and the stash was dropped anyway — destroying the unrecorded 50-question PASS that §10 added the stash to protect |
+| 3 | Medium | The stash was a single slot, unconditionally overwritten | On the shared machine the stash exists for, the second learner to sign out destroyed the first's still-unclaimed pass. Now a per-owner list (old single-object shape still read, so nobody loses a stash mid-upgrade) |
+| 4 | Medium | The account-SWITCH branch wiped without stashing; only the signed-out branch stashed | A direct A→B transition with no confirmed signed-out step is reachable (a sign-in relayed by the `storage` listener, a `/auth/start` deep link), and destroyed A's pass outright |
+| 5 | Medium | `refreshSession` trusted any 200 as the server's answer | A captive portal or proxy answering 200 with HTML parsed to `{}` → "signed out" → **confirmed** → wipe, while the session cookie was still valid. `isApiAvailable()` already required `typeof loggedIn === 'boolean'`; the destructive path was laxer than the probe |
+| 6 | Medium | Boot resume restamped `acad_pos_at` | Merely OPENING the Academy on a stale device counted as "I just moved here" and beat the newer position from another device, dragging every device back. Resume is a read, not a move |
+| 7 | Medium-high | `confirmSignOutEverywhere` swallowed failures (`catch(){}`) | The lost-laptop panic button appeared to do nothing: no reload, no message, every session everywhere still live. Single-device sign-out already shouted; the fleet-wide one was mute |
+| 8 | Medium | Certificate issuance locked the profile name *without pinning the printed one* | A `PUT /profile` accepted during the several awaits of issuance left the locked profile permanently disagreeing with a public, verifiable certificate — and a later retake minted a second live certificate under a different holder name. The lock now pins exactly what was printed |
+| 9 | Medium | Stored-row ceilings were check-then-insert only | N concurrent syncs each read a count near zero and each wrote up to 500 rows, so the one documented bound on unbounded growth into the SHARED D1 could be overshot by the concurrency factor. Now re-checked INSIDE each insert, like the epoch guard |
+| 10 | Low | `SIGNIN_TIMEOUT_MS` (5 min) was shorter than the server's `TX_TTL_SECONDS` (15 min) | We declared failure while the transaction was still valid, then signed the learner in underneath the failure message. Now equal, and a confirmed sign-in retires any stale overlay |
+| 11 | Low | A failed profile load rendered as "no name set" | Showed the editable name form to a name-locked learner, inviting a rename the server then 409s. Now an explicit error + retry |
+| 12 | Low | `hasUnsyncedLocalProgress` ignored a position-only learner | Lab lessons are not auto-marked read, so an anonymous learner can be several lessons deep with an empty read set. They took the plain-sync path, and any previously-reset account discarded the position they were carrying in |
+| 13 | Low | `txCookieName` keyed on scheme while `sessionCookieName` keys on host; comment claimed both keyed on scheme | Production was unaffected (they agree on every real host), but scheme-keying is the exact discarded rule §10 documented at length — and a comment pointing at a discarded rule is how it comes back |
+| 14 | Nit | Back-channel `events` check accepted arrays and non-object values | BCL 1.0 requires a JSON object whose event member is itself an object |
+
+### Fixed — lab
+
+| # | Severity | What was wrong | Why it mattered |
+|---|---|---|---|
+| 15 | **High impact** | `load_secret_names` died if `wrangler secret list` FAILED, but a `jq` parse failure (npx banner, format change) silently yielded an empty list | Every `secret_present` then answered "absent" and `sync_generated_secret` **regenerated `LAB_ENC_KEY` and `LAB_PRIVATE_JWK`** — the two secrets the script's own header says must never rotate. Rotating them strands every enrolled TOTP secret and invalidates every issued JWT. The website's CI already failed closed here; this script did not |
+| 16 | Low | `fanOutBackchannelLogoutForLabSession` used `rows.find(active)` — the FIRST active sid only | "One sid per lab_session_id" is intended, not enforced (`resolveOrMintSid` reads-then-mints with no unique constraint), so a raced double-authorize left an RP session both alive and un-ended — invisible to every later fan-out too |
+| 17 | Low | `fanOutBackchannelLogoutForUser` truncated an UNORDERED list at 40 sids | Newest sids were dropped first — exactly the thief's session, and the sister site's (400-day, certificate-issuing) session. Now website-client sids first, then newest-first |
+| 18 | Low | `wrangler d1 list` failure fell through to CREATE | Reported a D1:Edit permission problem that was never the issue, in the function that decides whether to create the database holding every user record. Now refuses |
+| 19 | Doc | Comment claimed logout tokens never carry `exp`; they have since round 3 | — |
+| 20 | Doc | `getCertificateBySerial` implemented in both stores but absent from the `Store` interface | It backs the enumeration-sensitive public `/verify`, and this interface is the contract the website mirrors |
+
+### Verification
+
+- **New discriminating tests.** The round-3 exam-stash suite passed against the *broken* code for
+  cases 2–4, so it was extended to 19 assertions, 8 of them targeting exactly those holes (a failing
+  local record must not consume the stash; B signing out must keep A's; a direct account switch must
+  stash; the legacy single-object shape must still restore). All 19 pass.
+- **The row ceiling was proven at the statement level**, not just through the route, the same way the
+  epoch guard is: filled a user to exactly 400 rows, drove the exact statement the store issues at
+  the CURRENT epoch (so only the new clause can refuse it) → 0 rows inserted; one row under the cap →
+  inserts. Quiz variant checked both ways too: an EXISTING track still OR-merges at the cap
+  (`1|4=5`), a new track is refused.
+- **The name-lock fix was driven through the actual race**: renamed the still-unlocked profile to
+  "Bob Jones" after issuance had printed "Alice Smith", ran the lock statement, and confirmed the
+  profile is pinned back to "Alice Smith" — matching the certificate.
+- Full end-to-end certificate flow over HTTP: name → attempt → issue → profile locked to the printed
+  name → rename 409 → public verify returns the same name.
+- Suites re-run green: lab **1602/1602** (93 files), adversarial 72/72, epoch 26/26, epoch-guard
+  13/13, smoke 54/54, owner 22/22, position/claim 8/8, auth-UI 35/35, dropdown 28/28, exam-stash
+  19/19. Both typechecks clean.
+- **A harness trap worth knowing**: `epoch-guard-test.sh` and `adversarial.sh` must be run from the
+  REPO ROOT (they use `--persist-to ../.wrangler-state-rv`) and `adversarial.sh` expects epoch 0.
+  Run from elsewhere, the D1 CLI silently addresses a *different* database and 3 tests "fail"; run
+  after the epoch suite, 4 more "fail" on a bumped epoch. Neither was a product defect — but both
+  look exactly like one.
+- Also confirmed clean this round, by hand: `run_worker_first` vs `worker.ts` dispatch, the JWKS CORS
+  header surviving `withSecurityHeaders`, `verify.html`'s four distinct outcomes and escaping,
+  `session.ts` vs migration 0052 column-for-column, privacy.html's Turnstile/OTP copy (accurate — the
+  form lives at the Lab), and asset-version lockstep across all 11 pages.
+
+### Knowingly NOT fixed (unchanged from §9/§10, plus two new)
+
+- Exam scores stay client-asserted; no `jti` replay cache; no per-IP rate limiting; first sign-in
+  consent screen. All owner product decisions.
+- **Daily caps (exam attempts, certificate issuance) remain check-then-insert.** Overshoot is bounded
+  by the 24-hour window and certificates are idempotent per attempt, so the fix was not worth the
+  churn — but the header comment claiming they are "exact" was corrected, because a false invariant
+  in a comment is worse than a known-approximate one.
+- **A read mark made during the reset round-trip can be lost** (it shares the reset's generation, so
+  the counter cannot distinguish it). Narrow, and the learner can re-open the lesson.
+- **An erasure racing an in-flight write** can leave an orphaned row from a request that was already
+  past `requireSession`. Window is seconds; the user tombstone stops everything subsequent.

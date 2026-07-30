@@ -126,16 +126,37 @@ export async function upsertProfile(
  * the name printed on a certificate can never change after the fact). No-ops if
  * already locked. Always re-reads and returns the resulting row so the caller sees
  * the actual (possibly pre-existing) lock timestamp and name.
+ *
+ * `holderName` PINS THE NAME THAT WAS ACTUALLY PRINTED, and passing it is not optional bookkeeping.
+ * Issuance reads the profile, then signs an ES256 JWT and inserts a row — several awaited round
+ * trips — and `PUT /profile` is accepted throughout that window, because the lock does not exist
+ * yet. Locking without re-pinning therefore froze whatever the name happened to be at the END of
+ * that race: the learner's locked profile said "Bob Jones" while a public, permanently verifiable
+ * certificate said "Alice Smith", and the next passing attempt minted a second live certificate
+ * under the new name — one learner, two certificates, two different holders. The certificate is the
+ * durable artifact a third party may already have checked, so it wins; the profile is corrected to
+ * match it.
  */
 export async function lockProfileNameIfAbsent(
   db: D1Database,
   userId: string,
-  nowIso: string
+  nowIso: string,
+  holderName?: { firstName: string; lastName: string }
 ): Promise<ProfileRow | null> {
-  await db
-    .prepare('UPDATE profiles SET name_locked_at = ? WHERE user_id = ? AND name_locked_at IS NULL')
-    .bind(nowIso, userId)
-    .run();
+  if (holderName) {
+    await db
+      .prepare(
+        `UPDATE profiles SET name_locked_at = ?, first_name = ?, last_name = ?, updated_at = ?
+          WHERE user_id = ? AND name_locked_at IS NULL`
+      )
+      .bind(nowIso, holderName.firstName, holderName.lastName, nowIso, userId)
+      .run();
+  } else {
+    await db
+      .prepare('UPDATE profiles SET name_locked_at = ? WHERE user_id = ? AND name_locked_at IS NULL')
+      .bind(nowIso, userId)
+      .run();
+  }
   return getProfile(db, userId);
 }
 
@@ -165,6 +186,24 @@ const EPOCH_STILL_CURRENT = `(SELECT COALESCE((SELECT epoch FROM academy_progres
 // ---------------------------------------------------------------------------
 
 /**
+ * Ceiling on stored rows per learner, re-checked INSIDE each insert.
+ *
+ * The route layer checks the total too, and — exactly like the epoch — that check alone is not
+ * enough: it is a read followed by several awaited D1 round trips before the write. N concurrent
+ * syncs each read a count near zero, each pass, and each then writes up to MAX_LESSON_IDS rows, so
+ * the ceiling that is documented as the only bound on unbounded growth into a database this repo
+ * SHARES but does not own could be overshot by the concurrency factor. Re-checking per statement
+ * makes the bound hold no matter how many requests are in flight: D1 executes a batch's statements
+ * in order, so each insert sees the rows its predecessors added.
+ *
+ * Kept equal to the route's MAX_STORED_* constants (api.ts) — they are the same limit expressed at
+ * the two layers, and the route's version still earns its place by answering 409 for a bulk payload
+ * instead of silently dropping rows.
+ */
+const MAX_LESSON_ROWS_SQL = 400;
+const MAX_TRACK_ROWS_SQL = 40;
+
+/**
  * Unions a set of locally-read lesson ids into the server's record. `INSERT OR
  * IGNORE` makes each individual insert idempotent (first-read-wins timestamp per
  * lesson, matching "read" being a one-way flag); batched for efficiency.
@@ -179,10 +218,13 @@ export async function unionLessonProgress(
   if (lessonIds.length === 0) return;
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO academy_lesson_progress (user_id, lesson_id, read_at)
-     SELECT ?, ?, ? WHERE ${EPOCH_STILL_CURRENT}`
+     SELECT ?, ?, ? WHERE ${EPOCH_STILL_CURRENT}
+       AND (SELECT COUNT(*) FROM academy_lesson_progress WHERE user_id = ?) < ${MAX_LESSON_ROWS_SQL}`
   );
   await db.batch(
-    lessonIds.map((lessonId) => stmt.bind(userId, lessonId, nowIso, userId, expectedEpoch))
+    lessonIds.map((lessonId) =>
+      stmt.bind(userId, lessonId, nowIso, userId, expectedEpoch, userId)
+    )
   );
 }
 
@@ -280,15 +322,23 @@ export async function unionQuizMasks(
   if (entries.length === 0) return;
   // The WHERE clause is doing double duty: it is the epoch guard, AND it is what lets SQLite parse
   // an upsert attached to an INSERT..SELECT at all (without a WHERE the ON CONFLICT is ambiguous).
+  // The row ceiling is re-checked in-statement for the same reason as the epoch (see
+  // MAX_LESSON_ROWS_SQL). An UPDATE of an existing track must never be blocked by it, so the count
+  // condition is satisfied either by being under the cap or by the row already existing — otherwise
+  // a learner at the ceiling could no longer reveal quiz answers in tracks they already had.
   const stmt = db.prepare(
     `INSERT INTO academy_quiz_progress (user_id, track_id, revealed_mask, updated_at)
      SELECT ?, ?, ?, ? WHERE ${EPOCH_STILL_CURRENT}
+       AND ((SELECT COUNT(*) FROM academy_quiz_progress WHERE user_id = ?) < ${MAX_TRACK_ROWS_SQL}
+            OR EXISTS (SELECT 1 FROM academy_quiz_progress WHERE user_id = ? AND track_id = ?))
      ON CONFLICT(user_id, track_id) DO UPDATE SET
        revealed_mask = revealed_mask | excluded.revealed_mask,
        updated_at = excluded.updated_at`
   );
   await db.batch(
-    entries.map(([trackId, mask]) => stmt.bind(userId, trackId, mask, nowIso, userId, expectedEpoch))
+    entries.map(([trackId, mask]) =>
+      stmt.bind(userId, trackId, mask, nowIso, userId, expectedEpoch, userId, userId, trackId)
+    )
   );
 }
 

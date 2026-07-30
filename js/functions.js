@@ -739,12 +739,17 @@ function initAcademy() {
   /**
    * Monotonic generation counter for progress writes.
    *
-   * Every sync captures the generation it was issued under; ONLY a reset bumps it, so what it
-   * closes is exactly the reset-vs-in-flight-response race: the older sync's response carries the
-   * PRE-reset epoch and the full pre-reset progress. Since its epoch no longer matches what we
-   * stored, applyServerProgress read it as authoritative, replaced local state with the progress
-   * that was just deleted, and wrote the OLD epoch back — so the reset visibly undid itself, and
-   * the next sync was then rejected as stale and cleared it again, flickering.
+   * Every sync captures the generation it was issued under. TWO events bump it, and both are
+   * moments after which any response composed earlier is not merely stale but actively harmful:
+   *
+   *   1. A RESET (pushResetToServer). The older sync's response carries the PRE-reset epoch and the
+   *      full pre-reset progress. Since its epoch no longer matches what we stored,
+   *      applyServerProgress read it as authoritative, replaced local state with the progress that
+   *      was just deleted, and wrote the OLD epoch back — so the reset visibly undid itself, and the
+   *      next sync was then rejected as stale and cleared it again, flickering.
+   *   2. An OWNERSHIP WIPE (the academy-progress-wiped listener). The response carries the previous
+   *      account's progress into a browser that has since signed out or switched accounts, and the
+   *      epoch it restores then routes the next learner past the claim path — see that listener.
    *
    * It does NOT serialize two overlapping ordinary syncs (no bump between them, so both responses
    * apply) — those are safe anyway: read-marks and quiz masks merge by union, and the saved
@@ -823,6 +828,22 @@ function initAcademy() {
   //
   // What is left here is the reaction: re-read whatever storage now says and redraw.
   document.addEventListener('academy-progress-wiped', function () {
+    // INVALIDATE ANY IN-FLIGHT SYNC FIRST. This is not bookkeeping — without it the wipe is undone
+    // by the network, and the progress lands in the NEXT learner's account.
+    //
+    // The sequence: learner A finishes a lesson, the debounced sync POSTs, and while it is in flight
+    // A signs out (or a different account signs in). academy-auth.js wipes localStorage and clears
+    // acad_owner. The response — a 200 carrying A's full progress AND A's epoch, computed before the
+    // session ended — then arrives, its generation still matches, and applyServerProgress writes all
+    // of it back into a browser that is now signed out and unowned. Worse than a stale repaint:
+    // because the restored acad_epoch makes hasUnsyncedLocalProgress() answer false, learner B's
+    // sign-in skips the claim path and plain-syncs A's read lessons and quiz masks straight into B's
+    // account, where the union makes them permanent. That is exactly the cross-account contamination
+    // the owner-scoping machinery exists to prevent, arriving through the one door it did not watch.
+    //
+    // Bumping the generation is the same tool pushResetToServer already uses for the reset-vs-sync
+    // race, applied to the other event that invalidates every response composed before it.
+    acadSyncGeneration++;
     // academy-auth.js has already cleared the keys. readSet()/quizStore() read localStorage on every
     // call, so there is no cached copy to invalidate — but the marks already PAINTED into the DOM
     // would otherwise keep showing the previous account's work until a navigation. Same repaint the
@@ -859,7 +880,13 @@ function initAcademy() {
     let epochSeen = null;
     try { epochSeen = localStorage.getItem(KEY_EPOCH); } catch (e) { return false; }
     if (epochSeen !== null) return false;
-    return readSet().size > 0 || Object.keys(quizStore()).length > 0;
+    if (readSet().size > 0 || Object.keys(quizStore()).length > 0) return true;
+    // The saved position counts as progress too. Lessons that carry a lab are NOT auto-marked read
+    // (interaction is the signal), so an anonymous learner can be several lessons deep with an empty
+    // read set and nothing but acad_pos to show for it. Missing that sent them down the plain-sync
+    // path, which posts epoch 0 — and any account that has ever been reset rejects that as stale and
+    // answers with authoritative post-reset truth, erasing the very place they were carrying in.
+    try { return !!localStorage.getItem(KEY_POS); } catch (e) { return false; }
   }
 
   /**
@@ -1332,7 +1359,20 @@ function initAcademy() {
     });
   }
 
-  function showLesson(id, skipScroll) {
+  /**
+   * `keepPosTimestamp` — record the lesson as the saved position WITHOUT restamping when it was
+   * saved. Passed only by the passive boot resume, and the distinction is load-bearing for
+   * cross-device sync.
+   *
+   * The saved position is the one field the server merges last-write-wins on the caller's timestamp.
+   * Restamping on resume meant simply OPENING the Academy counted as "I just moved here": device A
+   * (last at lesson L) is reopened, stamps L at now, and that beats the M the learner actually
+   * reached on device B yesterday — so the next sync drags every device back to L and discards the
+   * newer place. Nobody navigated anywhere; a stale tab won purely by being opened. Resuming is a
+   * READ of the saved position, so it must not rewrite when that position was set. Deliberate
+   * navigation — a chip, the pager, search, a deep link — is a real move and does restamp.
+   */
+  function showLesson(id, skipScroll, keepPosTimestamp) {
     const lesson = byId[id];
     if (!lesson) return false;
     if (acadTourActive) endTour();
@@ -1351,7 +1391,15 @@ function initAcademy() {
     }
     saveRead(read);
     syncLabGate(lesson);
-    try { localStorage.setItem(KEY_POS, id); localStorage.setItem(KEY_POS_AT, new Date().toISOString()); } catch (e) {}
+    try {
+      localStorage.setItem(KEY_POS, id);
+      // See keepPosTimestamp in this function's header. A resume must leave the existing timestamp
+      // alone — but if there is none stored at all, write one, or the position has no age and the
+      // merge's `!localAt` clause adopts the server's copy unconditionally.
+      if (!keepPosTimestamp || !localStorage.getItem(KEY_POS_AT)) {
+        localStorage.setItem(KEY_POS_AT, new Date().toISOString());
+      }
+    } catch (e) {}
     buildChips(track, id);
     buildPager(lesson);
     updateProgress();
@@ -1881,7 +1929,8 @@ function initAcademy() {
     let saved = null;
     try { saved = localStorage.getItem(KEY_POS); } catch (e) {}
     if (saved && byId[saved]) {
-      showLesson(saved, true);
+      // Passive resume — keep the saved position's original timestamp. See showLesson's header.
+      showLesson(saved, true, true);
     } else {
       showHub();
       // First-ever, fresh landing on the hub (no deep link, no resumed lesson) — offer the tour once.

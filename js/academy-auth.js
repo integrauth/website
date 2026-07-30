@@ -161,7 +161,16 @@
     try { owner = localStorage.getItem(OWNER_KEY); } catch (e) { return; }
 
     if (session && session.loggedIn && session.userId) {
-      if (owner && owner !== session.userId) wipeLocalProgress();
+      if (owner && owner !== session.userId) {
+        // Stash before wiping here too, exactly as the signed-out branch does. A DIRECT A→B switch
+        // with no confirmed signed-out state in between is reachable — a sign-in relayed from
+        // another tab by the storage listener, or a /auth/start deep link taken while this tab still
+        // believes A is signed in — and without this, A's unrecorded passing exam is destroyed on
+        // the spot. The entry is bound to A, so B can neither see nor claim it (that cross-learner
+        // claim is the exact hole the wipe exists to close); it simply waits for A to come back.
+        stashExamForOwner(owner);
+        wipeLocalProgress();
+      }
       restoreExamStash(session.userId);
       try { localStorage.setItem(OWNER_KEY, session.userId); } catch (e) {}
       return;
@@ -195,24 +204,80 @@
    */
   var EXAM_STASH_KEY = 'acad_exam_stash_v1';
 
+  /**
+   * How many owners' stashes may be held at once. A shared browser is the whole reason this exists,
+   * so a single slot was wrong: it made every stash a hostage to the next person to use the machine.
+   */
+  var EXAM_STASH_MAX = 4;
+
+  /** Reads the stash as a list of `{owner, exam}`, tolerating the old single-object form. */
+  function readExamStash() {
+    var raw = null;
+    try { raw = JSON.parse(localStorage.getItem(EXAM_STASH_KEY) || 'null'); } catch (e) { return []; }
+    if (!raw) return [];
+    // Migration: the first version of this stored one `{owner, exam}` object rather than a list. A
+    // learner mid-upgrade must not silently lose the pass it was holding.
+    var list = Array.isArray(raw) ? raw : [raw];
+    return list.filter(function (entry) { return entry && entry.owner && entry.exam; });
+  }
+
+  function writeExamStash(list) {
+    try {
+      if (!list.length) localStorage.removeItem(EXAM_STASH_KEY);
+      else localStorage.setItem(EXAM_STASH_KEY, JSON.stringify(list.slice(0, EXAM_STASH_MAX)));
+    } catch (e) {}
+  }
+
+  /**
+   * Moves a PASSING exam record aside before the wipe destroys it, keyed to the account that earned
+   * it. Never overwrites another account's entry: on a shared machine, B signing out must not
+   * destroy A's still-unclaimed pass — B's own entry goes alongside it, newest first.
+   */
   function stashExamForOwner(owner) {
     var exam = null;
     try { exam = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { return; }
     if (!exam || !exam.passed) return;
-    try { localStorage.setItem(EXAM_STASH_KEY, JSON.stringify({ owner: owner, exam: exam })); } catch (e) {}
+    var list = readExamStash().filter(function (entry) { return entry.owner !== owner; });
+    list.unshift({ owner: owner, exam: exam });
+    writeExamStash(list);
   }
 
+  /**
+   * Puts an account's stashed pass back when that same account signs in.
+   *
+   * The entry is CONSUMED ONLY WHEN IT IS ACTUALLY RESTORED, or when what is already stored is at
+   * least as good. Deleting it unconditionally — the original shape — threw away the one artifact
+   * this whole mechanism exists to protect: learner A's unrecorded passing sitting is stashed, then
+   * anyone using the browser anonymously sits the exam and FAILS, which writes a worthless
+   * `acad_exam`; A signs back in, the restore is skipped because a record exists, and the stash was
+   * then deleted anyway. A's 50-question pass, gone, with nothing left to claim.
+   *
+   * So: restore unless what is already there is a pass too (an exam sat while signed in outranks a
+   * stashed one, and re-passing makes the stash moot either way).
+   */
   function restoreExamStash(userId) {
-    var stash = null;
-    try { stash = JSON.parse(localStorage.getItem(EXAM_STASH_KEY) || 'null'); } catch (e) { return; }
-    if (!stash || stash.owner !== userId || !stash.exam) return;
+    var list = readExamStash();
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].owner === userId) { idx = i; break; }
+    }
+    if (idx === -1) return;
+
+    var current = null;
+    try { current = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { current = null; }
+    if (current && current.passed) {
+      // Already holding a pass — the stash has nothing left to add. Drop it.
+      list.splice(idx, 1);
+      writeExamStash(list);
+      return;
+    }
     try {
-      // Never clobber a fresher record: an exam sat while signed in outranks a stashed one.
-      if (!localStorage.getItem('acad_exam')) {
-        localStorage.setItem('acad_exam', JSON.stringify(stash.exam));
-      }
-      localStorage.removeItem(EXAM_STASH_KEY);
-    } catch (e) {}
+      localStorage.setItem('acad_exam', JSON.stringify(list[idx].exam));
+    } catch (e) {
+      return; // Storage refused the write — keep the stash rather than lose the record.
+    }
+    list.splice(idx, 1);
+    writeExamStash(list);
   }
 
   function wipeLocalProgress() {
@@ -243,6 +308,12 @@
     writeStore(SESSION_KEY, JSON.stringify(session));
     // Before the event, always — see reconcileProgressOwner.
     if (confirmed) reconcileProgressOwner(session);
+    // A confirmed sign-in retires ANY sign-in overlay still on screen, including one this flow's own
+    // timeout already replaced with a failure message. The popup handshake can legitimately land
+    // after we stopped waiting (the learner finished at the Lab, the global AUTH_EVENT_KEY listener
+    // picked it up), and leaving "sign-in didn't finish" over a page that is now signed in states
+    // the opposite of the truth. Idempotent when nothing is open.
+    if (confirmed && session && session.loggedIn) closeSignInOverlay();
     if (force || !sameIdentity(previous, session)) fireChanged(session, confirmed);
   }
 
@@ -271,6 +342,17 @@
     if (sessionPromise) return sessionPromise;
     sessionPromise = authFetch('/session')
       .then(function (data) {
+        // SHAPE-CHECK BEFORE TREATING THIS AS THE SERVER'S ANSWER. `parseResponse` turns a 200 whose
+        // body is empty or not JSON into `{}`, and `normalizeSession({})` is indistinguishable from a
+        // genuine signed-out reply — which, marked confirmed, runs reconcileProgressOwner and WIPES
+        // this browser's Academy progress while the session cookie is still perfectly valid. A
+        // captive portal or corporate proxy answering 200 with an HTML interstitial is all it takes.
+        // isApiAvailable() already refuses to trust /auth/session without exactly this check; the
+        // path that can destroy data must not be laxer than the path that merely probes. An
+        // unusable body is a network-shaped failure, so it keeps the cache like one.
+        if (!data || typeof data.loggedIn !== 'boolean') {
+          return loadCachedSession() || { loggedIn: false };
+        }
         var out = normalizeSession(data);
         // Confirmed: this identity IS the server's answer.
         saveCachedSession(out, false, true);
@@ -429,8 +511,15 @@
 
   /** Interval between fallback /auth/session polls while a sign-in is in flight. */
   var SIGNIN_POLL_MS = 2500;
-  /** Give up polling after this long. Generous: the learner may be typing an OTP at the Lab. */
-  var SIGNIN_TIMEOUT_MS = 5 * 60 * 1000;
+  /**
+   * Give up polling after this long. Matches TX_TTL_SECONDS in src/lib/server/oidc-rp.ts — KEEP THE
+   * TWO EQUAL. At the old 5 minutes this timer fired while the server-side transaction was still
+   * perfectly valid, so a learner reading their email for an OTP at the Lab was told sign-in had
+   * failed and then, moments later, silently signed in underneath that message. Giving up before the
+   * server does is always wrong: the transaction cookie is what decides whether the flow can still
+   * succeed, so this is the only honest deadline.
+   */
+  var SIGNIN_TIMEOUT_MS = 15 * 60 * 1000;
 
   function currentReturnPath() {
     return window.location.pathname + window.location.search + window.location.hash;
@@ -947,6 +1036,32 @@
     });
   }
 
+  /**
+   * The same doctrine as signOutFailed, for the action where it matters MORE.
+   *
+   * "Sign out everywhere" is what someone clicks after losing a laptop. Swallowing the failure —
+   * the previous `.catch(function () {})` — meant the button appeared to do nothing at all: no
+   * reload, no message, and every session on every device still live, while the learner reasonably
+   * concluded the job was done. Single-device sign-out already shouts on failure; the fleet-wide one
+   * must not be quieter than the thing it supersedes.
+   */
+  function signOutEverywhereFailed(err) {
+    return authConfirm({
+      title: 'Sign-out failed',
+      message: 'The server could not be reached (' + describeApiError(err) + '), so you are STILL ' +
+        'SIGNED IN — on this device and on every other one. Nothing was signed out. Check your ' +
+        'connection and try again.',
+      confirmLabel: 'Try again',
+      cancelLabel: 'Not now'
+    }).then(function (retry) {
+      if (retry) {
+        return signOutEverywhere()
+          .then(function () { window.location.reload(); })
+          .catch(signOutEverywhereFailed);
+      }
+    });
+  }
+
   function confirmSignOutEverywhere() {
     return authConfirm({
       title: 'Sign out on all your devices?',
@@ -958,7 +1073,7 @@
       if (!ok) return;
       return signOutEverywhere().then(function () {
         window.location.reload();
-      }).catch(function () { /* best-effort */ });
+      }).catch(signOutEverywhereFailed);
     });
   }
 
@@ -1017,7 +1132,13 @@
     host.appendChild(mk('p', { class: 'acad-lab-note' }, 'Loading your account…'));
 
     Promise.all([
-      getProfile().catch(function () { return null; }),
+      // A FAILED load must stay distinguishable from "no name set yet". Collapsing both to null —
+      // the previous shape — meant a 500 or a dropped connection rendered the "Set the name you want
+      // on your certificate" editor to a learner whose name is already locked, inviting them to type
+      // a name that the server then refuses with 409. Nothing corrupts, but the panel states
+      // something false about their account, which is the failure mode this repo keeps closing
+      // everywhere else (see the /verify contract and signOutFailed).
+      getProfile().catch(function (err) { return { loadFailed: true, error: err }; }),
       refreshSession()
     ]).then(function (results) {
       var profile = results[0];
@@ -1031,7 +1152,18 @@
       // The name is LOCKED once a certificate has been issued, so a certificate's holder name can
       // never be edited out from under a verifier who already checked it. Show it read-only in that
       // case and say why, rather than offering a field that the server would reject.
-      if (profile && profile.nameLocked && profile.firstName && profile.lastName) {
+      if (profile && profile.loadFailed) {
+        // Say what happened and offer a retry, rather than guessing at the account's real state.
+        profileBox.appendChild(mk('p', { class: 'acad-lab-note' },
+          'Couldn’t load your profile (' + describeApiError(profile.error) + '), so your ' +
+          'certificate name isn’t shown here. Nothing has changed on your account.'));
+        profileBox.appendChild(mk('div', { class: 'acad-lab-row' }, [
+          mk('button', {
+            type: 'button', class: 'acad-lab-btn',
+            onclick: function () { renderAccountPanel(); }
+          }, 'Try again')
+        ]));
+      } else if (profile && profile.nameLocked && profile.firstName && profile.lastName) {
         profileBox.appendChild(mk('p', null, [
           'Certificate name: ',
           mk('strong', null, profile.firstName + ' ' + profile.lastName),
