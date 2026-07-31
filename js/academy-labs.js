@@ -6954,10 +6954,14 @@ var EXAM_POOL_ERROR = (function validateExamPool() {
 
 AcadLabs.register('lab-exam', {
   title: 'Final exam — earn your certificate',
-  blurb: '50 questions drawn at random from a larger pool — at least 4 from every one of the 12 tracks. Score 80% or higher to unlock a personalised, permanently-saved certificate. Sign-in is required for this widget only — everything else in the Academy stays free and public.',
+  blurb: '50 questions drawn at random from a larger pool — at least 4 from every one of the 12 tracks. Score 80% or higher to unlock a personalised, permanently-saved certificate. Up to 3 attempts in any 24 hours; every one of them is kept in your exam history. Sign-in is required for this widget only — everything else in the Academy stays free and public.',
   onReset: function () { try { localStorage.removeItem('acad_exam'); } catch (e) { /* noop */ } },
   render: function (root, h) {
     var PASS = 0.8, N = 50, GUAR = 4; // GUAR = questions guaranteed per track
+    // Display-only mirror of MAX_EXAM_ATTEMPTS_PER_DAY in src/lib/server/api.ts. The SERVER is the
+    // only thing that enforces it — this is here so the intro can say the number before the first
+    // API call answers, and it is overwritten by whatever the server actually reports.
+    var ATTEMPTS_PER_DAY = 3;
 
     // A broken question pool would record meaningless question ids against real attempts —
     // refuse to run the exam at all rather than silently record nonsense.
@@ -7041,17 +7045,146 @@ AcadLabs.register('lab-exam', {
     // percentage guessed against today's N.
 
     var intro = h.el('div');
+    var startBtn = null;      // set below; enabled/disabled once the limits arrive
+    var startNote = h.el('p', { 'class': 'acad-lab-blurb' });  // why the button is disabled, if it is
+    // Declared up here, not beside gateControl() below, because the intro registers its button
+    // before that code runs — a `var` hoists but its initialiser does not, so declaring these later
+    // would hand the first gateControl() call an undefined array.
+    var gatedControls = [];
+    var lastLimits = null;
     var kids = [
-      h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning The Absolute Basics through Identity Architecture — at least ' + GUAR + ' from every track. Pick the best answer for each, then submit to see your score.')
+      h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning The Absolute Basics through Identity Architecture — at least ' + GUAR + ' from every track. Pick the best answer for each, then submit to see your score. You may sit the exam ' + ATTEMPTS_PER_DAY + ' times in any 24 hours.')
     ];
     // Print the denominator the score was actually earned against, never today's N — an older
     // record's count came from a different-length exam (see the acad_exam note above).
     if (saved && saved.best != null) {
       kids.push(h.note('Your best local attempt: ' + saved.best + (saved.total > 0 ? '/' + saved.total : '') + (saved.passed ? ' — passed ✓' : '')));
     }
-    kids.push(h.el('div', { 'class': 'acad-lab-row' }, [h.button('Start the exam', 'primary', start)]));
+    startBtn = h.button('Start the exam', 'primary', start);
+    kids.push(h.el('div', { 'class': 'acad-lab-row' }, [startBtn]));
+    kids.push(startNote);
+    gateControl(startBtn, startNote);
     intro.appendChild(h.panel(null, kids));
     root.appendChild(intro);
+
+    // Attempt history: every sitting this account has recorded — date, pass/fail, score — plus
+    // where the learner stands against the daily allowance. Same detach discipline as the
+    // certificate history below: start() and showResult() blank `root`, so each render re-attaches.
+    var attemptsHost = h.el('div', { 'class': 'acad-attempts' });
+    var attemptsWanted = true;
+    renderAttempts();
+
+    function attachAttempts() {
+      if (attemptsWanted && attemptsHost.parentNode !== root) root.appendChild(attemptsHost);
+    }
+
+    function hideAttempts() {
+      attemptsWanted = false;
+      if (attemptsHost.parentNode) attemptsHost.parentNode.removeChild(attemptsHost);
+    }
+
+    /**
+     * Buttons that begin a sitting ("Start the exam", "Retake") and the paragraph under each that
+     * explains a refusal. Both must follow the allowance, and BOTH halves of it: "Retake" was the
+     * one that mattered, because the learner most likely to be out of attempts is the one who has
+     * just used the last of them, and an enabled Retake there walks them into 50 questions that
+     * cannot be recorded. Rebuilt (not appended to) on each render, so entries never accumulate
+     * pointing at buttons that have since been thrown away with the DOM they lived in.
+     */
+    function gateControl(btn, note) {
+      var entry = { btn: btn, note: note };
+      gatedControls.push(entry);
+      applyGate(entry);
+    }
+
+    /**
+     * The button is disabled rather than hidden, with the reason underneath it, because a learner
+     * who has run out needs to know THAT they have and WHEN it lifts — a vanished button reads as a
+     * broken page. Nothing here is a security control: the server refuses an over-limit submission
+     * regardless, and this only stops someone spending twenty minutes on a sitting that could never
+     * have been recorded.
+     */
+    function applyGate(g) {
+      if (!g.btn) return;
+      if (g.note) g.note.textContent = '';
+      g.btn.disabled = false;
+      var limits = lastLimits;
+      if (!limits) return;
+      var net = limits.network || {};
+      var whenSelf = authApi.formatDateTime && authApi.formatDateTime(limits.nextAttemptAt);
+      var whenNet = authApi.formatDateTime && authApi.formatDateTime(net.nextAttemptAt);
+      if (limits.remaining === 0) {
+        g.btn.disabled = true;
+        if (g.note) g.note.textContent = 'You have used all ' + ATTEMPTS_PER_DAY + ' of your attempts for ' +
+          'the last 24 hours.' + (whenSelf ? ' You can take the exam again at ' + whenSelf + '.' : '');
+      } else if (net.exhausted) {
+        // Not this learner's own doing — say so plainly, or a shared office/campus connection looks
+        // like an account problem they cannot fix.
+        g.btn.disabled = true;
+        if (g.note) g.note.textContent = 'Every attempt allowed from this internet connection in the last 24 ' +
+          'hours has been used. Attempts are counted per connection as well as per account, so this ' +
+          'can happen on a shared network even when you have attempts of your own left.' +
+          (whenNet ? ' The next one frees up at ' + whenNet + '.' : '');
+      }
+    }
+
+    function applyLimits(limits) {
+      if (limits && typeof limits.perDay === 'number') ATTEMPTS_PER_DAY = limits.perDay;
+      lastLimits = limits;
+      gatedControls.forEach(applyGate);
+    }
+
+    function renderAttempts() {
+      attemptsWanted = true;
+      attachAttempts();
+      authApi.listExamAttempts().then(function (data) {
+        attachAttempts();
+        attemptsHost.innerHTML = '';
+        var attempts = (data && data.attempts) || [];
+        var limits = (data && data.limits) || null;
+        applyLimits(limits);
+
+        var panelKids = [h.el('div', { 'class': 'acad-lab-panel-title' }, 'Your exam attempts')];
+        if (limits) {
+          var used = limits.usedToday || 0;
+          var line = used + ' of ' + limits.perDay + ' attempts used in the last 24 hours.';
+          panelKids.push(h.el('p', { 'class': 'acad-attempts-limit acad-lab-blurb' }, line));
+        }
+        if (!attempts.length) {
+          panelKids.push(h.note('You have not sat the final exam yet. Your attempts will be listed here — every one of them, passed or not.'));
+          attemptsHost.appendChild(h.panel(null, panelKids));
+          return;
+        }
+
+        // Expandable, and collapsed by default: a learner who has taken the exam three times wants
+        // the summary line above, not a list, until they ask for it.
+        var list = h.el('details', { 'class': 'acad-attempts-list' });
+        list.appendChild(h.el('summary', null, 'Show all ' + attempts.length + ' attempt' + (attempts.length === 1 ? '' : 's')));
+        attempts.forEach(function (a) {
+          var when = (authApi.formatDateTime && authApi.formatDateTime(a.takenAt)) || formatIssued(a.takenAt);
+          var total = typeof a.total === 'number' ? a.total : null;
+          var correct = typeof a.correct === 'number' ? a.correct : null;
+          list.appendChild(h.el('div', { 'class': 'acad-attempt-row' }, [
+            h.el('span', { 'class': 'acad-attempt-when' }, when),
+            h.badge(a.passed ? 'passed' : 'not passed', a.passed ? 'ok' : 'warn'),
+            h.el('span', { 'class': 'acad-attempt-score' },
+              a.score + '%' + (correct != null && total ? ' · ' + correct + '/' + total : ''))
+          ]));
+        });
+        panelKids.push(list);
+        attemptsHost.appendChild(h.panel(null, panelKids));
+      }).catch(function (err) {
+        attachAttempts();
+        attemptsHost.innerHTML = '';
+        if (err && err.status === 401) return; // signed out: the panel remounts as the sign-in gate
+        // Same reasoning as the certificate history: an empty box after a failure reads as "you have
+        // no attempts", which for someone who has taken the exam is a worse lie than an error.
+        attemptsHost.appendChild(h.panel(null, [
+          h.note('Couldn’t load your exam history right now (' + describeErr(err) + ').'),
+          h.el('div', { 'class': 'acad-lab-row' }, [h.button('Try again', '', renderAttempts)])
+        ]));
+      });
+    }
 
     // Certificate history: every certificate this account has ever earned, with a
     // view/re-download action per row. Quietly empty (no panel at all) until the first pass.
@@ -7194,7 +7327,9 @@ AcadLabs.register('lab-exam', {
     function start() {
       var quiz = pick();
       var chosen = new Array(quiz.length);
+      hideAttempts();    // …and past attempts: the exam itself is the only thing on screen
       hideCertHistory(); // keep past certificates out of the way while the exam is on screen
+      gatedControls = []; // the buttons this render is about to discard
       root.innerHTML = '';
       var form = h.el('div', { 'class': 'acad-exam-form' });
       quiz.forEach(function (item, qi) {
@@ -7246,8 +7381,22 @@ AcadLabs.register('lab-exam', {
       authApi.recordExamAttempt({ answers: answers })
         .then(function (attempt) { showResult(quiz, chosen, attempt); })
         .catch(function (err) {
-          if (submitBtn) submitBtn.disabled = false;
           msg.innerHTML = '';
+          // A 429 is terminal for THIS sitting — the allowance does not come back within the time
+          // anyone will sit staring at the page — so re-enabling "Submit" would just invite the
+          // learner to hammer a button that cannot succeed. Offer the way out instead: back to the
+          // exam home, where the history panel spells out when the next attempt frees up.
+          if (err && err.status === 429) {
+            if (submitBtn) submitBtn.remove();
+            msg.appendChild(h.badge('Not recorded — ' + describeErr(err), 'bad'));
+            msg.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [
+              h.button('Back to the exam page', '', function () {
+                if (window.AcadLabs) window.AcadLabs.remountWithin(document.getElementById('acadExam'));
+              })
+            ]));
+            return;
+          }
+          if (submitBtn) submitBtn.disabled = false;
           msg.appendChild(h.badge('Couldn’t submit your answers (' + describeErr(err) + ')', 'bad'));
           if (err && err.status === 401 && window.AcademyAuth && window.AcademyAuth.refreshSession) window.AcademyAuth.refreshSession();
         });
@@ -7262,21 +7411,42 @@ AcadLabs.register('lab-exam', {
       var total = typeof attempt.total === 'number' ? attempt.total : quiz.length;
       var rawScore = typeof attempt.correct === 'number' ? attempt.correct : Math.round((attempt.score / 100) * total);
       var pct = typeof attempt.score === 'number' ? attempt.score : Math.round(rawScore / total * 100);
-      var head = h.panel(null, [
+      // The POST reply counts THIS attempt, so it is already the number left for a retake. Absent
+      // (an older Worker) means "unknown", not "none" — leave the button alone rather than lock
+      // someone out on a missing field.
+      var left = typeof attempt.remainingToday === 'number' ? attempt.remainingToday : null;
+      var retakeBtn = h.button(left === null ? 'Retake' : 'Retake (' + left + ' left today)', '', start);
+      var retakeNote = h.el('p', { 'class': 'acad-lab-blurb' });
+      // The intro's button went away with the DOM this call is replacing.
+      gatedControls = [];
+      // Two sources, deliberately: the POST reply already knows this account's remaining count, so
+      // the button is right immediately; the refresh a few lines down then applies the authoritative
+      // limits, which are the only thing that knows about the NETWORK half.
+      if (left === 0) retakeBtn.disabled = true;
+      var headKids = [
         h.el('h4', { 'class': 'acad-lab-title' }, passed ? 'Passed — ' + rawScore + '/' + total + ' (' + pct + '%)' : 'Not yet — ' + rawScore + '/' + total + ' (' + pct + '%)'),
         h.badge(passed ? 'You earned your certificate' : 'You need ' + Math.ceil(total * PASS) + '/' + total + ' to pass', passed ? 'ok' : 'warn'),
         h.el('div', { 'class': 'acad-lab-row' }, [
           h.button('Review answers', '', function () { review(quiz, chosen); }),
-          h.button('Retake', '', start)
+          retakeBtn
         ])
-      ]);
+      ];
+      headKids.push(retakeNote);
+      if (left === 0) {
+        headKids.push(h.el('p', { 'class': 'acad-lab-blurb' }, 'That was your last attempt for the next 24 hours. Your history below says exactly when the next one frees up.'));
+      }
+      var head = h.panel(null, headKids);
       root.appendChild(head);
+      gateControl(retakeBtn, retakeNote);
       if (passed) {
         var certHost = h.el('div', { 'class': 'acad-cert-flow' });
         root.appendChild(certHost);
         profileStep(certHost, attempt);
       }
-      // root was just emptied — put the (now detached) history host back and refresh it.
+      // root was just emptied — put the (now detached) history hosts back and refresh them. The
+      // attempt list must refresh here specifically: the sitting just recorded belongs in it, and
+      // so does the newly-decremented allowance.
+      renderAttempts();
       renderCertHistory();
     }
 

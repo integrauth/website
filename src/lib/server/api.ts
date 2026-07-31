@@ -27,7 +27,7 @@
 // requests can land on different isolates). That remains disproportionate for this
 // Worker's write surface; the SQL guards are the right size for the actual risk.
 
-import { Hono, type MiddlewareHandler } from 'hono';
+import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import type { Env } from './env';
 import { parseSessionCookie, validateSession } from './session';
 import {
@@ -49,6 +49,9 @@ import {
   insertExamAttempt,
   listExamAttempts,
   countExamAttemptsSince,
+  countExamAttemptsByIpSince,
+  oldestExamAttemptSince,
+  scrubExamAttemptIpHashesBefore,
   getExamAttemptById,
   insertCertificateIfAbsent,
   recomputeBestCertificate,
@@ -67,6 +70,7 @@ import {
   normalizeCertificateSerial,
 } from './certs';
 import { EXAM_QUESTION_COUNT, gradeExam, isKnownQuestion, type SubmittedAnswer } from './exam';
+import { clientIpFromHeader, hashClientIp } from './ip';
 
 interface Vars {
   userId: string;
@@ -167,8 +171,8 @@ export function isAllowedOrigin(origin: string, url: URL): boolean {
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
- * Abuse backstops, NOT rate limits. Enforced with a single `SELECT COUNT(*)` over
- * the last 24 hours per user, so they are cheap and stateless (no DO, no KV, no
+ * Caps on how much a caller may write per 24 hours. Enforced with a single `SELECT COUNT(*)` over
+ * the window, so they are cheap and stateless (no DO, no KV, no
  * in-isolate counters that concurrency would defeat).
  *
  * NOT exact under concurrency, and the earlier version of this comment claiming otherwise was
@@ -180,17 +184,32 @@ const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  * which is why that one is additionally re-checked inside each insert (see MAX_LESSON_ROWS_SQL in
  * store.ts). Do not describe either as exact.
  *
- * What they are for: both guarded endpoints are authenticated INSERTs with no
+ * They exist first because both guarded endpoints are authenticated INSERTs with no
  * natural bound, into a D1 instance SHARED with the sister Lab app — a single
  * scripted account could otherwise write rows until it degraded a database this
- * repo does not own. What they are NOT for: they will not stop a distributed or
- * multi-account attack, they don't limit read traffic, and they don't smooth
- * bursts. The numbers are set far above anything a real learner does (a 50-question
- * exam takes real time; a certificate is issued once per passed attempt and is
- * idempotent thereafter), so hitting one means something is wrong, not that
- * someone is studying hard.
+ * repo does not own. What they are NOT for: they don't limit read traffic and they don't smooth
+ * bursts.
+ *
+ * THE EXAM LIMIT IS NO LONGER ONLY A BACKSTOP. At 20 per account per day it was sized so that no
+ * real learner could ever meet it; at THREE it is a product rule — the exam is unproctored and its
+ * questions ship in the public bundle (see ./exam), so unlimited retakes make a passing score a
+ * matter of persistence rather than knowledge. Three per rolling 24 hours is enough to fail, study
+ * and pass in a day, and not enough to grind. Two consequences follow and are handled rather than
+ * hoped away: a learner WILL hit this limit legitimately, so the 429 says which limit was hit and
+ * when the next attempt frees up (see `rateLimitResponse`), and the client shows the remaining
+ * count up front instead of letting someone spend twenty minutes on a sitting that cannot be
+ * recorded.
+ *
+ * AND IT IS ALSO PER NETWORK. An account is free to create, so a per-account cap alone is a cap on
+ * nothing — the same person signs up again and has three more. The per-IP half is what makes the
+ * number mean something, at the cost of being coarse in the way IP limits always are: a household,
+ * an office or a campus behind one NAT shares one bucket, and those learners will see a limit they
+ * did not personally spend. That is why the 429 distinguishes the two scopes in so many words rather
+ * than saying "too many attempts" — a shared-network learner needs to know it was not them, and that
+ * they are not locked out of the Academy, only out of submitting an exam for a while.
  */
-const MAX_EXAM_ATTEMPTS_PER_DAY = 20;
+const MAX_EXAM_ATTEMPTS_PER_DAY = 3;
+const MAX_EXAM_ATTEMPTS_PER_IP_PER_DAY = 3;
 const MAX_CERTIFICATES_PER_DAY = 20;
 const ABUSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -217,6 +236,52 @@ function normalizeName(value: string): string {
 /** ISO timestamp marking the start of the abuse-counting window ending now. */
 function abuseWindowStartIso(): string {
   return new Date(Date.now() - ABUSE_WINDOW_MS).toISOString();
+}
+
+/**
+ * When the next attempt frees up, given the oldest attempt still inside the window.
+ *
+ * A rolling window, not a calendar day: the slot that oldest attempt occupies is released exactly
+ * one window after it was taken. Null in (and only in) the case where nothing is in the window,
+ * which cannot happen on the rejection path but is representable, and which the client renders as
+ * "no wait" rather than as an unknown.
+ */
+function nextAttemptIso(oldestInWindow: string | null): string | null {
+  if (!oldestInWindow) return null;
+  const takenMs = Date.parse(oldestInWindow);
+  if (!Number.isFinite(takenMs)) return null;
+  return new Date(takenMs + ABUSE_WINDOW_MS).toISOString();
+}
+
+/** Whole seconds from now until `iso`, floored at 1 — the shape `Retry-After` wants. */
+function retryAfterSeconds(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso) - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(1, Math.ceil(ms / 1000));
+}
+
+/**
+ * The 429 for an exhausted exam allowance.
+ *
+ * Carries `scope` because the two limits need genuinely different words from the UI — "you have used
+ * your three attempts" versus "this network has" — and a learner on a shared connection who is told
+ * only "too many attempts" will reasonably conclude their own account is broken. Carries
+ * `nextAttemptAt` so the answer to "when?" is a time rather than a shrug, and mirrors it into
+ * `Retry-After` for anything that is not our own front end.
+ */
+function rateLimitResponse(
+  c: Context<AppEnv>,
+  scope: 'account' | 'network',
+  limit: number,
+  nextAttemptAt: string | null
+) {
+  const retryAfter = retryAfterSeconds(nextAttemptAt);
+  return c.json(
+    { error: 'rate_limited', scope, limit, windowHours: ABUSE_WINDOW_MS / 3600000, nextAttemptAt },
+    429,
+    retryAfter ? { 'Retry-After': String(retryAfter) } : undefined
+  );
 }
 
 export function createApp() {
@@ -705,13 +770,36 @@ export function createApp() {
 
     const userId = c.get('userId');
 
-    // Abuse backstop (see MAX_EXAM_ATTEMPTS_PER_DAY): this is an authenticated,
-    // unbounded INSERT into a database shared with the Lab app, so cap how many rows
-    // one account can add per day. A learner who genuinely sat 20 fifty-question
-    // exams in 24 hours is not who this rejects.
-    const attemptsToday = await countExamAttemptsSince(c.env.DB, userId, abuseWindowStartIso());
+    // Rate limit, both halves — see MAX_EXAM_ATTEMPTS_PER_DAY for why three and why per network too.
+    //
+    // ONE window start is computed here and used for every count, the scrub and both "when can I try
+    // again?" lookups. Recomputing `abuseWindowStartIso()` per query would drift by milliseconds
+    // between them, which is harmless for a count but not for the scrub: erasing keys against a
+    // window start LATER than the one the count used deletes rows the count would still have seen.
+    const windowStart = abuseWindowStartIso();
+    const ipHash = await hashClientIp(
+      clientIpFromHeader(c.req.header('CF-Connecting-IP')),
+      c.env.EXAM_IP_HASH_PEPPER
+    );
+
+    // Account first: it is the limit most callers hit, and the one whose message needs no
+    // explanation. Only if the account has room do we ask about the network, so a learner with
+    // nothing left of their own is never told about their neighbours' usage.
+    const attemptsToday = await countExamAttemptsSince(c.env.DB, userId, windowStart);
     if (attemptsToday >= MAX_EXAM_ATTEMPTS_PER_DAY) {
-      return c.json({ error: 'rate_limited' }, 429);
+      const oldest = await oldestExamAttemptSince(c.env.DB, { userId }, windowStart);
+      return rateLimitResponse(c, 'account', MAX_EXAM_ATTEMPTS_PER_DAY, nextAttemptIso(oldest));
+    }
+
+    const attemptsFromIp = await countExamAttemptsByIpSince(c.env.DB, ipHash, windowStart);
+    if (attemptsFromIp >= MAX_EXAM_ATTEMPTS_PER_IP_PER_DAY) {
+      const oldest = await oldestExamAttemptSince(c.env.DB, { ipHash }, windowStart);
+      return rateLimitResponse(
+        c,
+        'network',
+        MAX_EXAM_ATTEMPTS_PER_IP_PER_DAY,
+        nextAttemptIso(oldest)
+      );
     }
 
     // score/passed are the SERVER's, computed by gradeExam above from the submitted choices — the
@@ -728,25 +816,99 @@ export function createApp() {
       passed,
       takenAt,
       questionIdsJson,
+      ipHash,
     });
 
+    // Erase network identifiers that have aged out of the counting window (see the store helper).
+    // Deliberately AFTER the insert and off the response path: this is housekeeping, and an attempt
+    // the learner just sat and the server just graded must not fail because a cleanup UPDATE did.
+    // `waitUntil` keeps it out of their latency; the try/catch is for runtimes where it is absent
+    // (and the swallowed rejection is fine — the next submission retries the same scrub).
+    try {
+      c.executionCtx.waitUntil(scrubExamAttemptIpHashesBefore(c.env.DB, windowStart));
+    } catch {
+      /* no execution context (tests, some runtimes): skip the sweep, next attempt will do it */
+    }
+
     return c.json(
-      { id, score, passed, correct: graded.correct, total: graded.total, takenAt, questionIds },
+      {
+        id,
+        score,
+        passed,
+        correct: graded.correct,
+        total: graded.total,
+        takenAt,
+        questionIds,
+        // Count this attempt itself, so the client can say "2 of 3 used" without a second round trip
+        // or an off-by-one of its own.
+        remainingToday: Math.max(0, MAX_EXAM_ATTEMPTS_PER_DAY - (attemptsToday + 1)),
+      },
       201
     );
   });
 
+  /**
+   * The learner's own attempt history, plus where they stand against the limits.
+   *
+   * An object rather than the bare array this used to return: the history is only half of what the
+   * exam panel has to show, and "how many attempts do I have left, and when do I get another?" is
+   * not derivable from the list — the network half of the limit is not counted per user and could
+   * never be. Reshaping was free: nothing consumed this endpoint before.
+   *
+   * WHAT THE NETWORK FIELD DELIBERATELY DOES NOT SAY: it reports whether this network is currently
+   * out of attempts, and if so when that ends — not how many have been used, and never by whom.
+   * A running count of a shared connection's usage would be telling every learner behind a NAT
+   * something about the others behind it, to no benefit; a single bit that only appears when it
+   * actually affects this learner is all the UI needs to stay honest.
+   */
   app.get('/exam/attempts', requireSession, async (c) => {
-    const rows = await listExamAttempts(c.env.DB, c.get('userId'));
-    return c.json(
-      rows.map((r) => ({
-        id: r.id,
-        score: r.score,
-        passed: Boolean(r.passed),
-        takenAt: r.taken_at,
-        questionIds: JSON.parse(r.question_ids_json) as string[],
-      }))
+    const userId = c.get('userId');
+    const windowStart = abuseWindowStartIso();
+    const rows = await listExamAttempts(c.env.DB, userId);
+
+    const usedToday = await countExamAttemptsSince(c.env.DB, userId, windowStart);
+    const oldestOwn = await oldestExamAttemptSince(c.env.DB, { userId }, windowStart);
+
+    const ipHash = await hashClientIp(
+      clientIpFromHeader(c.req.header('CF-Connecting-IP')),
+      c.env.EXAM_IP_HASH_PEPPER
     );
+    const usedFromIp = await countExamAttemptsByIpSince(c.env.DB, ipHash, windowStart);
+    const networkExhausted = usedFromIp >= MAX_EXAM_ATTEMPTS_PER_IP_PER_DAY;
+    const oldestFromIp = networkExhausted
+      ? await oldestExamAttemptSince(c.env.DB, { ipHash }, windowStart)
+      : null;
+
+    return c.json({
+      attempts: rows.map((r) => {
+        const questionIds = JSON.parse(r.question_ids_json) as string[];
+        return {
+          id: r.id,
+          score: r.score,
+          passed: Boolean(r.passed),
+          takenAt: r.taken_at,
+          questionIds,
+          // Derived, not stored: only the percentage is a column. Exact for every real sitting
+          // (50 questions ⇒ each answer is worth a whole 2%), and the total is the length of the
+          // question list the attempt was actually scored against, never today's exam length.
+          total: questionIds.length,
+          correct: Math.round((r.score / 100) * questionIds.length),
+        };
+      }),
+      limits: {
+        perDay: MAX_EXAM_ATTEMPTS_PER_DAY,
+        windowHours: ABUSE_WINDOW_MS / 3600000,
+        usedToday,
+        remaining: Math.max(0, MAX_EXAM_ATTEMPTS_PER_DAY - usedToday),
+        nextAttemptAt:
+          usedToday >= MAX_EXAM_ATTEMPTS_PER_DAY ? nextAttemptIso(oldestOwn) : null,
+        network: {
+          exhausted: networkExhausted,
+          perDay: MAX_EXAM_ATTEMPTS_PER_IP_PER_DAY,
+          nextAttemptAt: networkExhausted ? nextAttemptIso(oldestFromIp) : null,
+        },
+      },
+    });
   });
 
   // -------------------------------------------------------------------------

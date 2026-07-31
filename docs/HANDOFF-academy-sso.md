@@ -255,6 +255,18 @@ deploy time. Only check for a `workers.dev subdomain` warning in its log if pre-
   passing *score* can be fabricated with no exam at all. Keeping the answer key out of the client too
   would only raise the bar marginally (harvestable via the review screen within the daily cap) at a
   large refactor cost, so it is deliberately not done.
+- **The exam is capped at 3 attempts per rolling 24 hours, per account AND per network** (added after
+  this doc's draft, at the owner's request; it was a 20/day abuse backstop). The per-account half caps
+  nothing on its own, since accounts are free, so the network half is what gives the number meaning.
+  Its cost is inherent and was accepted knowingly: everyone behind one NAT — a household, an office, a
+  campus — shares a single bucket, so a learner can be refused for attempts they did not make. That is
+  why the 429 names the scope (`account` | `network`), carries `nextAttemptAt` + `Retry-After`, and the
+  UI says in so many words that a shared connection can hit the limit even when the learner's own
+  attempts are unspent. The counting key is a salted hash of `CF-Connecting-IP`
+  (`academy_exam_attempts.ip_hash`, **Lab migration 0054**) — see `src/lib/server/ip.ts`, which is
+  explicit that an unpeppered SHA-256 of an IPv4 is brute-forceable and that `EXAM_IP_HASH_PEPPER` is
+  the setting that fixes it — and it is scrubbed from rows older than the window on the write path, so
+  the network identifier lives 24 hours while the attempt itself is kept.
 - **The first sign-in per learner shows the Lab's consent screen** inside the popup, because nothing
   pre-seeds an `oauth_grants` row; later logins self-approve. Pre-consenting a first-party client is
   defensible and would make every sign-in a silent popup, but it is a product decision about consent,
@@ -293,8 +305,11 @@ aimed at "Sign in" was observed landing on the account menu's "Sign out". Now pi
 — grading is server-authoritative (`exam.ts`) so a passing score can no longer be fabricated, but the
 questions and their correct indices still ship in the public `academy-labs.js` bundle, so a determined
 reader can look answers up (`/verify` copy must not overstate what a certificate proves) — and there is
-no rate limiting on `/api/academy/*` (needs a Durable Object or KV; the per-user daily caps and the
-total-row ceilings in `api.ts` are abuse backstops, not rate limits).
+no general rate limiting on `/api/academy/*` (needs a Durable Object or KV; the total-row ceilings in
+`api.ts` are abuse backstops, not rate limits). The one exception is the final exam, which now has a
+real per-account **and per-IP** limit of 3 per 24 hours — enforced by counting rows in D1, so it is
+check-then-insert and can be overshot by roughly the concurrency factor, which is bounded per window
+and tolerable here.
 
 **Re-verified on 2026-07-30, against the real Worker runtime and the real Lab schema.** The local D1
 is now seeded by applying all 53 Lab migrations rather than a hand-written subset, so the Worker is

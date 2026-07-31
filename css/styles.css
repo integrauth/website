@@ -7702,6 +7702,54 @@ body.theme-contrast .site-footer-social a {
 .acad-cert-row:last-child { border-bottom: none; }
 .acad-cert-row-text { font-size: 0.86rem; flex: 1 1 auto; min-width: 0; }
 
+/* --- Final-exam attempt history (inside the Final Exam widget) ---
+   A native <details>/<summary> rather than a Bootstrap collapse: this lives inside a lab widget
+   that JS builds from scratch, so a control that needs no JS, no id wiring and no ARIA of our own
+   is strictly less to get wrong — and it stays expandable if the widget's script half-fails.
+   The default disclosure triangle is replaced by the same rotating chevron the tools-group headers
+   use, so it reads as part of the same family. Colours come from --acad-* only, so all four themes
+   follow automatically. */
+.acad-attempts { display: flex; flex-direction: column; gap: 0.6rem; }
+.acad-attempts-list {
+  border: 1px solid var(--acad-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.acad-attempts-list > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--acad-ink);
+  background: var(--acad-block);
+  list-style: none;
+}
+.acad-attempts-list > summary::-webkit-details-marker { display: none; }
+.acad-attempts-list > summary::after {
+  content: '\203A';
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--acad-muted);
+  transition: transform 0.2s ease;
+}
+.acad-attempts-list[open] > summary::after { transform: rotate(90deg); }
+.acad-attempt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.75rem;
+  border-top: 1px dashed var(--acad-line);
+  font-size: 0.86rem;
+  color: var(--acad-ink);
+}
+.acad-attempt-when { flex: 1 1 12rem; min-width: 0; color: var(--acad-muted); }
+.acad-attempt-score { font-variant-numeric: tabular-nums; font-weight: 600; }
+
 /* ============================================================
    Certificate verification page (/verify)
    The page used to be plain Bootstrap (solid .btn-primary, default

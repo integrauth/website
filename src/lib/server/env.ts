@@ -50,4 +50,16 @@ export interface Env {
   LAB_ISSUER?: string;
   /** OIDC client_id registered at the Lab. Defaults to `integrauth-website`. */
   OIDC_CLIENT_ID?: string;
+  /**
+   * Optional Wrangler secret that upgrades the exam rate limit's stored IP hash from a plain
+   * SHA-256 to a keyed HMAC — see ip.ts, which explains why an unpeppered hash of an IPv4 address is
+   * recoverable by brute force and this is the setting that fixes it.
+   *
+   * Optional ON PURPOSE, unlike ACADEMY_PRIVATE_JWK: a missing pepper degrades one property of a
+   * value that is erased after 24 hours anyway, whereas a missing signing key would mint
+   * unverifiable certificates. Failing the exam closed over it would be the larger harm.
+   *
+   * Rotating it resets everyone's in-flight 24-hour count exactly once, which is harmless.
+   */
+  EXAM_IP_HASH_PEPPER?: string;
 }

@@ -414,6 +414,11 @@
         var err = new Error((data && data.error) || ('http_' + res.status));
         err.code = (data && data.error) || null;
         err.status = res.status;
+        // The whole parsed body, not just its `error` code. Some rejections carry the only
+        // information that makes them actionable — a 429 says WHICH limit was hit and when it
+        // frees up — and dropping it here meant every caller could say no more than "something
+        // went wrong", which for a rate limit is indistinguishable from a bug.
+        err.data = data || {};
         throw err;
       }
       return data;
@@ -719,6 +724,13 @@
   function recordExamAttempt(attempt) {
     return apiFetch('/exam/attempts', { method: 'POST', body: attempt });
   }
+  /**
+   * Resolves with `{attempts:[...], limits:{...}}` — NOT a bare array.
+   *
+   * The limits ride along because they cannot be derived from the list: the per-network half of the
+   * exam allowance is counted across accounts, so a learner's own history says nothing about whether
+   * their connection has any attempts left. See the route in src/lib/server/api.ts.
+   */
   function listExamAttempts() {
     return apiFetch('/exam/attempts');
   }
@@ -874,8 +886,51 @@
     }
   }
 
+  /**
+   * A date-and-time a learner can act on, in THEIR timezone.
+   *
+   * Everything the API returns is ISO-8601 UTC, which is right on the wire and useless on screen —
+   * "2026-08-01T04:12:07.881Z" does not answer "when can I retake this?" for someone in Chennai.
+   * Falls back to a plainly-labelled UTC string if the browser has no Intl support rather than
+   * printing an unlabelled time in the wrong zone.
+   */
+  function formatDateTime(iso) {
+    if (!iso) return null;
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    try {
+      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    } catch (e) {
+      return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+    }
+  }
+
   function describeApiError(err) {
     var code = err && err.code;
+
+    // Rate limits get built rather than looked up: the useful sentence depends on WHICH limit was
+    // hit and when it lifts, both of which ride on the error body. A learner sharing an office or
+    // campus connection can be refused for attempts they did not make, and "too many attempts" tells
+    // them their own account is at fault — which is both wrong and unfixable from their side.
+    if (code === 'rate_limited') {
+      var d = (err && err.data) || {};
+      var limit = typeof d.limit === 'number' ? d.limit : 3;
+      var hours = typeof d.windowHours === 'number' ? d.windowHours : 24;
+      var when = formatDateTime(d.nextAttemptAt);
+      var tail = when ? ' The next attempt frees up at ' + when + '.' : '';
+      if (d.scope === 'network') {
+        return 'All ' + limit + ' final-exam attempts allowed from this internet connection in ' +
+          hours + ' hours have been used. Attempts are counted per connection as well as per ' +
+          'account, so this can happen on a shared or office network even if you have not used ' +
+          'yours.' + tail;
+      }
+      if (d.scope === 'account') {
+        return 'You have used all ' + limit + ' of your final-exam attempts for the last ' + hours +
+          ' hours.' + tail;
+      }
+      return 'Too many attempts — please wait a bit and try again.' + tail;
+    }
+
     var MAP = {
       // /auth/* outcomes
       sign_in_unavailable: 'Sign-in isn’t available on this site yet — please try again later.',
@@ -1387,6 +1442,7 @@
     getCertificateJwt: getCertificateJwt,
     shouldShowProfileNudge: shouldShowProfileNudge,
     dismissProfileNudge: dismissProfileNudge,
-    describeApiError: describeApiError
+    describeApiError: describeApiError,
+    formatDateTime: formatDateTime
   };
 })();

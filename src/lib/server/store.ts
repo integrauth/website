@@ -33,6 +33,13 @@ export interface ExamAttemptRow {
   passed: number; // 0 | 1 in SQLite
   taken_at: string;
   question_ids_json: string;
+  /**
+   * Salted hash of the IP that submitted this attempt — the counting key for the per-network half of
+   * the exam rate limit (Lab migration 0054; see ip.ts for what it is and is not). NULL once the row
+   * ages out of the 24-hour window and the scrub erases it, and NULL for rows written before the
+   * column existed. Never returned by any route: it is counted, never read back.
+   */
+  ip_hash: string | null;
 }
 
 export interface CertificateRow {
@@ -498,14 +505,23 @@ export async function insertExamAttempt(
     passed: boolean;
     takenAt: string;
     questionIdsJson: string;
+    ipHash: string | null;
   }
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO academy_exam_attempts (id, user_id, score, passed, taken_at, question_ids_json)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO academy_exam_attempts (id, user_id, score, passed, taken_at, question_ids_json, ip_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(row.id, row.userId, row.score, row.passed ? 1 : 0, row.takenAt, row.questionIdsJson)
+    .bind(
+      row.id,
+      row.userId,
+      row.score,
+      row.passed ? 1 : 0,
+      row.takenAt,
+      row.questionIdsJson,
+      row.ipHash
+    )
     .run();
 }
 
@@ -553,6 +569,79 @@ export async function countExamAttemptsSince(
     .bind(userId, sinceIso)
     .first<{ n: number }>();
   return row?.n ?? 0;
+}
+
+/**
+ * The same count, keyed on the network rather than the account (Lab migration 0054).
+ *
+ * Deliberately NOT scoped to a user: counting every account that submitted from this network is the
+ * entire point — the per-account limit is already enforced separately, and an account is free to
+ * create, so without this half a single person can have as many daily attempts as they have
+ * addresses for. Rows whose `ip_hash` has been scrubbed are NULL and cannot match, which is correct:
+ * a scrubbed row is by definition older than the window this counts over.
+ */
+export async function countExamAttemptsByIpSince(
+  db: D1Database,
+  ipHash: string,
+  sinceIso: string
+): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM academy_exam_attempts WHERE ip_hash = ? AND taken_at >= ?')
+    .bind(ipHash, sinceIso)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * When the OLDEST attempt still inside the window was taken, for this account or this network.
+ *
+ * Only ever called on the rejection path, to answer the one question a rate-limited learner actually
+ * has: when can I try again? With a rolling window, a slot frees exactly one window after the oldest
+ * attempt in it, so this value plus the window length is the honest answer — as opposed to "try again
+ * tomorrow", which is wrong for most of the day. Returns null when there is nothing in the window,
+ * which the caller must treat as "no wait" rather than "wait forever".
+ */
+export async function oldestExamAttemptSince(
+  db: D1Database,
+  scope: { userId: string } | { ipHash: string },
+  sinceIso: string
+): Promise<string | null> {
+  const [column, value] =
+    'userId' in scope ? (['user_id', scope.userId] as const) : (['ip_hash', scope.ipHash] as const);
+  const row = await db
+    .prepare(
+      `SELECT MIN(taken_at) AS oldest FROM academy_exam_attempts WHERE ${column} = ? AND taken_at >= ?`
+    )
+    .bind(value, sinceIso)
+    .first<{ oldest: string | null }>();
+  return row?.oldest ?? null;
+}
+
+/**
+ * Erases the network identifier from every attempt older than the counting window.
+ *
+ * The column exists only to answer "how many from this network in the last 24 hours?", so past that
+ * point it is data we hold with no use for it — and holding a (pseudonymous, but see ip.ts) network
+ * identifier indefinitely against a durable learning record is exactly the thing not to do. The
+ * attempt itself is untouched: score, pass and date are the learner's own history and stay forever.
+ *
+ * Bounded by the (ip_hash, taken_at) index and by `ip_hash IS NOT NULL`, so a run that has nothing to
+ * do touches nothing. Called off the write path (see the route), because a scrub failing must never
+ * fail an exam submission that already graded.
+ *
+ * NOTE the interval-boundary subtlety: this must be called with the SAME window start the counts use,
+ * never a later one, or it erases keys that are still inside the window and silently under-counts.
+ */
+export async function scrubExamAttemptIpHashesBefore(
+  db: D1Database,
+  beforeIso: string
+): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE academy_exam_attempts SET ip_hash = NULL WHERE ip_hash IS NOT NULL AND taken_at < ?'
+    )
+    .bind(beforeIso)
+    .run();
 }
 
 // ---------------------------------------------------------------------------
