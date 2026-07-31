@@ -13,9 +13,11 @@
 //     cross-origin call to lab.integrauth.com is gone (that was the point of the redesign), and
 //     everything we need about the user — their id and email — is in the ID token itself. So the
 //     access token from the exchange is read and dropped, and we never ask for `offline_access`.
-//     That also keeps our requested scope exactly equal to the scope the Lab seeds this client
-//     with (`openid email`), which is what lets an existing grant auto-approve with no consent
-//     screen — the difference between a one-click popup and a form to fill in.
+//     That also keeps our requested scope minimal and equal to the Lab's `WEBSITE_CLIENT_SCOPE`
+//     (`openid email`). The Lab seeds NO grant for this client, so the FIRST login per learner does
+//     show a one-time consent screen; keeping the scope equal is what lets every login AFTER the
+//     first auto-approve (the provider skips consent only once a stored grant already covers the
+//     requested scope). Ask for one scope more and even returning users get re-prompted.
 //   - **No userinfo call.** Same reason: `email` and `email_verified` are ID-token claims under
 //     scope `email`, so a second round trip would tell us nothing new.
 //   - **No silent/`prompt=none` authentication.** The provider does not implement it, and its
@@ -41,11 +43,12 @@ export const DEFAULT_CLIENT_ID = 'integrauth-website';
 /**
  * Scope requested at /authorize. Kept EXACTLY equal to the scope the Lab seeds this client with.
  *
- * This is load-bearing, not cosmetic: the provider auto-approves without a consent screen only
- * when the stored grant's scope COVERS the requested scope. Ask for one scope more than the seeded
- * grant — `offline_access`, say — and every returning user gets a consent prompt instead of a
- * popup that closes by itself. Since we need no refresh token (see the file header), there is
- * nothing to gain by asking.
+ * This is load-bearing, not cosmetic: the provider auto-approves without a consent screen only when
+ * a STORED grant already covers the requested scope. The Lab seeds no grant for this client, so the
+ * first login per learner always shows a one-time consent screen and stores the grant; keeping the
+ * request equal to that scope is what lets every login AFTER the first close its popup by itself.
+ * Ask for one scope more — `offline_access`, say — and logins re-prompt until the wider scope is
+ * consented. Since we need no refresh token (see the file header), there is nothing to gain by asking.
  */
 export const REQUESTED_SCOPE = 'openid email';
 

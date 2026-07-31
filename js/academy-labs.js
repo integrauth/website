@@ -7032,72 +7032,20 @@ AcadLabs.register('lab-exam', {
     var saved;
     try { saved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) { saved = null; }
 
-    // `acad_exam.best` is a raw correct-answer COUNT, so it only means something alongside the
-    // number of questions it was scored out of — which grade() now stores as `total`. Records
-    // written by older builds have no `total`, and the exam has not always been N questions long
-    // (it used to be 25), so their percentage is genuinely unknowable. Dividing such a count by
-    // today's N is what turned a real 22/25 pass into a claimed 44% — a permanent, publicly
-    // verifiable certificate reading "score of 44%" beside an 80% pass mark (and, since the
-    // server started requiring `passed === (score >= 80)`, a flat rejection). Never guess the
-    // denominator: no `total`, no claim.
-    var savedPct = (saved && saved.best != null && saved.total > 0)
-      ? Math.round((saved.best / saved.total) * 100)
-      : null;
-    var claimable = savedPct != null && savedPct >= PASS * 100;
-
-    // Claim a pre-existing LOCAL pass — from before this account existed, or from a
-    // browser session that finished the exam before ever signing in — as this account's
-    // official, server-recorded certificate. Only offered when the server has NO passing
-    // attempt yet for this account (checked fresh every render, so it naturally stops
-    // appearing forever once claimed or once a fresh exam attempt is recorded normally).
-    var claimHost = h.el('div');
-    root.appendChild(claimHost);
-    if (saved && saved.passed) {
-      authApi.listExamAttempts().then(function (attempts) {
-        var hasServerPass = (attempts || []).some(function (a) { return a.passed; });
-        if (hasServerPass) return;
-        if (!claimable) {
-          claimHost.appendChild(h.panel(null, [
-            h.note('This device remembers you passing before you signed in, but not what the score was out of — so there is no score we can honestly print on a certificate. Retake the exam below and the result is saved to your account.')
-          ]));
-          return;
-        }
-        claimHost.appendChild(h.panel(null, [
-          h.el('p', null, 'We found a passing score (' + savedPct + '%, ' + saved.best + '/' + saved.total + ') saved on this device from before you signed in.'),
-          h.el('div', { 'class': 'acad-lab-row' }, [
-            h.button('Save it to my account', 'primary', function () {
-              claimHost.innerHTML = '';
-              claimHost.appendChild(h.note('Saving…'));
-              authApi.recordExamAttempt({ score: savedPct, passed: true, questionIds: ['legacy-local-pass'] })
-                .then(function (attempt) {
-                  // The pass now lives on the server, so drop the local copy: leaving it in
-                  // place lets the offer come back on a later render (the server-pass check
-                  // is the only thing suppressing it) and invites a second claim of the same
-                  // sitting.
-                  try { localStorage.removeItem('acad_exam'); } catch (e) { /* noop */ }
-                  saved = null;
-                  claimHost.innerHTML = '';
-                  var certHost = h.el('div', { 'class': 'acad-cert-flow' });
-                  claimHost.appendChild(certHost);
-                  profileStep(certHost, attempt);
-                })
-                .catch(function (err) {
-                  claimHost.innerHTML = '';
-                  claimHost.appendChild(h.note('Couldn’t save it right now (' + describeErr(err) + ').'));
-                });
-            }),
-            h.button('Not now', '', function () { claimHost.innerHTML = ''; })
-          ])
-        ]));
-      }).catch(function () { /* best-effort — no banner if we can't check */ });
-    }
+    // `acad_exam` is now a LOCAL DISPLAY HINT only — the "best local attempt" line below. It is no
+    // longer claimable: grading moved to the server (POST /exam/attempts grades the submitted
+    // answers), and a remembered pass carries no answers to re-grade, so there is nothing honest to
+    // turn it into a certificate. A learner who passed anonymously before signing in simply re-takes
+    // the (server-graded) exam. `saved.best` is a raw correct-answer count; it only means something
+    // beside the `total` it was scored out of, which is why the hint prints both and never a bare
+    // percentage guessed against today's N.
 
     var intro = h.el('div');
     var kids = [
       h.el('p', { 'class': 'acad-lab-blurb' }, 'You will get ' + N + ' questions spanning The Absolute Basics through Identity Architecture — at least ' + GUAR + ' from every track. Pick the best answer for each, then submit to see your score.')
     ];
     // Print the denominator the score was actually earned against, never today's N — an older
-    // record's count came from a different-length exam (see the `savedPct` note above).
+    // record's count came from a different-length exam (see the acad_exam note above).
     if (saved && saved.best != null) {
       kids.push(h.note('Your best local attempt: ' + saved.best + (saved.total > 0 ? '/' + saved.total : '') + (saved.passed ? ' — passed ✓' : '')));
     }
@@ -7234,8 +7182,11 @@ AcadLabs.register('lab-exam', {
       });
       arr = shuffle(arr.concat(shuffle(rest).slice(0, Math.max(0, N - arr.length))));
       return arr.slice(0, Math.min(N, arr.length)).map(function (item) {
-        // shuffle options, track new correct index
-        var opts = shuffle(item.o.map(function (text, idx) { return { text: text, correct: idx === item.a }; }));
+        // Shuffle options for display, but keep each option's ORIGINAL index (`oi`) — that is what
+        // gets submitted to the server, so the grade is independent of on-screen order. `correct`
+        // stays for the local "Review answers" screen only; the server grades from `oi` against its
+        // own key.
+        var opts = shuffle(item.o.map(function (text, idx) { return { text: text, correct: idx === item.a, oi: idx }; }));
         return { id: item.id, t: item.t, q: item.q, opts: opts };
       });
     }
@@ -7263,41 +7214,57 @@ AcadLabs.register('lab-exam', {
         ]));
       });
       var msg = h.el('div', { 'class': 'acad-exam-msg', 'aria-live': 'polite' });
-      form.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [
-        h.button('Submit answers', 'primary', function () { grade(quiz, chosen, msg); }),
-        msg
-      ]));
+      var submitBtn = h.button('Submit answers', 'primary', function () { grade(quiz, chosen, msg, submitBtn); });
+      form.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [submitBtn, msg]));
       root.appendChild(form);
     }
 
-    function grade(quiz, chosen, msg) {
+    function grade(quiz, chosen, msg, submitBtn) {
       var unanswered = 0;
       for (var i = 0; i < quiz.length; i++) if (chosen[i] == null) unanswered++;
       if (unanswered) { msg.innerHTML = ''; msg.appendChild(h.badge(unanswered + ' question(s) still unanswered', 'warn')); return; }
+
+      // Local best-score HINT only (acad_exam). The authoritative score comes from the server below;
+      // this just powers the "Your best local attempt" line on the intro. `total` is stored so the
+      // count means something later — a bare count can't be turned into a percentage — and a prior
+      // record is only carried forward when it was scored out of the SAME number of questions.
       var rawScore = 0;
       quiz.forEach(function (item, qi) { if (item.opts[chosen[qi]] && item.opts[chosen[qi]].correct) rawScore++; });
-      var pct = Math.round(rawScore / quiz.length * 100);
-      var passed = rawScore / quiz.length >= PASS;
-      // Persist best (local-only hint shown before starting; the server holds the real history).
-      // `total` is what makes the record meaningful later — a bare count cannot be turned into a
-      // percentage, so a record without one is not claimable at all (see `savedPct` above).
-      // The previous record is only carried forward when it was scored out of the SAME number of
-      // questions: raw counts from different-length exams are not comparable, and OR-ing a
-      // denominator-less `passed` flag onto a fresh, countable score is precisely how a record
-      // ends up claiming a pass that its own numbers contradict.
+      var localPassed = rawScore / quiz.length >= PASS;
       var prevSaved = null; try { prevSaved = JSON.parse(localStorage.getItem('acad_exam') || 'null'); } catch (e) {}
       var comparable = !!(prevSaved && prevSaved.best != null && prevSaved.total === quiz.length);
       var best = comparable ? Math.max(prevSaved.best, rawScore) : rawScore;
-      var bestPassed = passed || (comparable && !!prevSaved.passed);
+      var bestPassed = localPassed || (comparable && !!prevSaved.passed);
       try { localStorage.setItem('acad_exam', JSON.stringify({ best: best, total: quiz.length, passed: bestPassed })); } catch (e) {}
-      showResult(quiz, chosen, rawScore, pct, passed);
+
+      // Submit CHOICES (each option's ORIGINAL index) to the server, which grades them against its
+      // own answer key and RECORDS the attempt — the client no longer sends or is trusted for a
+      // score. The result shown is whatever the server graded.
+      if (submitBtn) submitBtn.disabled = true;
+      msg.innerHTML = ''; msg.appendChild(h.badge('Grading…', 'info'));
+      var answers = quiz.map(function (item, qi) { return { id: item.id, choice: item.opts[chosen[qi]].oi }; });
+      authApi.recordExamAttempt({ answers: answers })
+        .then(function (attempt) { showResult(quiz, chosen, attempt); })
+        .catch(function (err) {
+          if (submitBtn) submitBtn.disabled = false;
+          msg.innerHTML = '';
+          msg.appendChild(h.badge('Couldn’t submit your answers (' + describeErr(err) + ')', 'bad'));
+          if (err && err.status === 401 && window.AcademyAuth && window.AcademyAuth.refreshSession) window.AcademyAuth.refreshSession();
+        });
     }
 
-    function showResult(quiz, chosen, rawScore, pct, passed) {
+    // `attempt` is the SERVER's graded record from POST /exam/attempts: {score, passed, correct,
+    // total, ...}. The row is already stored, so a pass goes straight into the certificate flow with
+    // that attempt — no separate record step.
+    function showResult(quiz, chosen, attempt) {
       root.innerHTML = '';
+      var passed = !!attempt.passed;
+      var total = typeof attempt.total === 'number' ? attempt.total : quiz.length;
+      var rawScore = typeof attempt.correct === 'number' ? attempt.correct : Math.round((attempt.score / 100) * total);
+      var pct = typeof attempt.score === 'number' ? attempt.score : Math.round(rawScore / total * 100);
       var head = h.panel(null, [
-        h.el('h4', { 'class': 'acad-lab-title' }, passed ? 'Passed — ' + rawScore + '/' + quiz.length + ' (' + pct + '%)' : 'Not yet — ' + rawScore + '/' + quiz.length + ' (' + pct + '%)'),
-        h.badge(passed ? 'You earned your certificate' : 'You need ' + Math.ceil(quiz.length * PASS) + '/' + quiz.length + ' to pass', passed ? 'ok' : 'warn'),
+        h.el('h4', { 'class': 'acad-lab-title' }, passed ? 'Passed — ' + rawScore + '/' + total + ' (' + pct + '%)' : 'Not yet — ' + rawScore + '/' + total + ' (' + pct + '%)'),
+        h.badge(passed ? 'You earned your certificate' : 'You need ' + Math.ceil(total * PASS) + '/' + total + ' to pass', passed ? 'ok' : 'warn'),
         h.el('div', { 'class': 'acad-lab-row' }, [
           h.button('Review answers', '', function () { review(quiz, chosen); }),
           h.button('Retake', '', start)
@@ -7307,7 +7274,7 @@ AcadLabs.register('lab-exam', {
       if (passed) {
         var certHost = h.el('div', { 'class': 'acad-cert-flow' });
         root.appendChild(certHost);
-        startAttemptFlow(certHost, quiz, pct);
+        profileStep(certHost, attempt);
       }
       // root was just emptied — put the (now detached) history host back and refresh it.
       renderCertHistory();
@@ -7333,21 +7300,6 @@ AcadLabs.register('lab-exam', {
     // the first certificate), then mint. Replaces the old client-side name+confirm()+
     // locally-hashed-id flow entirely — the server is now the source of truth for the
     // holder name, serial and issued date printed on the certificate. ---
-
-    function startAttemptFlow(host, quiz, pct) {
-      host.innerHTML = '';
-      host.appendChild(h.note('Recording your result…'));
-      var questionIds = quiz.map(function (item) { return item.id; });
-      authApi.recordExamAttempt({ score: pct, passed: true, questionIds: questionIds })
-        .then(function (attempt) { profileStep(host, attempt); })
-        .catch(function (err) {
-          host.innerHTML = '';
-          host.appendChild(h.note('Couldn’t record your result right now (' + describeErr(err) + ').'));
-          host.appendChild(h.el('div', { 'class': 'acad-lab-row' }, [
-            h.button('Try again', 'primary', function () { startAttemptFlow(host, quiz, pct); })
-          ]));
-        });
-    }
 
     function profileStep(host, attempt) {
       host.innerHTML = '';

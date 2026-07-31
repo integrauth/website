@@ -123,8 +123,10 @@ with every deploy, so verify against the HTML rather than trusting this line.
 | `POST /auth/sessions/revoke` | One named session, ownership-checked |
 | `POST /auth/backchannel-logout` | OIDC Back-Channel Logout 1.0 receiver; revokes by `oidc_sid` |
 
-Scope is **exactly** `openid email` — keep it equal to the Lab's seeded grant scope or returning
-users get a consent screen instead of a self-closing popup. No access token is retained and no
+Scope is **exactly** `openid email` — keep it equal to the Lab's `WEBSITE_CLIENT_SCOPE`. The Lab
+seeds no grant for this client, so the **first** login per learner shows a one-time consent screen;
+keeping the scope equal is what lets every login **after** the first self-close. Ask for one scope
+more and even returning users get re-prompted. No access token is retained and no
 refresh token is requested: nothing here calls the Lab's API after login, and the ID token already
 carries `sub` and `email`.
 
@@ -242,14 +244,17 @@ reimplementing them.
 *(The workers.dev redirect URI no longer needs adding by hand — the Lab derives it from the CF API at
 deploy time. Only check for a `workers.dev subdomain` warning in its log if pre-cutover sign-in fails.)*
 
-**Two decisions that are the owner's, not mine, and are deliberately left as they are:**
+**One decision that is the owner's, not mine, and is deliberately left as it is:**
 
-- **Exam scores are client-asserted.** There is no server-side answer key, so a determined learner can
-  mint a genuine, publicly verifiable certificate from the browser console. The server now enforces
-  internal consistency (`passed` must match `score >= 80`; a question list must be a real 50-question
-  sitting) and `/verify` says plainly that the exam is unproctored and browser-scored — but the claim
-  is only as good as the client. Making it real means keeping the answer key server-side and grading
-  `POST /exam/attempts` there, which is a feature, not a fix.
+- **Exam grading is now server-authoritative** (`src/lib/server/exam.ts`, added after this doc's first
+  draft). The client submits its per-question choices (each option's original index) and
+  `POST /exam/attempts` grades them against `EXAM_ANSWER_KEY`; the caller no longer sends a score, and
+  the `legacy-local-pass` shortcut is gone. RESIDUAL, inherent and unchanged: the question text and
+  correct index still ship in the public `academy-labs.js` bundle (for the "Review answers" screen),
+  so the exam stays unproctored and a determined reader can look answers up — what is closed is that a
+  passing *score* can be fabricated with no exam at all. Keeping the answer key out of the client too
+  would only raise the bar marginally (harvestable via the review screen within the daily cap) at a
+  large refactor cost, so it is deliberately not done.
 - **The first sign-in per learner shows the Lab's consent screen** inside the popup, because nothing
   pre-seeds an `oauth_grants` row; later logins self-approve. Pre-consenting a first-party client is
   defensible and would make every sign-in a silent popup, but it is a product decision about consent,
@@ -284,11 +289,12 @@ Bootstrap's own async-loaded CSS, so it was briefly clickable and overlapping th
 aimed at "Sign in" was observed landing on the account menu's "Sign out". Now pinned in
 `css/styles.css`, which is render-blocking on all 11 pages.
 
-**Known accepted limitations**, documented in the code rather than hidden: exam scores are
-**client-asserted** (no server-side answer key exists, so anyone can mint a "verified" certificate
-from the console — `/verify` copy must not overstate what a certificate proves), and there is no rate
-limiting on `/api/academy/*` (needs a Durable Object or KV; the per-user daily caps and the total-row
-ceilings in `api.ts` are abuse backstops, not rate limits).
+**Known accepted limitations**, documented in the code rather than hidden: the exam is **unproctored**
+— grading is server-authoritative (`exam.ts`) so a passing score can no longer be fabricated, but the
+questions and their correct indices still ship in the public `academy-labs.js` bundle, so a determined
+reader can look answers up (`/verify` copy must not overstate what a certificate proves) — and there is
+no rate limiting on `/api/academy/*` (needs a Durable Object or KV; the per-user daily caps and the
+total-row ceilings in `api.ts` are abuse backstops, not rate limits).
 
 **Re-verified on 2026-07-30, against the real Worker runtime and the real Lab schema.** The local D1
 is now seeded by applying all 53 Lab migrations rather than a hand-written subset, so the Worker is
@@ -592,8 +598,9 @@ The headline is that round 3's own fixes were incomplete in three places. A fix 
 
 ### Knowingly NOT fixed (unchanged from §9/§10, plus two new)
 
-- Exam scores stay client-asserted; no `jti` replay cache; no per-IP rate limiting; first sign-in
-  consent screen. All owner product decisions.
+- Exam grading is server-authoritative now, but the exam stays unproctored (answers ship in the public
+  bundle); no `jti` replay cache; no per-IP rate limiting; first sign-in consent screen. Owner
+  product decisions.
 - **Daily caps (exam attempts, certificate issuance) remain check-then-insert.** Overshoot is bounded
   by the 24-hour window and certificates are idempotent per attempt, so the fix was not worth the
   churn — but the header comment claiming they are "exact" was corrected, because a false invariant

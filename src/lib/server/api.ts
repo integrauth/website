@@ -66,6 +66,7 @@ import {
   generateCertificateSerial,
   normalizeCertificateSerial,
 } from './certs';
+import { EXAM_QUESTION_COUNT, gradeExam, isKnownQuestion, type SubmittedAnswer } from './exam';
 
 interface Vars {
   userId: string;
@@ -94,19 +95,12 @@ const MAX_STORED_TRACK_ROWS = 40;
  */
 const POSITION_CLOCK_SKEW_MS = 10 * 60 * 1000;
 
-/**
- * The exam's shape, mirrored from `ACAD_EXAM_POOL`'s draw in js/academy-labs.js (`N = 50`,
- * `PASS = 0.8`). KEEP IN SYNC with that file — if the exam ever changes length or pass mark, these
- * must move with it or every genuine attempt starts 400ing.
- */
-const EXAM_QUESTION_COUNT = 50;
-const EXAM_PASS_PERCENT = 80;
-
-/**
- * The single question-id sentinel the client sends when claiming a pass that was earned on this
- * device before the learner had an account. KEEP IN SYNC with js/academy-labs.js.
- */
-const LEGACY_LOCAL_PASS_SENTINEL = 'legacy-local-pass';
+// EXAM_QUESTION_COUNT / EXAM_PASS_PERCENT now come from ./exam, alongside the answer key that grades
+// against them — the exam's shape and the code that enforces it live in one place. The old
+// `legacy-local-pass` sentinel is GONE: with the server grading from submitted answers, a pass with
+// no answers cannot be honestly graded, so there is no longer a shape that lets a score be asserted
+// rather than earned. A learner who passed anonymously before signing in re-takes the (server-graded)
+// exam; their browser's local record is only ever a display hint now.
 
 /**
  * Characters refused in a learner's name. The name is snapshotted onto a certificate, published by
@@ -664,43 +658,50 @@ export function createApp() {
     if (typeof body !== 'object' || body === null) {
       return c.json({ error: 'invalid_body' }, 400);
     }
-    const { score, passed, questionIds } = body as Record<string, unknown>;
+    const { answers } = body as Record<string, unknown>;
 
-    if (typeof score !== 'number' || !Number.isInteger(score) || score < 0 || score > 100) {
-      return c.json({ error: 'invalid_score' }, 400);
+    // The client submits its CHOICES, not a score. A real sitting answers exactly
+    // EXAM_QUESTION_COUNT distinct pool questions; each entry is a known question id plus the
+    // ORIGINAL (pre-shuffle) index of the option the learner picked. The server grades these against
+    // its own answer key (see ./exam) — a client can no longer assert a score at all.
+    if (!Array.isArray(answers) || answers.length !== EXAM_QUESTION_COUNT) {
+      return c.json({ error: 'invalid_answers' }, 400);
     }
-    if (typeof passed !== 'boolean') {
-      return c.json({ error: 'invalid_passed' }, 400);
-    }
-    // `passed` must AGREE with `score`, not be an independent assertion. Grading still happens in
-    // the browser (see the note below), so this does not make the score trustworthy — but it does
-    // close the specific absurdity of a stored, certificate-eligible attempt that says
-    // `{score: 0, passed: true}`, and it means the one number a third party reads off /verify can
-    // never contradict the pass mark printed beside it.
-    if (passed !== score >= EXAM_PASS_PERCENT) {
-      return c.json({ error: 'invalid_passed' }, 400);
-    }
-    if (
-      !Array.isArray(questionIds) ||
-      questionIds.length === 0 ||
-      questionIds.length > 200 ||
-      !questionIds.every((id) => isNonEmptyShortString(id, 50))
-    ) {
-      return c.json({ error: 'invalid_question_ids' }, 400);
-    }
-    // A real sitting answers exactly EXAM_QUESTION_COUNT distinct questions. The one legitimate
-    // exception is the "claim the pass I earned on this device before I had an account" path, which
-    // by construction has no question list to replay and sends a single sentinel id instead.
-    const isLegacyClaim =
-      questionIds.length === 1 && questionIds[0] === LEGACY_LOCAL_PASS_SENTINEL;
-    if (!isLegacyClaim) {
-      if (questionIds.length !== EXAM_QUESTION_COUNT) {
-        return c.json({ error: 'invalid_question_ids' }, 400);
+    const parsed: SubmittedAnswer[] = [];
+    const seenIds = new Set<string>();
+    for (const entry of answers) {
+      if (typeof entry !== 'object' || entry === null) {
+        return c.json({ error: 'invalid_answers' }, 400);
       }
-      if (new Set(questionIds as string[]).size !== questionIds.length) {
-        return c.json({ error: 'invalid_question_ids' }, 400);
+      const { id, choice } = entry as Record<string, unknown>;
+      if (
+        !isNonEmptyShortString(id, 50) ||
+        !isKnownQuestion(id) ||
+        typeof choice !== 'number' ||
+        !Number.isInteger(choice) ||
+        choice < 0 ||
+        choice > 3
+      ) {
+        return c.json({ error: 'invalid_answers' }, 400);
       }
+      if (seenIds.has(id)) {
+        return c.json({ error: 'invalid_answers' }, 400);
+      }
+      seenIds.add(id);
+      parsed.push({ id, choice });
     }
+
+    // Authoritative grading. `gradeExam` throws `unknown_question` only if an id passed the
+    // isKnownQuestion check above and then failed inside — i.e. never, under a consistent key — but
+    // it is caught so a future key/pool drift degrades to a clean 400 rather than a 500.
+    let graded;
+    try {
+      graded = gradeExam(parsed);
+    } catch {
+      return c.json({ error: 'invalid_answers' }, 400);
+    }
+    const { score, questionIds } = graded;
+    const passed = graded.passed;
 
     const userId = c.get('userId');
 
@@ -713,12 +714,9 @@ export function createApp() {
       return c.json({ error: 'rate_limited' }, 429);
     }
 
-    // NOTE (accepted limitation, not fixed here — out of scope per spec): the exam is
-    // fully client-side simulated today (no server-side answer key exists in this
-    // repo), so score/passed are trusted from the caller. A determined user could POST
-    // a fabricated passing score. This mirrors the existing client-side-only exam's
-    // risk posture; this endpoint just makes the (already-trusted) result durable
-    // instead of inventing new server-side grading.
+    // score/passed are the SERVER's, computed by gradeExam above from the submitted choices — the
+    // caller never sends them. `correct`/`total` go back so the browser can render "X/50" without
+    // re-deriving it from the percentage (which rounds and could disagree at the boundary).
     const id = crypto.randomUUID();
     const takenAt = new Date().toISOString();
     const questionIdsJson = JSON.stringify(questionIds);
@@ -732,7 +730,10 @@ export function createApp() {
       questionIdsJson,
     });
 
-    return c.json({ id, score, passed, takenAt, questionIds }, 201);
+    return c.json(
+      { id, score, passed, correct: graded.correct, total: graded.total, takenAt, questionIds },
+      201
+    );
   });
 
   app.get('/exam/attempts', requireSession, async (c) => {
