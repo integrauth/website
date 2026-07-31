@@ -43,6 +43,12 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Lets another workflow (security-txt-renew.yml) ask for a redeploy after it commits a change with
+  # the GITHUB_TOKEN — whose own push deliberately does NOT trigger `push:` runs (GitHub's
+  # recursive-workflow guard), so without this the renewed asset would never reach the Worker until
+  # some unrelated push happened to redeploy. A workflow_dispatch IS delivered even from
+  # GITHUB_TOKEN, which is the whole point.
+  workflow_dispatch: {}
 
 # Serialize deploys: two pushes landing close together could otherwise run `wrangler deploy`
 # concurrently and leave the older build live. PRs are cancel-in-progress (only the latest
@@ -73,12 +79,23 @@ jobs:
       - name: No stray control bytes in source
         run: |
           set -euo pipefail
-          # `-a` is load-bearing: without it grep classifies a NUL-containing file as binary and its
-          # PCRE matcher never reports it — i.e. the guard misses the ONE byte from the original
+          # The file list is produced on ITS OWN LINE, into a temp file, rather than piped straight
+          # into the grep. That is the fix for a real gap: with the old one-liner, a failure of
+          # `git ls-files` itself (or of `xargs`) was indistinguishable from "found nothing" — the
+          # trailing `|| true`, which the grep genuinely needs for its no-match exit status (1),
+          # swallowed the whole pipeline's failure and the step passed green having checked nothing.
+          # Now a git failure trips `set -e` here and fails the step, and the `|| true` below guards
+          # ONLY grep's legitimate no-match case. node_modules is untracked so never listed; minified
+          # files are excluded by pathspec instead of a post-`grep -v` (which was itself part of the
+          # masked pipeline).
+          srcz="$(mktemp)"
+          git ls-files -z -- '*.ts' '*.js' '*.json' '*.html' '*.css' '*.yml' '*.toml' ':(exclude)*.min.*' > "$srcz"
+          # `-r` (--no-run-if-empty) so an empty list does not run grep against stdin; `grep -a` is
+          # load-bearing: without it grep classifies a NUL-containing file as binary and its PCRE
+          # matcher never reports it — i.e. the guard would miss the ONE byte from the original
           # incident most reliably, while catching the others. Verified empirically both ways.
-          bad=$(git ls-files -z -- '*.ts' '*.js' '*.json' '*.html' '*.css' '*.yml' '*.toml' \
-            | xargs -0 grep -laP '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]' 2>/dev/null \
-            | grep -v '\.min\.\|node_modules' || true)
+          bad=$(xargs -0 -r -a "$srcz" grep -laP '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]' 2>/dev/null || true)
+          rm -f "$srcz"
           if [ -n "$bad" ]; then
             echo "::error::Source files contain raw control bytes (use \\x escapes instead):"
             echo "$bad"
@@ -87,7 +104,12 @@ jobs:
           echo "No stray control bytes."
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Deploy on a push to main, or on an explicit redeploy request (workflow_dispatch — used by
+    # security-txt-renew.yml after it bumps the Expires date; see that workflow). Both are gated to
+    # the main branch. PRs never reach here.
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && github.ref == 'refs/heads/main'
     needs: check
     runs-on: ubuntu-latest
     environment: production
@@ -107,6 +129,20 @@ jobs:
           set -euo pipefail
           npx wrangler deploy | tee /tmp/deploy.log
           URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy.log | head -n1 || true)
+          # FAIL if the URL could not be parsed. workers_dev = true (wrangler.toml), so a successful
+          # deploy ALWAYS prints a *.workers.dev URL — an empty capture here means wrangler changed
+          # its output wording (it has between majors) or the log was truncated, NOT that there is no
+          # URL. That distinction matters because the entire Smoke-probe step below — including the
+          # BLOCKING security invariants (no private key in JWKS, /auth/session no-store, no open
+          # redirect) — is driven by this value. Letting it be empty turned "the probes could not run"
+          # into a silent green deploy, the exact failure those probes exist to prevent. Stop here
+          # instead: a deploy whose result cannot be verified is a failed deploy.
+          if [ -z "$URL" ]; then
+            echo "::error::Deployed, but could not parse the *.workers.dev URL from the wrangler"\
+                 "output — the smoke/security probes cannot run. Refusing to report success. Check"\
+                 "wrangler's deploy output format."
+            exit 1
+          fi
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
       # Generate-if-absent, NEVER rotate: ACADEMY_PRIVATE_JWK (ES256 P-256 private key, JWK JSON) —
@@ -131,6 +167,20 @@ jobs:
             echo "::error::Could not list Worker secrets. Refusing to continue: generating"\
                  "ACADEMY_PRIVATE_JWK now could rotate the certificate signing key and invalidate"\
                  "every certificate already issued. Fix CF_TOKEN / API access and re-run."
+            exit 1
+          fi
+          # The listing must be a JSON ARRAY before we trust its contents. `wrangler secret list`
+          # exiting 0 with empty or non-array stdout (a wrapper's banner, a truncated body, an API
+          # shape change) otherwise sails through the `jq -r '.[].name'` below as an empty result —
+          # indistinguishable from "this Worker has no secrets" — and the grep then misses,
+          # ACADEMY_PRIVATE_JWK is regenerated, and the certificate signing key the file header above
+          # says must NEVER rotate is rotated, invalidating every certificate ever issued. `[]` (a
+          # genuinely secret-less first deploy) is a valid array and still passes, so the real
+          # first-run generate path is unaffected. This mirrors the lab's provision-cf.sh
+          # `jq -e 'type=="array"'` guard on its own never-rotate secrets.
+          if ! printf '%s' "$SECRETS_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "::error::Worker secret list was not a JSON array — refusing to continue. Reading"\
+                 "it as 'no secrets exist' could rotate the never-rotate ACADEMY_PRIVATE_JWK."
             exit 1
           fi
           if ! EXISTING=$(printf '%s' "$SECRETS_JSON" | jq -r '.[].name'); then
@@ -225,11 +275,15 @@ jobs:
             echo "this site sends the no-slash form)."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Best-effort smoke probe against the *.workers.dev URL this run just deployed to. Not
-      # security-critical (unlike the lab repo's live-production probes) since this Worker isn't
-      # serving real traffic yet — failures here are a warning, not a blocking failure.
+      # Smoke probe against the *.workers.dev URL this run just deployed to. The reachability checks
+      # (verify shape, homepage 200, /auth/session shape) are warnings — this Worker isn't serving
+      # real traffic yet. But the three invariants at the END of this step (no private key in JWKS,
+      # /auth/session no-store, no open redirect) are BLOCKING: their failure is silent in normal use,
+      # which is exactly why CI must catch it. This step is deliberately NOT gated on
+      # `steps.deploy.outputs.url` any more — the deploy step now hard-fails when the URL can't be
+      # parsed, so reaching here guarantees a URL, and an `if:` gate could only reintroduce the
+      # silent-skip this whole arrangement exists to prevent.
       - name: Smoke probe
-        if: steps.deploy.outputs.url != ''
         run: |
           set -uo pipefail
           URL="${{ steps.deploy.outputs.url }}"

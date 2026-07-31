@@ -43,3 +43,20 @@ wrangler.toml
 #     not site content, and nothing on the site links to them ---
 *.md
 docs
+
+# --- gitignored working dirs (never publish) ---
+# These are all in .gitignore, so a CI checkout never contains them — but `.assetsignore`'s job is
+# to protect the DEPLOY, not the repo: `wrangler deploy` uploads the working tree, so a developer
+# deploying from their own machine would otherwise publish local build output, notes and test
+# artifacts at https://integrauth.com/<path>. Same reasoning as the `.dev.vars`/`.env` block above.
+# Kept in step with .gitignore's own "never deploy to public site" entries.
+dist
+build
+logs
+coverage
+.nyc_output
+.cache
+.tmp
+.temp
+product-plans
+dev-notes
