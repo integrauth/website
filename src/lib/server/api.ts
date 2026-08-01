@@ -152,9 +152,10 @@ export const ALLOWED_ORIGINS = ['https://integrauth.com', 'https://www.integraut
  * Two ways to qualify, and the second is not a loosening: an Origin equal to the origin this very
  * request was addressed to is BY DEFINITION same-origin, which is the strongest case there is. It
  * is listed explicitly because ALLOWED_ORIGINS names only the two production hostnames, and
- * without this branch every state-changing call 403s on the *.workers.dev URL (the whole
- * pre-cutover staging plan, per wrangler.toml) and on http://localhost during local dev — the
- * exact "can't sign in locally" symptom this repo hit before.
+ * without this branch every state-changing call 403s on the *.workers.dev URL (kept enabled
+ * post-cutover purely so CI has a bot-challenge-free host to probe, per wrangler.toml) and on
+ * http://localhost during local dev — the exact "can't sign in locally" symptom this repo hit
+ * before.
  *
  * It does not open a hole: `url.origin` comes from the request's own Host, and a browser sets Host
  * from the URL it is fetching, so a cross-origin attacker page aimed at integrauth.com still

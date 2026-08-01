@@ -7,12 +7,19 @@ compatibility_date = "2025-06-20"
 compatibility_flags = ["nodejs_compat"]
 
 # --- Custom domain / workers.dev ---
-# Cut over 2026-08: this Worker now serves integrauth.com and www.integrauth.com directly, same
+# Cut over 2026-08: this Worker serves integrauth.com and www.integrauth.com directly, same
 # `custom_domain = true` pattern the sister `integrauth/lab` repo already uses for
-# lab.integrauth.com. `workers_dev` is disabled to match — one canonical origin, no separate
-# `*.workers.dev` URL left answering requests (or eligible for a state-changing CSRF-allowlist
-# bypass via the same-origin branch in `isAllowedOrigin`, api.ts — moot with the route gone, but
-# one fewer origin to reason about).
+# lab.integrauth.com. That is the one canonical origin real visitors ever see.
+#
+# `workers_dev` is (re-)ENABLED as of 2026-08-01, deliberately, purely so CI has a URL to probe.
+# The zone's Bot Fight Mode / Managed Challenge intercepts GitHub Actions runner traffic hitting
+# the custom domain before it ever reaches this Worker (confirmed: identical curls from outside CI
+# get a normal 200, the runner gets Cloudflare's "Just a moment..." managed-challenge page) — so
+# `ci-deploy`'s Smoke probe and Certificate signing key continuity steps target the `*.workers.dev`
+# URL instead (see deploy.yml), which sits outside the zone's bot rules entirely. This is a CI-only
+# convenience, not a second public origin: nothing links to it, and `isAllowedOrigin` (api.ts)
+# already allows it via the same-origin branch — that branch predates this and was written for
+# exactly this kind of non-production host, so no code change was needed to re-enable it safely.
 #
 # BEFORE THIS CAN DEPLOY (both manual, one-time, Cloudflare-dashboard steps — not something any
 # script in this repo does): the Cloudflare API token behind CF_TOKEN needs `Workers Routes:Edit` +
@@ -26,7 +33,7 @@ routes = [
   { pattern = "integrauth.com", custom_domain = true },
   { pattern = "www.integrauth.com", custom_domain = true }
 ]
-workers_dev = false
+workers_dev = true
 
 # --- Static assets ---
 # Serves the existing static site (index.html, academy.html, css/, js/, images/, etc.)
