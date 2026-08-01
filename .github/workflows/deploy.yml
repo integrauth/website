@@ -17,25 +17,45 @@
 #              this Worker — either works, since `account_id`/`database_id` are already pinned in
 #              wrangler.toml (committed, non-secret).
 #
+# Optional repo/org SECRETS (both are provisioned by this workflow if you don't set them; setting
+# them puts the value under your control instead of the runner's):
+#   IA_WEBSITE_OIDC_SECRET   The OIDC client secret shared with the `integrauth/lab` Worker, which
+#                            must hold the IDENTICAL raw value. This one is NEVER generated here —
+#                            see the long comment on its sync below. Prefer an ORGANISATION secret
+#                            shared to both repos.
+#   EXAM_IP_HASH_PEPPER      HMAC key for the final-exam per-network rate-limit bucket. Any
+#                            high-entropy string; generated here if absent. See below.
+#
 # NOT required: RESEND_APIKEY (this Worker never sends email — all OTP email goes out through the
 # Lab's own Resend integration, where the credentials are collected; this site never calls the
 # Lab's API at all, it only signs users in against the Lab's OpenID Provider by redirect).
 #
-# Provisioned automatically by this workflow (not a GitHub input): the ACADEMY_PRIVATE_JWK Worker
-# secret (an ES256 P-256 private key, JWK JSON, used to sign Academy certificates) is generated
-# in the "Sync Worker secrets" step below IF ABSENT, and never rotated afterwards (rotating it
-# would invalidate every previously-issued certificate's embedded signature — see
-# src/lib/server/certs.ts's file header). This mirrors the same generate-if-absent/never-rotate
-# convention the `integrauth/lab` repo uses for its own LAB_PRIVATE_JWK / LAB_ENC_KEY.
+# Provisioned automatically by this workflow if absent, so the Worker is never missing one:
+#   ACADEMY_PRIVATE_JWK   ES256 P-256 private key (JWK JSON) that signs Academy certificates.
+#                         Generate-if-absent and then NEVER rotated — rotating it invalidates the
+#                         signature embedded in every certificate already issued (see
+#                         src/lib/server/certs.ts's file header). Deliberately NOT overridable from
+#                         a GitHub Secret: the only reason to supply one by hand would be to change
+#                         it, which is the one thing that must not happen. This mirrors the
+#                         generate-if-absent/never-rotate convention the `integrauth/lab` repo uses
+#                         for its own LAB_PRIVATE_JWK / LAB_ENC_KEY.
+#   EXAM_IP_HASH_PEPPER   Mirrored from the GitHub Secret of the same name when set, otherwise
+#                         generated once. The OPPOSITE rotation policy to the JWK: changing it is
+#                         cheap and safe. It keys the HMAC that turns a client IP into the
+#                         exam rate limit's counting bucket, so a change re-buckets everyone and
+#                         resets the in-flight 24-hour counts once — that is the entire blast
+#                         radius, since nothing durable is derived from it (src/lib/server/ip.ts).
 #
-# Dependency: the shared D1 database (`lab-db`) must already carry migrations 0045-0053 from the
+# Dependency: the shared D1 database (`lab-db`) must already carry migrations 0045-0054 from the
 # `integrauth/lab` repo before this Worker is exercised for real — this workflow does not apply
 # those migrations (schema ownership stays entirely in the lab repo, see wrangler.toml's D1 section
 # for why). The tail of that range is the part that is easy to under-count: 0052 creates
-# `website_sessions`, without which EVERY sign-in 500s inside /auth/callback, and 0053 creates
-# `academy_progress_epoch`, without which every progress sync and reset 500s. Deploying this Worker
-# against a database that stopped at 0050 therefore looks like a total auth outage, not a missing
-# feature — merge and deploy the lab repo first.
+# `website_sessions`, without which EVERY sign-in 500s inside /auth/callback, 0053 creates
+# `academy_progress_epoch`, without which every progress sync and reset 500s, and 0054 adds
+# `academy_exam_attempts.ip_hash`, which every recorded exam attempt now writes unconditionally —
+# without it, submitting the exam 500s at the final INSERT, after the sitting has been graded.
+# Deploying this Worker against a database that stopped at 0050 therefore looks like a total auth
+# outage, not a missing feature — merge and deploy the lab repo first.
 
 name: ci-deploy
 
@@ -161,6 +181,9 @@ jobs:
           # repository secret has to be added to each of them separately and two different values is
           # the failure this is trying to avoid. Unset is tolerated (see below).
           IA_WEBSITE_OIDC_SECRET: ${{ secrets.IA_WEBSITE_OIDC_SECRET }}
+          # Optional. Unlike the OIDC secret this one is nobody else's business — no other system
+          # needs to know it — so it is generated below when absent rather than warned about.
+          EXAM_IP_HASH_PEPPER: ${{ secrets.EXAM_IP_HASH_PEPPER }}
         run: |
           set -euo pipefail
           if ! SECRETS_JSON=$(npx wrangler secret list --format json); then
@@ -230,6 +253,37 @@ jobs:
                  "repo AND integrauth/lab, so both get the same value) and re-run. Also make sure"\
                  "this Worker's /auth/callback URL is in the Lab's IA_WEBSITE_REDIRECT_URIS — the"\
                  "'OIDC callback URL (cross-check against the Lab)' step below prints it."
+          fi
+
+          # EXAM_IP_HASH_PEPPER keys the HMAC that turns a client IP into the final-exam rate
+          # limit's counting bucket (src/lib/server/ip.ts). Set it as a GitHub Secret to control the
+          # value yourself; otherwise one is generated here, once.
+          #
+          # Generating is safe here and is NOT safe for either secret above, for two different
+          # reasons worth keeping straight:
+          #   - IA_WEBSITE_OIDC_SECRET is shared, so a value only we know is a value that fails.
+          #     This one is used by nothing but this Worker, so a value only this Worker knows is
+          #     exactly right.
+          #   - ACADEMY_PRIVATE_JWK must never CHANGE, because certificates already signed with it
+          #     have to keep verifying. Changing this one costs a single re-bucketing: every
+          #     in-flight 24-hour count restarts, and the limit is fully in force again within the
+          #     window. Nothing durable is derived from it, so there is no old value to be
+          #     compatible with. That is why it is synced on every deploy when supplied (rotation is
+          #     "change the GitHub Secret, redeploy") rather than pinned by a get-or-create.
+          #
+          # 32 bytes, hex — HMAC-SHA-256's natural key size. A longer key is accepted but buys
+          # nothing: HMAC pre-hashes any key longer than its 64-byte block size down to 32 bytes,
+          # so entropy beyond that is discarded before it is ever used.
+          if [ -n "${EXAM_IP_HASH_PEPPER:-}" ]; then
+            printf '%s' "$EXAM_IP_HASH_PEPPER" | npx wrangler secret put EXAM_IP_HASH_PEPPER
+            echo "  synced EXAM_IP_HASH_PEPPER from the GitHub Secret"
+          elif printf '%s\n' "$EXISTING" | grep -qxF 'EXAM_IP_HASH_PEPPER'; then
+            echo "EXAM_IP_HASH_PEPPER already set — leaving it (no GitHub Secret to sync from)."
+          else
+            PEPPER=$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')
+            echo "::add-mask::${PEPPER}"
+            printf '%s' "$PEPPER" | npx wrangler secret put EXAM_IP_HASH_PEPPER
+            echo "  generated EXAM_IP_HASH_PEPPER"
           fi
 
       # This Worker's own callback URL, reported for cross-checking. The Lab normally registers it

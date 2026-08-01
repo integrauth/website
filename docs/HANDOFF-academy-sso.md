@@ -149,8 +149,11 @@ reimplementing them.
 
 ## 4. Deploy order — must be followed
 
-1. **Lab first.** Merge + deploy. Lands migrations 0045–0053 in the shared D1 and restores the
-   `__Host-` cookie. The website Worker cannot function before the `academy_*` tables exist.
+1. **Lab first.** Merge + deploy. Lands migrations 0045–0054 in the shared D1 and restores the
+   `__Host-` cookie. The website Worker cannot function before the `academy_*` tables exist. 0054 is
+   the easiest of these to under-count: it adds `academy_exam_attempts.ip_hash`, which every recorded
+   attempt writes unconditionally, so without it the exam 500s at the final INSERT — after the
+   sitting has been graded.
 2. **Provision the shared secret — before step 1's deploy.** Add ONE GitHub Secret named
    `IA_WEBSITE_OIDC_SECRET` and both Workers converge on it; no `wrangler secret put` by hand.
 
@@ -172,8 +175,19 @@ reimplementing them.
    `invalid_client` forever. (An earlier version of this document described a generate-as-last-resort
    path; that path was removed, and the refusal is the load-bearing behavior.)
 
-   `ACADEMY_PRIVATE_JWK` is different — it is ours alone, auto-generates on first deploy, and is
-   **never rotated** (rotating it invalidates the signature on every certificate ever issued).
+   The website Worker's other two secrets are ours alone and both auto-provision, but with opposite
+   rotation policies — the distinction matters more than the similarity:
+
+   | Secret | Set it yourself? | Rotating it |
+   | --- | --- | --- |
+   | `ACADEMY_PRIVATE_JWK` | No — deliberately not overridable from a GitHub Secret | **Never.** It signs certificates; a new key invalidates the signature on every one already issued |
+   | `EXAM_IP_HASH_PEPPER` | Optional — set a GitHub Secret of that name to control the value; CI generates 32 random bytes if you don't | Safe. Re-buckets the exam rate limit, resetting in-flight 24-hour counts once; nothing durable derives from it |
+
+   The JWK's step fails **closed**: if `wrangler secret list` errors or returns anything that is not a
+   JSON array, the deploy stops rather than reading "I can't tell" as "no secret exists" and
+   generating a replacement. The only realistic way to lose the signing key is deleting it by hand in
+   the Cloudflare dashboard, after which the next deploy mints a new one and previously-issued
+   certificates stop verifying.
 3. **Redirect URIs — the two production ones are already committed** to the Lab's `wrangler.toml`:
 
    ```toml
@@ -266,7 +280,11 @@ deploy time. Only check for a `workers.dev subdomain` warning in its log if pre-
   (`academy_exam_attempts.ip_hash`, **Lab migration 0054**) — see `src/lib/server/ip.ts`, which is
   explicit that an unpeppered SHA-256 of an IPv4 is brute-forceable and that `EXAM_IP_HASH_PEPPER` is
   the setting that fixes it — and it is scrubbed from rows older than the window on the write path, so
-  the network identifier lives 24 hours while the attempt itself is kept.
+  the network identifier lives 24 hours while the attempt itself is kept. That pepper is now
+  provisioned by `deploy.yml`: it mirrors a GitHub Secret of the same name when one is set, and
+  generates 32 random bytes when there is none, so a deployed Worker is never running unpeppered.
+  Rotating it is safe (it resets the in-flight 24-hour counts once and nothing else) — the opposite of
+  `ACADEMY_PRIVATE_JWK`, which the same step generates once and must never change.
 - **The first sign-in per learner shows the Lab's consent screen** inside the popup, because nothing
   pre-seeds an `oauth_grants` row; later logins self-approve. Pre-consenting a first-party client is
   defensible and would make every sign-in a silent popup, but it is a product decision about consent,

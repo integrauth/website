@@ -10,11 +10,13 @@
 // WHAT THIS IS NOT. It is not anonymisation and must not be described as such anywhere. IPv4 has only
 // 2^32 addresses, so an UNPEPPERED SHA-256 of one is reversible by exhaustive search in seconds by
 // anyone holding the hash. What the hash genuinely buys, unpeppered, is that the value is useless
-// without deliberate effort and cannot be read off a row or a log line at a glance. Setting
-// EXAM_IP_HASH_PEPPER (an optional Wrangler secret) upgrades it to a keyed HMAC, which IS
-// unrecoverable without the key — that is the configuration to prefer, and the reason the option
-// exists. It is optional rather than required because a missing pepper must not take the exam
-// offline, and because the 24-hour scrub bounds the exposure either way.
+// without deliberate effort and cannot be read off a row or a log line at a glance. EXAM_IP_HASH_PEPPER
+// upgrades it to a keyed HMAC, which IS unrecoverable without the key, and the deploy workflow
+// provisions that secret (mirroring a GitHub Secret of the same name, or generating one if absent),
+// so a deployed Worker is peppered. It stays OPTIONAL in the code rather than required for two
+// reasons: a missing pepper must not take the exam offline, and local development has no secret
+// store. Rotating it is cheap — it re-buckets everyone and resets the in-flight 24-hour counts once,
+// and nothing durable is derived from it.
 //
 // SPOOFING. `CF-Connecting-IP` is set by Cloudflare's edge on every request that reaches a Worker,
 // overwriting anything the client sent under that name, so it cannot be forged by a caller. That is
