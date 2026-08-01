@@ -451,12 +451,16 @@ export function createAuthApp() {
   /**
    * Ends this account's sessions on every device, including this one.
    *
-   * SCOPE, stated precisely because the name overpromises: this revokes every session THIS SITE
-   * holds for the account. It does not reach into lab.integrauth.com — under the OIDC design this
-   * site has no credential permitting it to, and that is the intended boundary, not a gap. The
-   * reverse direction does work: when the user signs out at the Lab, its back-channel logout call
-   * revokes the matching session here (see /backchannel-logout below). The account panel therefore
-   * links to the Lab for account-wide sign-out, rather than implying this button covers both.
+   * SCOPE: this revokes every session THIS SITE holds for the account, on every device. It does
+   * NOT reach a Lab session live on a DIFFERENT device — under the OIDC design this site has no
+   * credential permitting a server-to-server revoke of another browser's Lab session, and that
+   * boundary is intentional (the reverse direction works: when the user signs out at the Lab, its
+   * back-channel logout call revokes the matching session here — see /backchannel-logout below).
+   * It DOES end a Lab session live in the CALLING browser, but not from this route — the client
+   * (academy-auth.js's `navigateToLabLogout`) follows a successful call here with a real top-level
+   * navigation to the Lab's `/oidc/logout` (RP-Initiated Logout 1.0), which is the only way to touch
+   * a cookie scoped to a different origin. This route only ever ends ITS OWN sessions; the Lab-side
+   * half is a client-driven step this route neither performs nor needs to know about.
    */
   app.post('/logout-all', async (c) => {
     const url = new URL(c.req.url);

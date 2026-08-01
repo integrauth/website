@@ -69,12 +69,18 @@ email", "manage passkeys/TOTP", or "the shared `users`/`sessions` tables", it's 
 | `GET /auth/callback` | Exchange code at the Lab's `/oidc/token`, verify ID token, mint our session |
 | `GET /auth/session` | Who-am-I. Only route that re-issues the session cookie |
 | `POST /auth/logout` | This device |
-| `POST /auth/logout-all` | Every session **this site** holds — not the Lab's |
+| `POST /auth/logout-all` | Every session **this site** holds, on every device, PLUS (client-driven, see below) the Lab session live in the calling browser — not a Lab session on some OTHER device |
 | `POST /auth/sessions/revoke` | One named session |
 | `POST /auth/backchannel-logout` | Receiver for the Lab's OIDC Back-Channel Logout 1.0 push |
 
 Scope is **exactly** `openid email` and must match the Lab's `WEBSITE_CLIENT_SCOPE` — a mismatch
 either breaks the silent-reapproval on returning logins or asks for something the Lab won't grant.
+
+`/auth/logout-all` only ever ends sessions THIS site holds. Ending the calling browser's Lab session
+too is a CLIENT-side follow-up, not part of this route: `academy-auth.js`'s `navigateToLabLogout()`
+does a real top-level navigation to the Lab's `/oidc/logout` after a successful call here — no
+server-to-server call can touch a cookie on a different origin, which is also why this can only ever
+cover the browser doing the clicking, never some other device.
 
 ---
 
