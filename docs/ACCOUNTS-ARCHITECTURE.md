@@ -95,7 +95,7 @@ cover the browser doing the clicking, never some other device.
 | `IA_WEBSITE_REDIRECT_URIS`, `IA_WEBSITE_POST_LOGOUT_REDIRECT_URIS` | lab `wrangler.toml` (committed, **not** secret) | Committed for production; both hostnames (apex + `www`) are just the two entries | Edit directly in the Lab repo |
 | `IA_WEBSITE_BACKCHANNEL_LOGOUT_URI` | lab `wrangler.toml` (committed, **not** secret) | Committed for production; a fallback only — each login's `oidc_sessions.backchannel_logout_uri` is derived from the `redirect_uri` that specific login used (`websiteBackchannelLogoutUri` in the Lab's `oidc.ts`), and this var only matters if that derivation can't parse it | Edit directly in the Lab repo |
 
-*(Pre-cutover, the Lab's `provision-cf.sh` also auto-derived and appended `*.workers.dev` staging entries for the redirect/post-logout lists and could repoint the backchannel URI at that staging origin via an opt-in `IA_WEBSITE_PRECUTOVER` flag. All of that was removed 2026-08 once the website disabled `workers_dev` entirely — see the Lab's `docs/WEBSITE-SSO.md`.)*
+*(Pre-cutover, the Lab's `provision-cf.sh` also auto-derived and appended `*.workers.dev` staging entries for the redirect/post-logout lists and could repoint the backchannel URI at that staging origin via an opt-in `IA_WEBSITE_PRECUTOVER` flag. All of that was removed 2026-08 and stays removed: the website's `workers_dev` was briefly re-enabled the same day, but only as a bot-challenge-free URL for its own CI health-check probes — never a real sign-in target — so it is deliberately left unregistered here. See the Lab's `docs/WEBSITE-SSO.md`.)*
 
 ---
 

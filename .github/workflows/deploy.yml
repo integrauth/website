@@ -4,8 +4,11 @@
 # Push to main:   same check, then deploy via `wrangler deploy`.
 #
 # This Worker is routed at integrauth.com and www.integrauth.com (wrangler.toml's `routes` block,
-# `workers_dev` disabled — cut over 2026-08). Every push to main deploys straight to production;
-# there is no longer a separate *.workers.dev staging URL to rehearse against first. PRs still only
+# cut over 2026-08). Every push to main deploys straight to production — there is no separate
+# staging deploy to rehearse against first. `workers_dev` is also enabled, but only so this
+# workflow's own Smoke probe / Certificate signing key continuity steps have a URL that isn't
+# behind the zone's Bot Fight Mode (which challenges GitHub Actions' traffic against the custom
+# domain); nothing links to that URL and it carries no traffic of its own. PRs still only
 # typecheck, never deploy.
 #
 # Required repo SECRET (Settings -> Secrets and variables -> Actions -> Secrets):
@@ -147,18 +150,32 @@ jobs:
         id: deploy
         run: |
           set -euo pipefail
-          npx wrangler deploy
-          # The probe URL used below no longer needs to be parsed out of wrangler's output: with
-          # `workers_dev = false` and a committed `routes` block (wrangler.toml), this Worker only
-          # ever answers at the fixed production custom domain, so that is simply the known value.
-          # (Before the 2026-08 cutover this step instead grep'd a *.workers.dev URL out of the
-          # deploy log and hard-failed if it couldn't — worth keeping in mind if this Worker is ever
-          # deliberately un-routed again: that fragility doesn't reappear on its own, but nothing
-          # here would catch a *silently wrong* hardcoded URL either, so if the routes/custom_domain
-          # in wrangler.toml ever change, this line has to change with it.) `wrangler deploy` itself
-          # already fails the step (set -e) if it cannot attach the custom domain route — e.g. a
-          # DNS record conflict at the host — so a passing deploy here means the route is live.
+          DEPLOY_LOG=$(npx wrangler deploy)
+          echo "$DEPLOY_LOG"
+
+          # Production URL: fixed, since it comes from the committed `routes` block, not from
+          # anything wrangler prints. `wrangler deploy` itself already fails the step (set -e) if it
+          # cannot attach the custom domain route — e.g. a DNS record conflict at the host — so a
+          # passing deploy here means the route is live. This is what the OIDC callback cross-check
+          # step reports, since that's the URL committed on the Lab side.
           echo "url=https://integrauth.com" >> "$GITHUB_OUTPUT"
+
+          # Probe URL: the *.workers.dev URL this deploy just (re-)printed, now that
+          # `workers_dev = true` again (wrangler.toml). Used ONLY by the Smoke probe and Certificate
+          # signing key continuity steps below, because the zone's Bot Fight Mode challenges GitHub
+          # Actions' own traffic against the custom domain before it reaches the Worker at all —
+          # confirmed 2026-08-01, identical curls from outside CI get a normal response, the runner
+          # gets Cloudflare's managed-challenge page. workers.dev sits outside that zone's bot rules,
+          # so it's unaffected. Hard-fail if it can't be found: a silently-empty probe URL would make
+          # every check below a false "OK" (curl with an empty URL argument, or none at all).
+          PROBE_URL=$(printf '%s\n' "$DEPLOY_LOG" | grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -n1 || true)
+          if [ -z "$PROBE_URL" ]; then
+            echo "::error::Could not find a *.workers.dev URL in the wrangler deploy output, but"\
+                 "workers_dev = true in wrangler.toml. Cannot run the Smoke probe / signing-key"\
+                 "continuity checks without it."
+            exit 1
+          fi
+          echo "probe_url=$PROBE_URL" >> "$GITHUB_OUTPUT"
 
       # Generate-if-absent, NEVER rotate: ACADEMY_PRIVATE_JWK (ES256 P-256 private key, JWK JSON) —
       # rotating it would invalidate the signature embedded in every certificate already issued.
@@ -330,19 +347,23 @@ jobs:
             echo "string equality, **no trailing slash**."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Smoke probe against the production custom domain this run just deployed to — this IS live
-      # traffic since the 2026-08 cutover, not a rehearsal. The reachability checks (verify shape,
-      # homepage 200, /auth/session shape) stay warnings rather than blocking errors: a real outage
-      # there is LOUD (anyone visiting the site sees it immediately), so CI failing red on top of
-      # that adds little. The three invariants at the END of this step (no private key in JWKS,
-      # /auth/session no-store, no open redirect) are BLOCKING for the opposite reason — their
-      # failure is SILENT in normal use, which is exactly why CI has to be the thing that catches
-      # it. This step runs unconditionally (no `if:` gate) since `steps.deploy.outputs.url` is now a
-      # fixed value, always set once the Deploy Worker step succeeds.
+      # Smoke probe against this deploy's *.workers.dev URL, NOT the production custom domain — see
+      # the "Probe URL" comment in the Deploy Worker step above: the zone's Bot Fight Mode challenges
+      # GitHub Actions runner traffic before it reaches the Worker at all, on the custom domain only.
+      # This is the exact same code serving the exact same route logic either way (routing is by
+      # path prefix, not hostname — src/worker.ts), so a green probe here says as much about
+      # integrauth.com as probing that hostname directly would, without fighting the bot challenge.
+      # The reachability checks (verify shape, homepage 200, /auth/session shape) stay warnings
+      # rather than blocking errors: a real outage on the production hostname is LOUD (anyone
+      # visiting the site sees it immediately), so CI failing red on top of that adds little. The
+      # three invariants at the END of this step (no private key in JWKS, /auth/session no-store, no
+      # open redirect) are BLOCKING for the opposite reason — their failure is SILENT in normal use,
+      # which is exactly why CI has to be the thing that catches it. This step runs unconditionally
+      # (no `if:` gate) since the Deploy Worker step above hard-fails if it can't find a probe URL.
       - name: Smoke probe
         run: |
           set -uo pipefail
-          URL="${{ steps.deploy.outputs.url }}"
+          URL="${{ steps.deploy.outputs.probe_url }}"
 
           # Wait for the deploy to actually be live at the edge before asserting anything about it.
           # A flat `sleep 5` was not enough on the FIRST production deploy (2026-08-01): the run
@@ -350,8 +371,8 @@ jobs:
           # /api/academy/certificates/verify/... and /auth/session on the SAME deploy answered
           # correctly. Nothing was wrong — re-probing the same URL afterwards gave 200 and 401
           # consistently — the rollout simply had not settled, and a new Worker has more to
-          # propagate than usual (script, assets manifest, and its route). Still relevant after the
-          # cutover to a custom domain — a route attach/update has its own propagation, same idea.
+          # propagate than usual (script and assets manifest). Applies to the workers.dev URL just
+          # the same as it did to the custom domain — same underlying deploy, same propagation.
           #
           # This is a readiness GATE, not a retry around the assertions: it waits for a known-good
           # state, then every check below runs exactly once, unchanged. A deploy that never settles
@@ -480,7 +501,7 @@ jobs:
       - name: Certificate signing key continuity
         run: |
           set -uo pipefail
-          URL="${{ steps.deploy.outputs.url }}"
+          URL="${{ steps.deploy.outputs.probe_url }}"
           EXPECTED=$(sed 's/#.*//' .github/cert-signing-key.kid | tr -s '[:space:]' '\n' \
                        | grep -v '^$' | head -n1 || true)
 
