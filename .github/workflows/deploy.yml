@@ -361,7 +361,36 @@ jobs:
         run: |
           set -uo pipefail
           URL="${{ steps.deploy.outputs.url }}"
-          sleep 5
+
+          # Wait for the deploy to actually be live at the edge before asserting anything about it.
+          # A flat `sleep 5` was not enough on the FIRST production deploy (2026-08-01): the run
+          # went red with `/` -> 404 and `/api/academy/progress` -> 404, while
+          # /api/academy/certificates/verify/... and /auth/session on the SAME deploy answered
+          # correctly. Nothing was wrong — re-probing the same URL afterwards gave 200 and 401
+          # consistently — the rollout simply had not settled, and a new Worker has more to
+          # propagate than usual (script, assets manifest, and the workers.dev route).
+          #
+          # This is a readiness GATE, not a retry around the assertions: it waits for a known-good
+          # state, then every check below runs exactly once, unchanged. A deploy that never settles
+          # still gets probed and still fails on the specific assertion that is wrong, so the
+          # blocking invariants keep their meaning and a real breakage is not retried into silence.
+          settle_deadline=$((SECONDS + 150))
+          while :; do
+            root=$(curl -sS -m 15 -o /dev/null -w '%{http_code}' "$URL/" || echo 000)
+            prog=$(curl -sS -m 15 -o /dev/null -w '%{http_code}' "$URL/api/academy/progress" || echo 000)
+            if [ "$root" = "200" ] && [ "$prog" = "401" ]; then
+              echo "Deploy is live at the edge (/ -> 200, /api/academy/progress -> 401)"
+              break
+            fi
+            if [ "$SECONDS" -ge "$settle_deadline" ]; then
+              echo "::warning::Deploy had not settled after 150s (/ -> $root,"\
+                   "/api/academy/progress -> $prog). Probing anyway — the checks below will report"\
+                   "precisely what is wrong."
+              break
+            fi
+            sleep 10
+          done
+
           body=$(curl -sS -m 20 "$URL/api/academy/certificates/verify/does-not-exist" || true)
           if printf '%s' "$body" | grep -q '"valid":false'; then
             echo "OK: $URL/api/academy/certificates/verify/does-not-exist -> valid:false"

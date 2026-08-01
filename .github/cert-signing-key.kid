@@ -29,3 +29,8 @@
 # decision someone signs off on, not something a deploy does on its own.
 #
 # Format: comments (`#`) and blank lines ignored; the first remaining token is the expected kid.
+
+# Recorded 2026-08-01, from the key created by the first production deploy (main @ 80edae9).
+# Cross-checked two ways before committing: it matches the RFC 7638 thumbprint recomputed from the
+# published x/y, and that JWKS carries no "d" member, so no private material was ever exposed.
+5_mi33ReoQEsp9OLZtiGu0IyXmDGUM8nT_l1cmM8-e8
