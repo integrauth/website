@@ -7405,12 +7405,28 @@ body.theme-cyber .nav-dd .dropdown-divider {
      naive version of this rule (see the :not(.acad-auth-item) exclusion above) opened #acadAuthMenu
      from hovering the SIGNED-OUT sign-in link too, since :hover on the shared parent <li> doesn't
      care which child triggered it, revealing "Sign out" options to a signed-out visitor. */
+  #acadAuthNav:has(#acadAuthAccountBtn:not([hidden])) {
+    position: relative;
+  }
+
   #acadAuthNav:has(#acadAuthAccountBtn:not([hidden])) > #acadAuthMenu {
     margin-top: 0;
   }
 
+  /* Explicit position/top/right, unlike the Services/Learn hover rule above: those menus sit in a
+     plain block <li>, so an unpositioned .dropdown-menu's browser-computed "static position" (its
+     fallback placement when no top/left is set) already happens to land directly below the toggle.
+     #acadAuthNav is a flex row (.acad-auth-item, for the icon-button/sign-in-link pair), which makes
+     #acadAuthMenu's static position a flex sibling slot next to the button instead — and Bootstrap's
+     own top:100%/right:0 rules only apply via the `[data-bs-popper]` attribute its JS show() sets,
+     which this pure-CSS :hover trick never triggers. Without an explicit position here the menu
+     rendered ~86px above the viewport top, clipped by the browser edge. */
   #acadAuthNav:has(#acadAuthAccountBtn:not([hidden])):hover > #acadAuthMenu {
     display: block;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: auto;
   }
 }
 
@@ -7536,10 +7552,20 @@ body.theme-contrast .site-footer-social a {
    components (overlay chrome, navbar avatar, info icon, cert history).
    ============================================================ */
 
-/* --- Navbar Sign-in control --- */
-.acad-auth-item {
-  display: flex;
-  align-items: center;
+/* --- Navbar Sign-in control ---
+   Flex layout (icon-button + hidden sign-in link side by side) is desktop-only.
+   Below 992px the collapsed navbar-nav renders `.dropdown-menu` as `position: static`
+   (Bootstrap's own navbar-collapse behavior — see the hover-open comment below), so
+   it relies on normal block flow to stack the menu below its toggle, same as every
+   other nav-dd dropdown. Making this <li> a flex row put `#acadAuthMenu` in that same
+   row as a flex sibling of the toggle button instead of stacking below it — it rendered
+   as a free-floating box to the right of (and taller than) the circular avatar button,
+   overlapping unrelated nav items above and below it. */
+@media (min-width: 992px) {
+  .acad-auth-item {
+    display: flex;
+    align-items: center;
+  }
 }
 
 .acad-auth-signin {

@@ -92,7 +92,8 @@ cover the browser doing the clicking, never some other device.
 | `ACADEMY_PRIVATE_JWK` | website Worker only | CI generates once, if absent | **Never.** Invalidates every issued certificate JWT's signature. Enforced by `.github/cert-signing-key.kid` — see that file and `deploy.yml`'s "Sync Worker secrets" / "Certificate signing key continuity" steps |
 | `EXAM_IP_HASH_PEPPER` | website Worker only | Optional GitHub Secret; CI generates if absent | Safe — re-buckets the exam rate limit once, nothing durable depends on it |
 | `LAB_ENC_KEY`, `LAB_PRIVATE_JWK` | lab Worker only | lab's `provision-cf.sh` generates once, if absent | **Never** — same class of risk as `ACADEMY_PRIVATE_JWK` (strands enrolled TOTP secrets / invalidates issued JWTs). Lab's own script fails closed the same way |
-| `IA_WEBSITE_REDIRECT_URIS`, `IA_WEBSITE_BACKCHANNEL_LOGOUT_URI` | lab `wrangler.toml` (committed, **not** secret) | Committed for production; `provision-cf.sh` appends the workers.dev staging callback automatically | Edit directly in the Lab repo |
+| `IA_WEBSITE_REDIRECT_URIS`, `IA_WEBSITE_POST_LOGOUT_REDIRECT_URIS` | lab `wrangler.toml` (committed, **not** secret) | Committed for production; `provision-cf.sh` appends the workers.dev staging callback automatically | Edit directly in the Lab repo |
+| `IA_WEBSITE_BACKCHANNEL_LOGOUT_URI` | lab `wrangler.toml` (committed, **not** secret) | Committed for production only — unlike the two rows above, the Lab does NOT auto-append a workers.dev staging entry for this one. Instead each login's `oidc_sessions.backchannel_logout_uri` is derived from the `redirect_uri` that specific login used (`websiteBackchannelLogoutUri` in the Lab's `oidc.ts`), so a pre-cutover staging login gets a staging receiver even though this var still only names production | Edit directly in the Lab repo |
 
 ---
 
