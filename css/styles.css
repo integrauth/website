@@ -7695,8 +7695,12 @@ body.theme-contrast .site-footer-social a {
    points at Bootstrap's OWN `--bs-body-color` (always #212529, since this
    site never sets `data-bs-theme` — it uses its own theme classes instead),
    not the page's actual inherited color. Pin the header to the same fixed,
-   always-readable color so it stops depending on the page's theme. */
-.popover-header { color: #212529; }
+   always-readable color so it stops depending on the page's theme.
+   `!important` is load-bearing, not decorative: Bootstrap's own CSS loads
+   AFTER this stylesheet (async CDN load — see the boot-loader section
+   above), so at equal specificity its `.popover-header` rule is later in
+   the cascade and wins without it. */
+.popover-header { color: #212529 !important; }
 
 /* --- Account panel (#acadAccount) --- */
 .acad-account { margin: 2rem 0; }
