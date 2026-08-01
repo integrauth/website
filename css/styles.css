@@ -7536,7 +7536,7 @@ body.theme-contrast .site-footer-social a {
 .acad-auth-account {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.75rem;
   background: none;
   border: 0;
 }
@@ -7550,8 +7550,7 @@ body.theme-contrast .site-footer-social a {
   border-radius: 50%;
   background: var(--primary-color, #6366f1);
   color: #fff;
-  font-size: 0.78rem;
-  font-weight: 800;
+  font-size: 0.85rem;
   flex-shrink: 0;
 }
 
@@ -7565,6 +7564,21 @@ body.theme-contrast .site-footer-social a {
 
 @media (max-width: 991.98px) {
   .acad-auth-email-label { max-width: 220px; }
+}
+
+/* Sign-out actions in the navbar account dropdown read as destructive, themed via --acad-bad
+   like their .acad-lab-btn.danger counterparts in the account panel. Selector keys off the
+   menu's #acadAuthMenu id (not just .acad-auth-menu) so its specificity beats the per-theme
+   `body.theme-contrast/theme-cyber .nav-dd .dropdown-item` rules above — those add "body" as
+   a type selector, which outranks a same-class-count selector with no id; `!important` because
+   those rules also carry `!important` and cascade order alone would not be enough either. */
+#acadAuthMenu .dropdown-item[data-acad-auth-action^="signout"] {
+  color: var(--acad-bad) !important;
+}
+#acadAuthMenu .dropdown-item[data-acad-auth-action^="signout"]:hover,
+#acadAuthMenu .dropdown-item[data-acad-auth-action^="signout"]:focus {
+  color: var(--acad-bad) !important;
+  background: color-mix(in srgb, var(--acad-bad) 12%, transparent) !important;
 }
 
 /* --- Login overlay --- */

@@ -560,16 +560,33 @@
   /**
    * Ends every session THIS SITE holds for the account, on every device.
    *
-   * Scope note that the UI copy has to match: this does not reach lab.integrauth.com. Under the
-   * OIDC design this site holds no credential that would let it revoke the Lab's own sessions, and
-   * that boundary is intentional. The reverse direction does work — signing out at the Lab
-   * back-channel-notifies us and revokes the matching session here.
+   * Does NOT reach the Lab session on any OTHER device — under the OIDC design this site holds no
+   * credential that would let it revoke a session live in a different browser, and that boundary is
+   * intentional (the reverse direction works: signing out at the Lab back-channel-notifies us and
+   * revokes the matching session here). It DOES end a Lab session live in THIS browser, but not from
+   * here — see navigateToLabLogout, which the caller drives to next.
    */
   function signOutEverywhere() {
     return authFetch('/logout-all', { method: 'POST' }).then(function (out) {
       saveCachedSession({ loggedIn: false }, false, true);
       return out;
     });
+  }
+
+  /**
+   * Navigates the browser (a real top-level navigation, not a fetch) to the Lab's RP-Initiated
+   * Logout endpoint so that if THIS browser also carries a live lab.integrauth.com session cookie,
+   * it gets ended too — a background API call from this site's server could never reach a cookie
+   * scoped to a different origin. `client_id` (no `id_token_hint` needed — this site never retains
+   * the ID token past login) lets the Lab resolve `post_logout_redirect_uri` against its registered
+   * list; an exact match bounces the browser straight back here, anything else (local dev, the
+   * pre-cutover workers.dev origin) falls through to the Lab's own plain confirmation page — signed
+   * out either way, just not automatically returned.
+   */
+  function navigateToLabLogout() {
+    var back = window.location.origin + '/';
+    window.location.href = LAB_ORIGIN + '/oidc/logout?client_id=integrauth-website' +
+      '&post_logout_redirect_uri=' + encodeURIComponent(back);
   }
 
   function revokeSession(sessionId) {
@@ -897,21 +914,20 @@
     if (!nav) return;
     var signInEl = document.getElementById('acadAuthSignIn');
     var accountBtn = document.getElementById('acadAuthAccountBtn');
-    var avatar = document.getElementById('acadAuthAvatar');
     var emailLabel = document.getElementById('acadAuthEmailLabel');
     if (!signInEl || !accountBtn) return;
     if (session.loggedIn) {
       signInEl.hidden = true;
       accountBtn.hidden = false;
       var email = session.email || '';
-      // Email renders immediately, synchronously — the control never shows nothing while the name
-      // fetch below is in flight. Once the learner has set a certificate name, it's friendlier than
-      // an email address, so it replaces this the moment it's known.
-      if (avatar) avatar.textContent = email ? email.charAt(0).toUpperCase() : '?';
+      // The avatar is a fixed user icon (markup, not JS) — it represents "signed in", not
+      // who. Only the label text distinguishes identities, and email renders immediately,
+      // synchronously, so the control never shows nothing while the name fetch below is in
+      // flight. Once the learner has set a certificate name, it's friendlier than an email
+      // address, so it replaces this the moment it's known.
       if (emailLabel) emailLabel.textContent = email;
 
       if (navProfileCache && navProfileCache.email === email && navProfileCache.firstName) {
-        if (avatar) avatar.textContent = navProfileCache.firstName.charAt(0).toUpperCase();
         if (emailLabel) emailLabel.textContent = navProfileCache.firstName;
       } else if (!navProfileCache || navProfileCache.email !== email) {
         navProfileCache = { email: email, firstName: null };
@@ -921,7 +937,6 @@
           // to a different account) — a stale response must not paint someone else's name in.
           if (getSession().email !== email) return;
           navProfileCache = { email: email, firstName: profile.firstName };
-          if (avatar) avatar.textContent = profile.firstName.charAt(0).toUpperCase();
           if (emailLabel) emailLabel.textContent = profile.firstName;
         }).catch(function () {});
       }
@@ -1005,7 +1020,7 @@
     }).then(function (retry) {
       if (retry) {
         return signOutEverywhere()
-          .then(function () { window.location.reload(); })
+          .then(navigateToLabLogout)
           .catch(signOutEverywhereFailed);
       }
     });
@@ -1014,15 +1029,14 @@
   function confirmSignOutEverywhere() {
     return authConfirm({
       title: 'Sign out on all your devices?',
-      message: 'This signs you out of the Academy everywhere, including this browser. It does not ' +
-        'sign you out of lab.integrauth.com — use your account page there for that.',
+      message: 'This signs you out of the Academy everywhere, including this browser, and also ' +
+        'signs this browser out of lab.integrauth.com — you\'ll be sent there briefly to finish that ' +
+        'and back here after.',
       confirmLabel: 'Sign out everywhere',
       danger: true
     }).then(function (ok) {
       if (!ok) return;
-      return signOutEverywhere().then(function () {
-        window.location.reload();
-      }).catch(signOutEverywhereFailed);
+      return signOutEverywhere().then(navigateToLabLogout).catch(signOutEverywhereFailed);
     });
   }
 
@@ -1203,7 +1217,7 @@
           ]);
           if (!s.current) {
             row.appendChild(mk('button', {
-              type: 'button', class: 'acad-lab-btn acad-auth-device-revoke',
+              type: 'button', class: 'acad-lab-btn danger acad-auth-device-revoke',
               onclick: function () {
                 // authFetch does not carry apiFetch's noteUnauthorized wrapper, so without a catch
                 // a failed revoke is an unhandled rejection: no re-render, no message, and a row
@@ -1246,7 +1260,7 @@
       dangerBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Sign out'));
       dangerBox.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('button', {
-          type: 'button', class: 'acad-lab-btn',
+          type: 'button', class: 'acad-lab-btn danger',
           onclick: function () {
             // Success reloads into the signed-out page; failure is loud (see signOutFailed) —
             // this tab is genuinely still signed in when the round trip fails, and reloading
@@ -1255,7 +1269,7 @@
           }
         }, 'Sign out'),
         mk('button', {
-          type: 'button', class: 'acad-lab-btn',
+          type: 'button', class: 'acad-lab-btn danger',
           onclick: confirmSignOutEverywhere
         }, 'Sign out everywhere')
       ]));

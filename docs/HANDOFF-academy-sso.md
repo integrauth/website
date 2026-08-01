@@ -139,11 +139,19 @@ client_id and a 5-minute age bound.
 `status` and `email`. That join is load-bearing: our session is independent of the Lab's, so without
 it a disabled or erased account would stay signed in here indefinitely.
 
-**Sign-out-everywhere here means every device *for the Academy*.** It does not reach
-lab.integrauth.com — this site holds no credential permitting that, and that boundary is intended,
-not a gap. The reverse direction does work, via back-channel logout. Deleting an account and all
-account-wide settings live at `lab.integrauth.com/account`; this site links out rather than
-reimplementing them.
+**Sign-out-everywhere here means every device *for the Academy*.** It does not reach a Lab session
+on a DIFFERENT device — this site holds no credential permitting a server-to-server revoke of
+another browser's Lab session, and that boundary is intended, not a gap. The reverse direction does
+work, via back-channel logout. Deleting an account and all account-wide settings live at
+`lab.integrauth.com/account`; this site links out rather than reimplementing them.
+
+**UPDATE (2026-08-01):** the CURRENT browser is no longer excluded. A successful
+`POST /auth/logout-all` is now followed by a real top-level navigation (not a fetch — nothing else
+can touch a cookie on a different origin) to the Lab's `/oidc/logout` (RP-Initiated Logout 1.0),
+which ends a live Lab session cookie in that same browser and, when
+`IA_WEBSITE_POST_LOGOUT_REDIRECT_URIS` has an exact match registered, bounces back here afterward.
+See `navigateToLabLogout` in `academy-auth.js` and the Lab's `docs/WEBSITE-SSO.md`. Everything above
+about OTHER devices remains true and unchanged.
 
 ---
 
