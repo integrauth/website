@@ -7306,7 +7306,14 @@ body.theme-contrast .err-code {
 .nav-dd .dropdown-item:focus,
 .nav-dd .dropdown-item.active {
   background: rgba(99, 102, 241, 0.15);
-  color: inherit;
+  /* NOT `color: inherit` — Bootstrap's own `.dropdown-menu` sets an explicit
+     (non-inherited) `color: #212529` on the <ul> itself, so `inherit` here
+     resolved to Bootstrap's dark default rather than the light text this
+     dark `.nav-dd` background needs, leaving e.g. the current page's entry
+     in the Learn dropdown rendered as near-invisible dark-on-dark. Themes
+     with their own `!important` color rule below (light/contrast/cyber)
+     override this safely; this is the fallback for the themes that don't. */
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .nav-dd .dropdown-divider {
@@ -7371,16 +7378,25 @@ body.theme-cyber .nav-dd .dropdown-divider {
 /* --- Services/Learn nav dropdowns: open on hover, fast close on leave ---
    Desktop/pointer-device only (hover-capable + fine pointer) and only at/above
    the navbar-expand-lg collapse breakpoint (992px), so touch devices and the
-   collapsed hamburger menu keep Bootstrap's default tap-to-open untouched. */
+   collapsed hamburger menu keep Bootstrap's default tap-to-open untouched.
+   Scoped away from .acad-auth-item: that nav item also carries `dropdown` +
+   `nav-dd` (for its own theming), and matched this rule by accident — hovering
+   the signed-out "Sign in" link forced its `#acadAuthMenu` open regardless of
+   auth state (revealing "Sign out" / "Sign out everywhere" to a signed-out
+   visitor), positioned by nothing but this rule's raw `display:block` since
+   Bootstrap's own JS/Popper toggle never ran, which is also why it rendered
+   with its top clipped above the viewport. The auth control has its own
+   click-to-open toggle (`data-bs-toggle="dropdown"`) and must open ONLY that
+   way, so this hover behavior is intentionally Services/Learn-only. */
 @media (hover: hover) and (pointer: fine) and (min-width: 992px) {
-  .navbar .nav-item.dropdown > .dropdown-menu.nav-dd {
+  .navbar .nav-item.dropdown:not(.acad-auth-item) > .dropdown-menu.nav-dd {
     /* Zero gap between toggle and menu so the pointer never crosses empty
        space (which would drop :hover on the parent and close the menu
        mid-transit) moving from the toggle into the menu. */
     margin-top: 0;
   }
 
-  .navbar .nav-item.dropdown:hover > .dropdown-menu.nav-dd {
+  .navbar .nav-item.dropdown:not(.acad-auth-item):hover > .dropdown-menu.nav-dd {
     display: block;
   }
 }
@@ -7520,7 +7536,7 @@ body.theme-contrast .site-footer-social a {
 .acad-auth-account {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   background: none;
   border: 0;
 }
@@ -7669,6 +7685,22 @@ body.theme-contrast .site-footer-social a {
   cursor: pointer;
 }
 .acad-info-icon:hover { filter: brightness(1.08); }
+
+/* --- Benefits popover (Bootstrap Popover attached to #acadBenefitsInfo) ---
+   Bootstrap's `.popover-header` uses `color: var(--bs-popover-header-color)`,
+   which defaults to plain CSS `inherit` — so on this site's dark/cyber themes
+   (which set a light `color` on <body>) it inherited near-white text over
+   Bootstrap's own fixed light-gray header background, rendering the title
+   illegible. `.popover-body` doesn't have this problem: its color variable
+   points at Bootstrap's OWN `--bs-body-color` (always #212529, since this
+   site never sets `data-bs-theme` — it uses its own theme classes instead),
+   not the page's actual inherited color. Pin the header to the same fixed,
+   always-readable color so it stops depending on the page's theme.
+   `!important` is load-bearing, not decorative: Bootstrap's own CSS loads
+   AFTER this stylesheet (async CDN load — see the boot-loader section
+   above), so at equal specificity its `.popover-header` rule is later in
+   the cascade and wins without it. */
+.popover-header { color: #212529 !important; }
 
 /* --- Account panel (#acadAccount) --- */
 .acad-account { margin: 2rem 0; }

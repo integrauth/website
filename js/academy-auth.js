@@ -14,22 +14,21 @@
 // makes NO cross-origin calls at all any more: identity comes from this site's own /auth/* routes
 // (src/lib/server/auth.ts) and Academy data from its own /api/academy/* routes.
 //
-// The login handshake runs in a POP-UP rather than by navigating the page, so a learner
-// mid-lesson is not thrown out of it. Two consequences worth knowing before editing:
+// Sign-in is a same-tab redirect: this page hands itself over to the Lab at /auth/start, the Lab
+// does its thing, and /auth/callback sends the browser back to the exact page (and hash) it left,
+// where the ordinary boot path picks the now-confirmed session up like any fresh page load — no
+// popup, no window.opener, no polling needed for THIS tab. (An earlier version ran the handshake in
+// a pop-up instead, to avoid navigating a learner away mid-lesson; it was replaced by request.)
 //
-//   1. The popup cannot talk to this page directly. Both sites send `Cross-Origin-Opener-Policy:
-//      same-origin`, so the moment the popup navigates to the Lab the browser puts it in a
-//      separate browsing-context group and severs `window.opener` — permanently, even after it
-//      comes back to our own origin. `postMessage` is therefore not available, and neither is
-//      `popup.closed` (a severed handle reports `true` straight away, so "poll until it closes"
-//      silently thinks the popup shut instantly). The callback page hands its result back through
-//      a localStorage write instead, which is browsing-context-group independent and raises a
-//      `storage` event here. A slow poll of /auth/session backs it up for private-mode browsers
-//      where localStorage throws.
-//   2. Being signed in at the Lab no longer signs you in here automatically — the provider has no
-//      silent-authentication mode and its `frame-ancestors 'none'` rules out the hidden-iframe
-//      trick. It costs one click. With an existing grant the popup approves itself and closes
-//      without the learner typing anything.
+// The callback page still writes a localStorage entry under AUTH_EVENT_KEY when it finishes, purely
+// for the benefit of any OTHER open tab: that tab's own `storage` listener (see reconcileProgressOwner
+// and the boot-time session refresh below) is what lets a sign-in completed in one tab update every
+// other tab without each of them polling /auth/session on a timer. `MUST MATCH AUTH_EVENT_KEY in
+// src/lib/server/auth.ts` below is about that shared channel, not anything popup-specific.
+//
+// Being signed in at the Lab does not sign you in here automatically — the provider has no silent-
+// authentication mode and its `frame-ancestors 'none'` rules out the hidden-iframe trick. It costs
+// one redirect round trip; with an existing grant it self-approves with nothing to type.
 //
 // Plain jQuery-era JS to match functions.js/academy-labs.js — no ES modules, no build step.
 (function () {
@@ -511,20 +510,8 @@
   }
 
   /* ---------------------------------------------------------------------
-   * Sign-in (OIDC popup, with a full-redirect fallback)
+   * Sign-in (same-tab redirect to the Lab's OpenID Provider)
    * --------------------------------------------------------------------- */
-
-  /** Interval between fallback /auth/session polls while a sign-in is in flight. */
-  var SIGNIN_POLL_MS = 2500;
-  /**
-   * Give up polling after this long. Matches TX_TTL_SECONDS in src/lib/server/oidc-rp.ts — KEEP THE
-   * TWO EQUAL. At the old 5 minutes this timer fired while the server-side transaction was still
-   * perfectly valid, so a learner reading their email for an OTP at the Lab was told sign-in had
-   * failed and then, moments later, silently signed in underneath that message. Giving up before the
-   * server does is always wrong: the transaction cookie is what decides whether the flow can still
-   * succeed, so this is the only honest deadline.
-   */
-  var SIGNIN_TIMEOUT_MS = 15 * 60 * 1000;
 
   function currentReturnPath() {
     return window.location.pathname + window.location.search + window.location.hash;
@@ -534,120 +521,28 @@
     return '/auth/start?mode=' + mode + '&return=' + encodeURIComponent(currentReturnPath());
   }
 
-  /** Hands the whole page over to the Lab. Used when the popup is blocked or the user asks. */
+  /** Hands the whole page over to the Lab. */
   function signInViaRedirect() {
     window.location.href = startUrl('redirect');
   }
 
-  var pendingSignIn = null; // { poll, timeout, onStorage, overlay } while a flow is in progress
-
-  function endPendingSignIn(keepOverlay) {
-    if (!pendingSignIn) return;
-    if (pendingSignIn.poll) clearInterval(pendingSignIn.poll);
-    if (pendingSignIn.timeout) clearTimeout(pendingSignIn.timeout);
-    if (pendingSignIn.onStorage) window.removeEventListener('storage', pendingSignIn.onStorage);
-    pendingSignIn = null;
-    // Callers that are about to render their OWN overlay (an "unavailable" or "timed out" message)
-    // pass true, so this does not close the thing they are in the middle of showing.
-    if (!keepOverlay) closeSignInOverlay();
-  }
-
   /**
-   * Begins a sign-in.
+   * Begins a sign-in: a same-tab redirect to the Lab, which redirects back to this exact page
+   * (including hash) once it's done — initAcademy()'s ordinary boot path then picks the confirmed
+   * session up and re-renders whatever needed it, the same way it does on any fresh page load.
    *
-   * opts.reason    optional sentence explaining why sign-in is being asked for
-   * opts.onSuccess called once the session is confirmed
+   * opts.reason optional sentence explaining why sign-in is being asked for; shown only if
+   *             isApiAvailable() says accounts don't exist on this host and there is nowhere to
+   *             redirect to.
    */
   function signIn(opts) {
     opts = opts || {};
-    if (pendingSignIn) return;
-
-    // Claim the slot SYNCHRONOUSLY, before the first await.
-    //
-    // The guard above is only meaningful if something is assigned before this function yields.
-    // Assigning `pendingSignIn` inside the `.then` below — its previous shape — meant two clicks in
-    // the same tick (an ordinary double-click on the navbar link, or the account and exam panels'
-    // buttons in quick succession) both passed the guard, and the second flow's assignment
-    // overwrote the first. endPendingSignIn then cleaned up only the survivor, leaving the first
-    // flow's 2.5s /auth/session poll running for the rest of the page's life plus an orphaned
-    // `storage` listener that would later pop a "sign-in didn't finish" modal in response to an
-    // unrelated sign-in completing in another tab.
-    pendingSignIn = { poll: null, timeout: null, onStorage: null };
-
     isApiAvailable().then(function (available) {
       if (!available) {
-        endPendingSignIn(true);
-        showSignInOverlay({
-          reason: opts.reason,
-          unavailable: true
-        });
+        showSignInOverlay({ reason: opts.reason, unavailable: true });
         return;
       }
-
-      var popup = null;
-      try {
-        popup = window.open(
-          startUrl('popup'),
-          'ia-signin',
-          'width=520,height=700,menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes'
-        );
-      } catch (e) {
-        popup = null;
-      }
-
-      // Popup blocked. Do not nag — just use the whole window, which always works.
-      if (!popup) {
-        endPendingSignIn(true);
-        signInViaRedirect();
-        return;
-      }
-
-      var settled = false;
-      function finish() {
-        if (settled) return;
-        settled = true;
-        endPendingSignIn();
-        if (typeof opts.onSuccess === 'function') opts.onSuccess();
-      }
-
-      function check() {
-        return refreshSession().then(function (session) {
-          if (session.loggedIn) finish();
-          return session;
-        });
-      }
-
-      function onStorage(e) {
-        if (e.key !== AUTH_EVENT_KEY || !e.newValue) return;
-        var payload = null;
-        try { payload = JSON.parse(e.newValue); } catch (err) { payload = null; }
-        if (payload && payload.ok === false) {
-          // The popup reported a real failure (denied consent, expired transaction). Say so
-          // instead of leaving the learner watching a spinner until the timeout.
-          endPendingSignIn(true);
-          showSignInOverlay({ reason: opts.reason, failed: payload.error || null });
-          return;
-        }
-        check();
-      }
-
-      window.addEventListener('storage', onStorage);
-      pendingSignIn.onStorage = onStorage;
-      // Backup for browsers where the popup's localStorage write throws (private mode) or where
-      // the storage event does not arrive. Cheap, same-origin, and stops the moment we succeed.
-      pendingSignIn.poll = setInterval(check, SIGNIN_POLL_MS);
-      pendingSignIn.timeout = setTimeout(function () {
-        // Timing out must SAY something. Silently closing the overlay — the previous behaviour —
-        // is the worst available outcome: the learner watched "this page will update by itself"
-        // for five minutes, then saw the dialog vanish with no statement about whether they are
-        // signed in. Nothing writes the handshake if the popup is closed, the provider is
-        // unreachable, or it errors before reaching our callback, so this is a reachable path and
-        // not a theoretical one.
-        endPendingSignIn(true);
-        showSignInOverlay({ reason: opts.reason, failed: 'signin_timeout' });
-      }, SIGNIN_TIMEOUT_MS);
-
-      showSignInOverlay({ reason: opts.reason, waiting: true });
+      signInViaRedirect();
     });
   }
 
@@ -875,7 +770,7 @@
   }
 
   function overlayKeydown(e) {
-    if (e.key === 'Escape') { endPendingSignIn(); closeSignInOverlay(); return; }
+    if (e.key === 'Escape') { closeSignInOverlay(); return; }
     if (e.key === 'Tab') {
       var order = overlayFocusables();
       if (!order.length) return;
@@ -956,8 +851,9 @@
   }
 
   /**
-   * Renders the sign-in overlay in one of three states: waiting on the pop-up, reporting a
-   * failure, or explaining that accounts are not available on this host yet.
+   * Renders the sign-in overlay explaining that accounts are not available on this host yet. Sign-in
+   * itself is a same-tab redirect (see signIn()), which leaves the page before there is anything to
+   * show an overlay for — this is the one state reachable without ever navigating away.
    */
   function showSignInOverlay(opts) {
     opts = opts || {};
@@ -965,40 +861,13 @@
     overlayTriggerFocus = overlayTriggerFocus || document.activeElement;
 
     var closeBtn = mk('button', { type: 'button', class: 'acad-auth-close', 'aria-label': 'Close' }, '×');
-    var titleEl = mk('h2', { class: 'acad-auth-title', id: 'acadAuthOverlayTitle' },
-      opts.unavailable ? 'Accounts aren’t available yet' : (opts.failed ? 'Sign-in didn’t finish' : 'Continue in the pop-up'));
+    var titleEl = mk('h2', { class: 'acad-auth-title', id: 'acadAuthOverlayTitle' }, 'Accounts aren’t available yet');
 
     var kids = [closeBtn, titleEl];
     if (opts.reason) kids.push(mk('p', { class: 'acad-auth-reason' }, opts.reason));
-
-    if (opts.unavailable) {
-      kids.push(mk('p', { class: 'acad-auth-msg' },
-        'Sign-in and certificates are still being rolled out on this address. Every lesson, lab, ' +
-        'the Flow Explorer and Challenge mode work right now without an account.'));
-    } else if (opts.failed) {
-      kids.push(mk('div', { class: 'acad-auth-msg is-error', role: 'alert' },
-        describeApiError({ code: opts.failed })));
-      kids.push(mk('div', { class: 'acad-auth-links' }, [
-        mk('button', {
-          type: 'button', class: 'acad-auth-link',
-          onclick: function () { closeSignInOverlay(); signIn({ reason: opts.reason }); }
-        }, 'Try again')
-      ]));
-    } else {
-      kids.push(mk('p', { class: 'acad-auth-msg', role: 'status' },
-        'We opened a window at lab.integrauth.com to sign you in. Your Academy account is the same ' +
-        'account you use there. This page will update by itself when you’re done.'));
-      kids.push(mk('div', { class: 'acad-auth-links' }, [
-        mk('button', {
-          type: 'button', class: 'acad-auth-link',
-          onclick: function () { endPendingSignIn(); signInViaRedirect(); }
-        }, 'Pop-up blocked? Sign in in this window instead'),
-        mk('button', {
-          type: 'button', class: 'acad-auth-link',
-          onclick: function () { endPendingSignIn(); }
-        }, 'Cancel')
-      ]));
-    }
+    kids.push(mk('p', { class: 'acad-auth-msg' },
+      'Sign-in and certificates are still being rolled out on this address. Every lesson, lab, ' +
+      'the Flow Explorer and Challenge mode work right now without an account.'));
 
     var card = mk('div', { class: 'acad-auth-card' }, kids);
     overlayEl = mk('div', {
@@ -1006,9 +875,9 @@
       'aria-labelledby': 'acadAuthOverlayTitle'
     }, [card]);
     overlayEl.addEventListener('mousedown', function (e) {
-      if (e.target === overlayEl) { endPendingSignIn(); closeSignInOverlay(); }
+      if (e.target === overlayEl) closeSignInOverlay();
     });
-    closeBtn.addEventListener('click', function () { endPendingSignIn(); closeSignInOverlay(); });
+    closeBtn.addEventListener('click', function () { closeSignInOverlay(); });
     document.addEventListener('keydown', overlayKeydown);
     document.body.appendChild(overlayEl);
     closeBtn.focus();
@@ -1017,6 +886,11 @@
   /* ---------------------------------------------------------------------
    * Navbar control — identical markup/behavior on all 11 pages
    * --------------------------------------------------------------------- */
+
+  // { email, firstName } for the identity the navbar control currently shows — null when signed
+  // out. Lets renderNavAuth avoid re-fetching the profile on every call (it runs on boot AND on
+  // every academy-auth-changed event) while still refetching the moment the signed-in email changes.
+  var navProfileCache = null;
 
   function renderNavAuth(session) {
     var nav = document.getElementById('acadAuthNav');
@@ -1030,11 +904,31 @@
       signInEl.hidden = true;
       accountBtn.hidden = false;
       var email = session.email || '';
+      // Email renders immediately, synchronously — the control never shows nothing while the name
+      // fetch below is in flight. Once the learner has set a certificate name, it's friendlier than
+      // an email address, so it replaces this the moment it's known.
       if (avatar) avatar.textContent = email ? email.charAt(0).toUpperCase() : '?';
       if (emailLabel) emailLabel.textContent = email;
+
+      if (navProfileCache && navProfileCache.email === email && navProfileCache.firstName) {
+        if (avatar) avatar.textContent = navProfileCache.firstName.charAt(0).toUpperCase();
+        if (emailLabel) emailLabel.textContent = navProfileCache.firstName;
+      } else if (!navProfileCache || navProfileCache.email !== email) {
+        navProfileCache = { email: email, firstName: null };
+        getProfile().then(function (profile) {
+          if (!profile || !profile.firstName) return;
+          // The signed-in identity may have moved on while this was in flight (sign-out, a switch
+          // to a different account) — a stale response must not paint someone else's name in.
+          if (getSession().email !== email) return;
+          navProfileCache = { email: email, firstName: profile.firstName };
+          if (avatar) avatar.textContent = profile.firstName.charAt(0).toUpperCase();
+          if (emailLabel) emailLabel.textContent = profile.firstName;
+        }).catch(function () {});
+      }
     } else {
       signInEl.hidden = false;
       accountBtn.hidden = true;
+      navProfileCache = null;
     }
   }
 
@@ -1140,23 +1034,25 @@
   function wireBenefitsInfo() {
     var icon = document.getElementById('acadBenefitsInfo');
     if (!icon) return;
-    var popover = null;
+    // Bootstrap's own 'hover focus' trigger shows/hides this — no click needed to see it, and it
+    // dismisses itself on mouseleave/blur, so there is nothing to wire for "close on click outside".
+    // Content applies whether or not the visitor is signed in, so this no longer gates on session
+    // state the way the old manual-toggle version did.
+    if (window.bootstrap && window.bootstrap.Popover) {
+      new window.bootstrap.Popover(icon, {
+        trigger: 'hover focus',
+        html: false,
+        placement: 'bottom',
+        title: 'Signing in is optional',
+        content: 'Progress syncs across your devices. Certificates are saved permanently and independently verifiable at /verify. Sign-in is only required for the final exam & certificate — everything else stays fully free and public.'
+      });
+    }
+    // A click is still a stronger action than a hover: for a signed-out visitor it starts sign-in
+    // rather than just explaining it. Signed in, the hover popover already says everything, so a
+    // click does nothing extra.
     icon.addEventListener('click', function () {
       if (!getSession().loggedIn) {
         signIn({ reason: 'Sign in to sync your progress across devices and save your certificate permanently.' });
-        return;
-      }
-      if (window.bootstrap && window.bootstrap.Popover) {
-        if (!popover) {
-          popover = new window.bootstrap.Popover(icon, {
-            trigger: 'manual',
-            html: false,
-            placement: 'bottom',
-            title: 'Signing in is optional',
-            content: 'Progress syncs across your devices. Certificates are saved permanently and independently verifiable at /verify. Sign-in is only required for the final exam & certificate — everything else stays fully free and public.'
-          });
-        }
-        popover.toggle();
       }
     });
   }
@@ -1178,7 +1074,7 @@
       host.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('button', {
           type: 'button', class: 'acad-lab-btn primary',
-          onclick: function () { signIn({ onSuccess: renderAccountPanel }); }
+          onclick: function () { signIn({}); }
         }, 'Sign in')
       ]));
       return;
@@ -1222,7 +1118,11 @@
         profileBox.appendChild(mk('p', null, [
           'Certificate name: ',
           mk('strong', null, profile.firstName + ' ' + profile.lastName),
-          mk('span', { class: 'acad-lab-badge neutral' }, ' locked after first certificate')
+          // The separating space lives OUT here, not inside the badge's own text: `.acad-lab-badge`
+          // is `display:inline-block`, which starts its own line box, so a leading space inside it
+          // is trimmed as "start of line" whitespace and the badge renders jammed against the name.
+          ' ',
+          mk('span', { class: 'acad-lab-badge neutral' }, 'locked after first certificate')
         ]));
       } else {
         // An actual editable form. This used to be absent, which made the "Add your name" nudge a
@@ -1294,7 +1194,11 @@
           var row = mk('div', { class: 'acad-lab-row acad-auth-device-row' }, [
             mk('p', { class: 'acad-lab-note' }, [
               (s.device || 'Unknown device') + ' · last active ' + fmtDate(s.lastSeenAt) + ' · started ' + fmtDate(s.createdAt),
-              s.current ? mk('span', { class: 'acad-lab-badge info' }, ' this device') : null
+              // Space lives here, not inside the badge — see the identical note by the other
+              // acad-lab-badge usage above (`.acad-lab-badge` is inline-block and trims a leading
+              // space in its own text as "start of line" whitespace).
+              s.current ? ' ' : null,
+              s.current ? mk('span', { class: 'acad-lab-badge info' }, 'this device') : null
             ])
           ]);
           if (!s.current) {

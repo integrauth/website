@@ -1218,6 +1218,7 @@ function initAcademy() {
     // after the exam grew to 50, which is also what made a legacy saved pass unclaimable: its raw
     // correct-answer count had been scored against a different denominator.
     { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Sign in with a free account, score 80%+, and download a certificate anyone can verify.' },
+    { selector: '#acadAccount', title: '6. Your account', text: 'Signing in is the same free account as the IntegrAuth Lab — one sign-in, both apps. Here you can set the name that prints on your certificate, see which devices are signed in, and sign out of the Academy on one device or everywhere at once.' },
     { selector: '.acad-hub-foot', title: 'Your progress', text: 'Progress saves in this browser — and syncs to your account across devices when you sign in. Reset a single track, or replay this tour anytime from the button up top.' }
   ];
   let acadTourActive = false;
