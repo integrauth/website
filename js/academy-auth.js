@@ -897,21 +897,20 @@
     if (!nav) return;
     var signInEl = document.getElementById('acadAuthSignIn');
     var accountBtn = document.getElementById('acadAuthAccountBtn');
-    var avatar = document.getElementById('acadAuthAvatar');
     var emailLabel = document.getElementById('acadAuthEmailLabel');
     if (!signInEl || !accountBtn) return;
     if (session.loggedIn) {
       signInEl.hidden = true;
       accountBtn.hidden = false;
       var email = session.email || '';
-      // Email renders immediately, synchronously — the control never shows nothing while the name
-      // fetch below is in flight. Once the learner has set a certificate name, it's friendlier than
-      // an email address, so it replaces this the moment it's known.
-      if (avatar) avatar.textContent = email ? email.charAt(0).toUpperCase() : '?';
+      // The avatar is a fixed user icon (markup, not JS) — it represents "signed in", not
+      // who. Only the label text distinguishes identities, and email renders immediately,
+      // synchronously, so the control never shows nothing while the name fetch below is in
+      // flight. Once the learner has set a certificate name, it's friendlier than an email
+      // address, so it replaces this the moment it's known.
       if (emailLabel) emailLabel.textContent = email;
 
       if (navProfileCache && navProfileCache.email === email && navProfileCache.firstName) {
-        if (avatar) avatar.textContent = navProfileCache.firstName.charAt(0).toUpperCase();
         if (emailLabel) emailLabel.textContent = navProfileCache.firstName;
       } else if (!navProfileCache || navProfileCache.email !== email) {
         navProfileCache = { email: email, firstName: null };
@@ -921,7 +920,6 @@
           // to a different account) — a stale response must not paint someone else's name in.
           if (getSession().email !== email) return;
           navProfileCache = { email: email, firstName: profile.firstName };
-          if (avatar) avatar.textContent = profile.firstName.charAt(0).toUpperCase();
           if (emailLabel) emailLabel.textContent = profile.firstName;
         }).catch(function () {});
       }
