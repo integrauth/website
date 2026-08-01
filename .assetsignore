@@ -11,8 +11,9 @@
 #   WRANGLER_LOG=debug npx wrangler deploy --dry-run 2>&1 | grep 'Ignoring asset'
 # (`.assetsignore`, `_headers` and `_redirects` are excluded by wrangler automatically.)
 #
-# NOT listed here on purpose: `.well-known` (security.txt must stay publicly reachable) and
-# `.nojekyll` (harmless, and still needed by GitHub Pages until the DNS cutover).
+# NOT listed here on purpose: `.well-known` (security.txt must stay publicly reachable).
+# `.nojekyll` and `CNAME` were GitHub-Pages-only files and were deleted outright at the 2026-08
+# cutover (Pages is retired) rather than added here — nothing needs either of them anymore.
 
 # --- repo plumbing (never publish) ---
 .git

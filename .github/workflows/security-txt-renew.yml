@@ -3,13 +3,13 @@
 # Replaces the old Claude-scheduled yearly reminder so renewal never depends on any external
 # subscription.
 #
-# DELIVERY OF THE RENEWED FILE. On GitHub Pages the push alone redeployed. After the Cloudflare
-# Worker cutover, the live site is the ASSET SNAPSHOT from the last `wrangler deploy`, and the push
-# below is made with GITHUB_TOKEN — whose commits deliberately do NOT trigger the `ci-deploy`
-# workflow (GitHub's recursive-run guard). So a push on its own would leave the renewed security.txt
-# committed but unserved until some unrelated push happened to redeploy — a quiet way to serve a
-# stale, past-Expires file. The final step therefore explicitly dispatches ci-deploy, which IS
-# delivered even from GITHUB_TOKEN. Pre-cutover that redeploys the workers.dev copy (harmless); if
+# DELIVERY OF THE RENEWED FILE. On GitHub Pages (pre-2026-08 cutover) the push alone redeployed.
+# On the Cloudflare Worker, the live site is the ASSET SNAPSHOT from the last `wrangler deploy`, and
+# the push below is made with GITHUB_TOKEN — whose commits deliberately do NOT trigger the
+# `ci-deploy` workflow (GitHub's recursive-run guard). So a push on its own would leave the renewed
+# security.txt committed but unserved until some unrelated push happened to redeploy — a quiet way
+# to serve a stale, past-Expires file. The final step therefore explicitly dispatches ci-deploy,
+# which IS delivered even from GITHUB_TOKEN — a straight production redeploy since the cutover. If
 # the dispatch ever fails or is a no-op, behaviour is no worse than before (next real push redeploys).
 #
 # Caveat: GitHub disables scheduled workflows after 60 days without repo activity. This repo gets
