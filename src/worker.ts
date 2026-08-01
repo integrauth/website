@@ -3,7 +3,7 @@
 // Routing, in order:
 //   /api/academy/*  → the Academy JSON API (api.ts)
 //   /auth/*         → this site's OIDC Relying Party + session lifecycle (auth.ts)
-//   everything else → the static site via the ASSETS binding (the same files GitHub Pages serves)
+//   everything else → the static site via the ASSETS binding (the repo root, served as static assets)
 //
 // Security headers are stamped on every response either way. Keep the path prefixes here in sync
 // with `run_worker_first` in wrangler.toml — a prefix handled here but missing there is served by

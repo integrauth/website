@@ -37,7 +37,7 @@ workers_dev = true
 
 # --- Static assets ---
 # Serves the existing static site (index.html, academy.html, css/, js/, images/, etc.)
-# straight from the repo root — the same directory GitHub Pages serves today.
+# straight from the repo root — GitHub Pages served this same directory pre-2026-08 cutover.
 # See .assetsignore for what is deliberately NOT published (notably `.git`).
 #
 # LOCAL DEV GOTCHA: because the assets directory IS the repo root, wrangler's own local state
@@ -62,7 +62,7 @@ directory = "."
 run_worker_first = ["/api/academy/*", "/auth/*"]
 
 # Serve the repo's custom 404.html for unmatched paths. WITHOUT this, the default is "none",
-# which returns a bare bodyless 404 — i.e. the custom 404 page GitHub Pages serves today would
+# which returns a bare bodyless 404 — i.e. the custom 404 page GitHub Pages used to serve would
 # silently stop working after the cutover. (Verified: default "none" returns Content-Length: 0.)
 not_found_handling = "404-page"
 
