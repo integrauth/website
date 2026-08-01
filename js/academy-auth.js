@@ -1051,7 +1051,11 @@
     // Bootstrap's own 'hover focus' trigger shows/hides this — no click needed to see it, and it
     // dismisses itself on mouseleave/blur, so there is nothing to wire for "close on click outside".
     // Content applies whether or not the visitor is signed in, so this no longer gates on session
-    // state the way the old manual-toggle version did.
+    // state the way the old manual-toggle version did. Purely informational — it does NOT also start
+    // sign-in on click (that was tried and reverted: 'focus' already fires on click, so the popover
+    // and a same-tick sign-in redirect fired together, and the redirect won — a visitor asking "why
+    // sign in?" was thrown straight into the sign-in flow before ever reading the answer). Anyone who
+    // actually wants to sign in has the real Sign in control for that.
     if (window.bootstrap && window.bootstrap.Popover) {
       new window.bootstrap.Popover(icon, {
         trigger: 'hover focus',
@@ -1061,14 +1065,6 @@
         content: 'Progress syncs across your devices. Certificates are saved permanently and independently verifiable at /verify. Sign-in is only required for the final exam & certificate — everything else stays fully free and public.'
       });
     }
-    // A click is still a stronger action than a hover: for a signed-out visitor it starts sign-in
-    // rather than just explaining it. Signed in, the hover popover already says everything, so a
-    // click does nothing extra.
-    icon.addEventListener('click', function () {
-      if (!getSession().loggedIn) {
-        signIn({ reason: 'Sign in to sync your progress across devices and save your certificate permanently.' });
-      }
-    });
   }
 
   function fmtDate(iso) {
