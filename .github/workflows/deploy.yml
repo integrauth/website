@@ -210,8 +210,28 @@ jobs:
             echo "::error::Worker secret list was not valid JSON — refusing to continue (see above)."
             exit 1
           fi
+          # The recorded thumbprint of the key we are supposed to be signing with, if there is one.
+          # See .github/cert-signing-key.kid for what it is and why it is safe to commit.
+          EXPECTED_KID=$(sed 's/#.*//' .github/cert-signing-key.kid | tr -s '[:space:]' '\n' \
+                           | grep -v '^$' | head -n1 || true)
+
           if printf '%s\n' "$EXISTING" | grep -qxF 'ACADEMY_PRIVATE_JWK'; then
             echo "ACADEMY_PRIVATE_JWK already set — leaving it (never rotated)."
+          elif [ -n "$EXPECTED_KID" ]; then
+            # The secret is ABSENT but we hold a record that a key once existed. Generating now is
+            # not "first deploy", it is a ROTATION — and a silent one, since the primary
+            # verification path (serial lookup) keeps working and only the forwarded JWTs quietly
+            # stop verifying. The generate-if-absent branch cannot tell these two situations apart
+            # on its own; this record is what tells them apart, so refuse and let a human decide.
+            echo "::error::ACADEMY_PRIVATE_JWK is MISSING from the Worker, but"\
+                 ".github/cert-signing-key.kid records that a signing key already exists"\
+                 "(kid ${EXPECTED_KID}). Refusing to generate a replacement: that would silently"\
+                 "invalidate the signature on every certificate JWT ever issued. Likely causes —"\
+                 "the secret was deleted in the Cloudflare dashboard, or 'name'/'account_id' in"\
+                 "wrangler.toml changed and this is a different Worker. Restore the key, or, if you"\
+                 "genuinely intend to rotate, clear the value in .github/cert-signing-key.kid in a"\
+                 "reviewed commit and re-run."
+            exit 1
           else
             JWK=$(node -e '
               const { generateKeyPairSync } = require("crypto");
@@ -434,3 +454,66 @@ jobs:
             exit 1
           fi
           echo "OK: hostile return path was not reflected into the redirect"
+
+      # The detector half of the signing-key guard. The refusal in "Sync Worker secrets" covers the
+      # case CI can see — secret absent, key recorded — but it reasons from a NAME in a secret
+      # listing, which says nothing about the VALUE behind it. A secret that was overwritten rather
+      # than deleted (a hand-run `wrangler secret put`, a restore from the wrong backup) still lists
+      # as present and sails straight through. This step checks what is actually live: the kid the
+      # Worker is really publishing, against the one recorded in the repo.
+      #
+      # Deliberately NOT auto-committing the value when it drifts. Recording whatever is live would
+      # turn the guard into a rubber stamp — it would document every accidental rotation as intended
+      # and never fail again. Updating that file is meant to cost a reviewed commit.
+      - name: Certificate signing key continuity
+        run: |
+          set -uo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          EXPECTED=$(sed 's/#.*//' .github/cert-signing-key.kid | tr -s '[:space:]' '\n' \
+                       | grep -v '^$' | head -n1 || true)
+
+          jwks=$(curl -sS -m 20 "$URL/api/academy/.well-known/jwks.json" || true)
+          # An unreachable JWKS is a failed check, not a passed one — same rule as the private-key
+          # probe above. It also has a specific meaning worth naming: the route fails CLOSED when
+          # ACADEMY_PRIVATE_JWK is unset, so a 500 here is itself a symptom of the missing key.
+          if [ -z "$jwks" ]; then
+            echo "::error::could not fetch $URL/api/academy/.well-known/jwks.json — the signing-key"\
+                 "continuity check did not run. Note the JWKS route fails closed when"\
+                 "ACADEMY_PRIVATE_JWK is unset, so this may be the missing key itself."
+            exit 1
+          fi
+          LIVE=$(printf '%s' "$jwks" | jq -r '.keys[0].kid // empty')
+          if [ -z "$LIVE" ]; then
+            echo "::error::JWKS carried no kid — cannot establish key continuity. Got: $jwks"
+            exit 1
+          fi
+
+          if [ -z "$EXPECTED" ]; then
+            # Bootstrap: the first deploy that creates the key. Warn rather than fail, because there
+            # is nothing wrong yet — but say plainly that the guard is INACTIVE until it is recorded.
+            echo "::warning::No expected kid recorded, so the signing-key guard is not active yet."\
+                 "Commit the value below into .github/cert-signing-key.kid to arm it."
+            {
+              echo "### Certificate signing key — action needed"
+              echo
+              echo "The Worker is publishing this signing key thumbprint:"
+              echo
+              echo '```'
+              echo "$LIVE"
+              echo '```'
+              echo
+              echo "Commit it into \`.github/cert-signing-key.kid\` to arm the guard that stops a"
+              echo "future deploy silently minting a new key. Until then, losing"
+              echo "\`ACADEMY_PRIVATE_JWK\` is unrecoverable and undetected."
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$LIVE" = "$EXPECTED" ]; then
+            echo "OK: signing key unchanged (kid $LIVE)"
+          else
+            echo "::error::The certificate signing key CHANGED. Recorded: ${EXPECTED}. Live:"\
+                 "${LIVE}. Every certificate JWT issued under the old key can no longer be verified"\
+                 "against the published JWKS — note /verify still works, since that path is a"\
+                 "database lookup, so this failure is otherwise silent. Restore the previous"\
+                 "ACADEMY_PRIVATE_JWK if you have it. If the rotation was intended, update"\
+                 ".github/cert-signing-key.kid in a reviewed commit."
+            exit 1
+          fi

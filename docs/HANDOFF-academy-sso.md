@@ -185,9 +185,23 @@ reimplementing them.
 
    The JWK's step fails **closed**: if `wrangler secret list` errors or returns anything that is not a
    JSON array, the deploy stops rather than reading "I can't tell" as "no secret exists" and
-   generating a replacement. The only realistic way to lose the signing key is deleting it by hand in
-   the Cloudflare dashboard, after which the next deploy mints a new one and previously-issued
-   certificates stop verifying.
+   generating a replacement.
+
+   **Key continuity is enforced by `.github/cert-signing-key.kid`.** After the first deploy, commit
+   the thumbprint the `Certificate signing key continuity` step prints into that file — the guard is
+   inactive (and says so, loudly) until you do. Once recorded:
+
+   - the secrets step **refuses to generate** a replacement when the secret is absent, since with a
+     kid on record that is a rotation and not a first deploy;
+   - the post-deploy step compares the **live** JWKS kid against it, catching the case a secret
+     listing cannot see — a secret *overwritten* rather than deleted still lists as present.
+
+   This matters because losing the key is invisible without it: `/verify` is a database lookup and
+   keeps working, so nothing appears broken while every forwarded certificate JWT silently stops
+   verifying. Three ways it goes missing, all covered: deletion in the Cloudflare dashboard, and a
+   change to `name` or `account_id` in `wrangler.toml` — either of which means a *different* Worker
+   with no secrets at all. To rotate deliberately, edit that file in a reviewed commit; nothing
+   auto-updates it, on purpose.
 3. **Redirect URIs — the two production ones are already committed** to the Lab's `wrangler.toml`:
 
    ```toml
