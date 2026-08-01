@@ -153,8 +153,8 @@ function closingPage(params: {
     }
   } catch (e) { /* expected under COOP: same-origin */ }
 
-  // A window the script did not open cannot close itself, so this silently no-ops when the user
-  // got here by a full-page redirect (popup blocked). The timeout then takes them home.
+  // A window the script did not open cannot close itself, so this silently no-ops for the ordinary
+  // full-page-redirect flow. The timeout then takes them home.
   try { window.close(); } catch (e) { /* noop */ }
   setTimeout(function () {
     if (!window.closed) window.location.replace(data.ret || '/academy');
@@ -227,8 +227,10 @@ export function createAuthApp() {
    * matching PKCE verifier, `state` and `nonce` in a short-lived host-locked cookie.
    *
    * `?return=` is the same-origin path to land on afterwards; `?mode=redirect` marks a flow that
-   * started as a full-page navigation (because the popup was blocked) so the callback navigates
-   * instead of trying to close a window it did not open.
+   * started as a full-page navigation (the client's normal path — see academy-auth.js's file
+   * header) so the callback navigates instead of trying to close a window it did not open. `popup`
+   * is still accepted and fully supported by this route and the callback below, for a caller that
+   * wants the non-navigating flow; the client-side academy-auth.js simply no longer opens one.
    */
   app.get('/start', async (c) => {
     const url = new URL(c.req.url);
