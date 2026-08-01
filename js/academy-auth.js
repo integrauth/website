@@ -1201,7 +1201,7 @@
           ]);
           if (!s.current) {
             row.appendChild(mk('button', {
-              type: 'button', class: 'acad-lab-btn acad-auth-device-revoke',
+              type: 'button', class: 'acad-lab-btn danger acad-auth-device-revoke',
               onclick: function () {
                 // authFetch does not carry apiFetch's noteUnauthorized wrapper, so without a catch
                 // a failed revoke is an unhandled rejection: no re-render, no message, and a row
@@ -1244,7 +1244,7 @@
       dangerBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Sign out'));
       dangerBox.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('button', {
-          type: 'button', class: 'acad-lab-btn',
+          type: 'button', class: 'acad-lab-btn danger',
           onclick: function () {
             // Success reloads into the signed-out page; failure is loud (see signOutFailed) —
             // this tab is genuinely still signed in when the round trip fails, and reloading
@@ -1253,7 +1253,7 @@
           }
         }, 'Sign out'),
         mk('button', {
-          type: 'button', class: 'acad-lab-btn',
+          type: 'button', class: 'acad-lab-btn danger',
           onclick: confirmSignOutEverywhere
         }, 'Sign out everywhere')
       ]));
