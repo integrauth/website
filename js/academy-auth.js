@@ -914,21 +914,21 @@
     if (!nav) return;
     var signInEl = document.getElementById('acadAuthSignIn');
     var accountBtn = document.getElementById('acadAuthAccountBtn');
-    var emailLabel = document.getElementById('acadAuthEmailLabel');
     if (!signInEl || !accountBtn) return;
     if (session.loggedIn) {
       signInEl.hidden = true;
       accountBtn.hidden = false;
       var email = session.email || '';
-      // The avatar is a fixed user icon (markup, not JS) — it represents "signed in", not
-      // who. Only the label text distinguishes identities, and email renders immediately,
-      // synchronously, so the control never shows nothing while the name fetch below is in
-      // flight. Once the learner has set a certificate name, it's friendlier than an email
+      // The control is icon-only now (no visible email/name next to it, on either the desktop
+      // navbar or the collapsed hamburger menu — same markup drives both). The identity still
+      // goes on `aria-label`, not just a static "Your account", so screen-reader users aren't
+      // left with less information than before; it updates in place, same as the old visible
+      // label did. Once the learner has set a certificate name, it's friendlier than an email
       // address, so it replaces this the moment it's known.
-      if (emailLabel) emailLabel.textContent = email;
+      accountBtn.setAttribute('aria-label', 'Your account: ' + email);
 
       if (navProfileCache && navProfileCache.email === email && navProfileCache.firstName) {
-        if (emailLabel) emailLabel.textContent = navProfileCache.firstName;
+        accountBtn.setAttribute('aria-label', 'Your account: ' + navProfileCache.firstName);
       } else if (!navProfileCache || navProfileCache.email !== email) {
         navProfileCache = { email: email, firstName: null };
         getProfile().then(function (profile) {
@@ -937,12 +937,13 @@
           // to a different account) — a stale response must not paint someone else's name in.
           if (getSession().email !== email) return;
           navProfileCache = { email: email, firstName: profile.firstName };
-          if (emailLabel) emailLabel.textContent = profile.firstName;
+          accountBtn.setAttribute('aria-label', 'Your account: ' + profile.firstName);
         }).catch(function () {});
       }
     } else {
       signInEl.hidden = false;
       accountBtn.hidden = true;
+      accountBtn.setAttribute('aria-label', 'Your account');
       navProfileCache = null;
     }
   }
