@@ -372,6 +372,41 @@ $(function() {
     $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
   });
 
+  // Theme picker: same hover-to-open/close as Services/Learn (and the account menu), but done in
+  // JS rather than a CSS :hover rule — the menu is intentionally detached to <body> and positioned
+  // by `positionThemeMenu` above (a fixed-position, JS-computed rect, not a normal in-flow dropdown
+  // child), so a pure `.theme-dropdown:hover > .theme-menu` selector could never reach it once open.
+  // That detachment also means the toggle's bounding box does NOT contain the menu, so a plain
+  // mouseleave-closes-immediately handler would fire the instant the pointer travels from the
+  // button down into the menu, before ever reaching a theme option. A short debounced close —
+  // cancelled by a mouseenter on EITHER the toggle or the (now body-level) menu — bridges that gap
+  // without needing to compute the physical distance between them.
+  let themeHoverCloseTimer = null;
+  function themeHoverMediaOk() {
+    return window.matchMedia('(hover: hover) and (pointer: fine) and (min-width: 992px)').matches;
+  }
+  function themeHoverOpen() {
+    if (!themeHoverMediaOk()) return;
+    clearTimeout(themeHoverCloseTimer);
+    const $toggle = $('.theme-btn.dropdown-toggle');
+    const $menu = $('.theme-menu').first();
+    if ($menu.hasClass('show')) return;
+    if (!$menu.parent().is('body')) $('body').append($menu);
+    positionThemeMenu($toggle, $menu);
+    $menu.addClass('show');
+    $toggle.attr('aria-expanded', 'true');
+  }
+  function themeHoverClose() {
+    if (!themeHoverMediaOk()) return;
+    clearTimeout(themeHoverCloseTimer);
+    themeHoverCloseTimer = setTimeout(function() {
+      $('.theme-menu').removeClass('show');
+      $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
+    }, 150);
+  }
+  $(document).on('mouseenter', '.theme-dropdown, .theme-menu', themeHoverOpen);
+  $(document).on('mouseleave', '.theme-dropdown, .theme-menu', themeHoverClose);
+
   // Services/Learn nav dropdowns open on hover via CSS (desktop/pointer devices
   // only — see styles.css). Bootstrap's own click-to-open state (`.show`) is
   // otherwise dismissed only by an outside click/Escape/selection, so a dropdown
