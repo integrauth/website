@@ -3,19 +3,19 @@
 # PRs:            typecheck the Worker source only (no deploy).
 # Push to main:   same check, then deploy via `wrangler deploy`.
 #
-# This Worker is intentionally NOT yet routed at integrauth.com (see wrangler.toml's `workers_dev`
-# comment) — it deploys to its *.workers.dev URL only, so this workflow can run safely without
-# touching the live GitHub-Pages-served site. Adding the production `routes` block in wrangler.toml
-# is a deliberate, separate, manual step the product owner takes when ready to cut over.
+# This Worker is routed at integrauth.com and www.integrauth.com (wrangler.toml's `routes` block,
+# `workers_dev` disabled — cut over 2026-08). Every push to main deploys straight to production;
+# there is no longer a separate *.workers.dev staging URL to rehearse against first. PRs still only
+# typecheck, never deploy.
 #
 # Required repo SECRET (Settings -> Secrets and variables -> Actions -> Secrets):
-#   CF_TOKEN   Cloudflare API token. Needs Workers Scripts:Edit + D1:Read (this Worker only READS
-#              the shared D1 binding's existence, never runs migrations against it) for now; add
-#              Workers Routes:Edit + DNS:Edit + Zone:Read on the integrauth.com zone ONLY when
-#              you're ready to add the production `routes` block to wrangler.toml. Can be the same
-#              token already used by the `integrauth/lab` repo, or a separate one scoped just to
-#              this Worker — either works, since `account_id`/`database_id` are already pinned in
-#              wrangler.toml (committed, non-secret).
+#   CF_TOKEN   Cloudflare API token. Needs Workers Scripts:Edit + D1:Read + Workers Routes:Edit +
+#              DNS:Edit + Zone:Read on the integrauth.com zone (the last three were added at
+#              cutover, when the `routes` block first started requiring wrangler to attach/manage
+#              those DNS records). Can be the same token already used by the `integrauth/lab` repo,
+#              or a separate one scoped just to this Worker — either works, since
+#              `account_id`/`database_id` are already pinned in wrangler.toml (committed,
+#              non-secret).
 #
 # Optional repo/org SECRETS (both are provisioned by this workflow if you don't set them; setting
 # them puts the value under your control instead of the runner's):
@@ -147,23 +147,18 @@ jobs:
         id: deploy
         run: |
           set -euo pipefail
-          npx wrangler deploy | tee /tmp/deploy.log
-          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy.log | head -n1 || true)
-          # FAIL if the URL could not be parsed. workers_dev = true (wrangler.toml), so a successful
-          # deploy ALWAYS prints a *.workers.dev URL — an empty capture here means wrangler changed
-          # its output wording (it has between majors) or the log was truncated, NOT that there is no
-          # URL. That distinction matters because the entire Smoke-probe step below — including the
-          # BLOCKING security invariants (no private key in JWKS, /auth/session no-store, no open
-          # redirect) — is driven by this value. Letting it be empty turned "the probes could not run"
-          # into a silent green deploy, the exact failure those probes exist to prevent. Stop here
-          # instead: a deploy whose result cannot be verified is a failed deploy.
-          if [ -z "$URL" ]; then
-            echo "::error::Deployed, but could not parse the *.workers.dev URL from the wrangler"\
-                 "output — the smoke/security probes cannot run. Refusing to report success. Check"\
-                 "wrangler's deploy output format."
-            exit 1
-          fi
-          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          npx wrangler deploy
+          # The probe URL used below no longer needs to be parsed out of wrangler's output: with
+          # `workers_dev = false` and a committed `routes` block (wrangler.toml), this Worker only
+          # ever answers at the fixed production custom domain, so that is simply the known value.
+          # (Before the 2026-08 cutover this step instead grep'd a *.workers.dev URL out of the
+          # deploy log and hard-failed if it couldn't — worth keeping in mind if this Worker is ever
+          # deliberately un-routed again: that fragility doesn't reappear on its own, but nothing
+          # here would catch a *silently wrong* hardcoded URL either, so if the routes/custom_domain
+          # in wrangler.toml ever change, this line has to change with it.) `wrangler deploy` itself
+          # already fails the step (set -e) if it cannot attach the custom domain route — e.g. a
+          # DNS record conflict at the host — so a passing deploy here means the route is live.
+          echo "url=https://integrauth.com" >> "$GITHUB_OUTPUT"
 
       # Generate-if-absent, NEVER rotate: ACADEMY_PRIVATE_JWK (ES256 P-256 private key, JWK JSON) —
       # rotating it would invalidate the signature embedded in every certificate already issued.
@@ -306,14 +301,9 @@ jobs:
             echo "  generated EXAM_IP_HASH_PEPPER"
           fi
 
-      # This Worker's own callback URL, reported for cross-checking. The Lab normally registers it
-      # ITSELF — its provision-cf.sh derives the account's workers.dev subdomain from the Cloudflare
-      # API and appends `<worker>.<subdomain>.workers.dev/auth/callback` to IA_WEBSITE_REDIRECT_URIS
-      # at deploy time — so this is a verification aid and a manual fallback, not the primary path.
-      # It earns its place because the derivation is deliberately best-effort (a narrowly-scoped
-      # CF_TOKEN or an account with no workers.dev subdomain both make it skip with a warning), and
-      # because the Lab matches redirect URIs by EXACT string equality, where a silent mismatch shows
-      # up only as a generic invalid_client_or_redirect.
+      # This Worker's callback is now fixed (production, custom domain) rather than a per-deploy
+      # *.workers.dev value, so this step is a pure sanity check now — the printed URL should always
+      # match the two entries already committed on the Lab side, with nothing to reconcile.
       - name: OIDC callback URL (cross-check against the Lab)
         if: always()
         run: |
@@ -322,20 +312,11 @@ jobs:
           {
             echo "### OIDC callback for this deploy"
             echo
-            if [ -n "$URL" ]; then
-              echo "This Worker's callback is:"
-              echo
-              echo '```'
-              echo "${URL}/auth/callback"
-              echo '```'
-              echo
-              echo "\`integrauth/lab\` appends this to \`IA_WEBSITE_REDIRECT_URIS\` automatically"
-              echo "during its own deploy. If sign-in fails with \`invalid_client_or_redirect\`,"
-              echo "check that the above appears **verbatim** in that list — and look for a"
-              echo "\`workers.dev subdomain\` warning in the Lab's deploy log."
-            else
-              echo "The workers.dev URL was not captured from this run — take it from the deploy log."
-            fi
+            echo "This Worker's callback is:"
+            echo
+            echo '```'
+            echo "${URL}/auth/callback"
+            echo '```'
             echo
             echo "Committed on the Lab side (production, already in its \`wrangler.toml\`):"
             echo
@@ -344,19 +325,20 @@ jobs:
             echo 'IA_WEBSITE_BACKCHANNEL_LOGOUT_URI = "https://integrauth.com/auth/backchannel-logout"'
             echo '```'
             echo
-            echo "Comma-separated, **max 5** entries, exact string equality, **no trailing slash**"
-            echo "(\`/auth/callback/\` passes the Lab's registration check but never matches, because"
-            echo "this site sends the no-slash form)."
+            echo "If sign-in ever fails \`invalid_client_or_redirect\`, check that the printed"
+            echo "callback appears **verbatim** in the Lab's \`IA_WEBSITE_REDIRECT_URIS\` — exact"
+            echo "string equality, **no trailing slash**."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Smoke probe against the *.workers.dev URL this run just deployed to. The reachability checks
-      # (verify shape, homepage 200, /auth/session shape) are warnings — this Worker isn't serving
-      # real traffic yet. But the three invariants at the END of this step (no private key in JWKS,
-      # /auth/session no-store, no open redirect) are BLOCKING: their failure is silent in normal use,
-      # which is exactly why CI must catch it. This step is deliberately NOT gated on
-      # `steps.deploy.outputs.url` any more — the deploy step now hard-fails when the URL can't be
-      # parsed, so reaching here guarantees a URL, and an `if:` gate could only reintroduce the
-      # silent-skip this whole arrangement exists to prevent.
+      # Smoke probe against the production custom domain this run just deployed to — this IS live
+      # traffic since the 2026-08 cutover, not a rehearsal. The reachability checks (verify shape,
+      # homepage 200, /auth/session shape) stay warnings rather than blocking errors: a real outage
+      # there is LOUD (anyone visiting the site sees it immediately), so CI failing red on top of
+      # that adds little. The three invariants at the END of this step (no private key in JWKS,
+      # /auth/session no-store, no open redirect) are BLOCKING for the opposite reason — their
+      # failure is SILENT in normal use, which is exactly why CI has to be the thing that catches
+      # it. This step runs unconditionally (no `if:` gate) since `steps.deploy.outputs.url` is now a
+      # fixed value, always set once the Deploy Worker step succeeds.
       - name: Smoke probe
         run: |
           set -uo pipefail
@@ -368,7 +350,8 @@ jobs:
           # /api/academy/certificates/verify/... and /auth/session on the SAME deploy answered
           # correctly. Nothing was wrong — re-probing the same URL afterwards gave 200 and 401
           # consistently — the rollout simply had not settled, and a new Worker has more to
-          # propagate than usual (script, assets manifest, and the workers.dev route).
+          # propagate than usual (script, assets manifest, and its route). Still relevant after the
+          # cutover to a custom domain — a route attach/update has its own propagation, same idea.
           #
           # This is a readiness GATE, not a retry around the assertions: it waits for a known-good
           # state, then every check below runs exactly once, unchanged. A deploy that never settles

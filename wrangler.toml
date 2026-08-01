@@ -6,20 +6,27 @@ main = "src/worker.ts"
 compatibility_date = "2025-06-20"
 compatibility_flags = ["nodejs_compat"]
 
-# --- workers.dev ---
-# INTENTIONALLY left enabled (unlike the sister `integrauth/lab` repo, which disables
-# workers.dev to force one canonical origin). The product owner wants to exercise this
-# Worker on its *.workers.dev URL first and cut integrauth.com's DNS over from GitHub
-# Pages manually, later, once it's verified. Do NOT add a `routes`/`custom_domain` block
-# until that manual cutover is actually happening — doing so would start routing live
-# production traffic (integrauth.com) through this Worker.
+# --- Custom domain / workers.dev ---
+# Cut over 2026-08: this Worker now serves integrauth.com and www.integrauth.com directly, same
+# `custom_domain = true` pattern the sister `integrauth/lab` repo already uses for
+# lab.integrauth.com. `workers_dev` is disabled to match — one canonical origin, no separate
+# `*.workers.dev` URL left answering requests (or eligible for a state-changing CSRF-allowlist
+# bypass via the same-origin branch in `isAllowedOrigin`, api.ts — moot with the route gone, but
+# one fewer origin to reason about).
 #
-# When ready to go live, add:
-#   routes = [
-#     { pattern = "integrauth.com", custom_domain = true },
-#     { pattern = "www.integrauth.com", custom_domain = true }
-#   ]
-workers_dev = true
+# BEFORE THIS CAN DEPLOY (both manual, one-time, Cloudflare-dashboard steps — not something any
+# script in this repo does): the Cloudflare API token behind CF_TOKEN needs `Workers Routes:Edit` +
+# `DNS:Edit` + `Zone:Read` on the integrauth.com zone (previously just `Workers Scripts:Edit` +
+# `D1:Read`); and the zone's existing DNS records for both hostnames — previously pointing at
+# GitHub Pages — need to be clear of conflicts, since Wrangler has no CLI/CI-usable override for a
+# pre-existing non-Workers record at the same hostname (see cloudflare/workers-sdk#9878) and a
+# `wrangler deploy` that hits one fails outright rather than taking it over. If this file has
+# already deployed cleanly, both are done; if not, do them first, then merge/redeploy.
+routes = [
+  { pattern = "integrauth.com", custom_domain = true },
+  { pattern = "www.integrauth.com", custom_domain = true }
+]
+workers_dev = false
 
 # --- Static assets ---
 # Serves the existing static site (index.html, academy.html, css/, js/, images/, etc.)
@@ -114,12 +121,9 @@ OIDC_CLIENT_ID = "integrauth-website"
 #
 # ALSO REQUIRED, on the Lab side: this site's callback URL must appear VERBATIM in the Lab's
 # IA_WEBSITE_REDIRECT_URIS (comma-separated, max 5, exact string match at request time — no
-# host/port/scheme laxity, NO trailing slash). Both halves are handled there already: the two
-# production entries are committed, and the `*.workers.dev` one for pre-cutover staging is derived
-# from the Cloudflare API by the Lab's provision-cf.sh at deploy time (that hostname depends on the
-# account subdomain, so it is not knowable from either repo). This repo's deploy prints its own
-# callback into the run summary for cross-checking if sign-in ever fails
-# `invalid_client_or_redirect`.
+# host/port/scheme laxity, NO trailing slash). The two production entries are committed there
+# already. This repo's deploy prints its own callback into the run summary for cross-checking if
+# sign-in ever fails `invalid_client_or_redirect`.
 
 [observability]
 enabled = true

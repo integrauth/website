@@ -107,9 +107,9 @@ website/
 
 ## Deployment
 
-The site is automatically deployed to GitHub Pages when changes are pushed to the `main` branch.
+The site is automatically deployed to a **Cloudflare Worker** (`wrangler.toml` + `src/worker.ts`) when changes are pushed to the `main` branch — see `.github/workflows/deploy.yml`. The Worker serves the static site directly and also runs the Academy API (`/api/academy/*`) and the OIDC Relying Party (`/auth/*`); see `CLAUDE.md` for the full architecture.
 
-**Custom Domain**: integrauth.com (configured via CNAME)
+**Custom Domain**: integrauth.com and www.integrauth.com, via a Cloudflare Workers custom domain route (`routes` in `wrangler.toml`). Previously served by GitHub Pages (with `CNAME`); retired at the 2026-08 cutover.
 
 ---
 

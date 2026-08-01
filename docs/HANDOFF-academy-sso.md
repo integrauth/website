@@ -157,6 +157,12 @@ about OTHER devices remains true and unchanged.
 
 ## 4. Deploy order — must be followed
 
+> **STATUS (2026-08): steps 1-5 are done and steady-state; steps 6-7 (DNS cutover) are the ones this
+> section was written for, and are being executed now.** Left below verbatim as the plan that was
+> followed rather than rewritten into past tense — this section predates the cutover and was the
+> actual checklist used. Current, ongoing-truth state belongs in `CLAUDE.md`'s Deployment paragraph
+> and `wrangler.toml`'s own comments, not here; if the two ever disagree, those win.
+
 1. **Lab first.** Merge + deploy. Lands migrations 0045–0054 in the shared D1 and restores the
    `__Host-` cookie. The website Worker cannot function before the `academy_*` tables exist. 0054 is
    the easiest of these to under-count: it adds `academy_exam_attempts.ip_hash`, which every recorded
