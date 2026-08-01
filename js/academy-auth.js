@@ -579,9 +579,10 @@
    * it gets ended too — a background API call from this site's server could never reach a cookie
    * scoped to a different origin. `client_id` (no `id_token_hint` needed — this site never retains
    * the ID token past login) lets the Lab resolve `post_logout_redirect_uri` against its registered
-   * list; an exact match bounces the browser straight back here, anything else (local dev, the
-   * pre-cutover workers.dev origin) falls through to the Lab's own plain confirmation page — signed
-   * out either way, just not automatically returned.
+   * list (which includes the pre-cutover workers.dev origin — the Lab's provision-cf.sh registers
+   * it automatically); an exact match bounces the browser straight back here, anything else (local
+   * dev, an origin that was never deployed) falls through to the Lab's own plain confirmation page
+   * — signed out either way, just not automatically returned.
    */
   function navigateToLabLogout() {
     var back = window.location.origin + '/';
