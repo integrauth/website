@@ -7399,6 +7399,19 @@ body.theme-cyber .nav-dd .dropdown-divider {
   .navbar .nav-item.dropdown:not(.acad-auth-item):hover > .dropdown-menu.nav-dd {
     display: block;
   }
+
+  /* The auth control gets the same hover-to-open, but gated with :has() on the signed-in account
+     button specifically being the visible trigger (not its sibling `#acadAuthSignIn` link) — the
+     naive version of this rule (see the :not(.acad-auth-item) exclusion above) opened #acadAuthMenu
+     from hovering the SIGNED-OUT sign-in link too, since :hover on the shared parent <li> doesn't
+     care which child triggered it, revealing "Sign out" options to a signed-out visitor. */
+  #acadAuthNav:has(#acadAuthAccountBtn:not([hidden])) > #acadAuthMenu {
+    margin-top: 0;
+  }
+
+  #acadAuthNav:has(#acadAuthAccountBtn:not([hidden])):hover > #acadAuthMenu {
+    display: block;
+  }
 }
 
 /* --- Site-wide sitemap footer --- */
