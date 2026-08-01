@@ -7718,7 +7718,12 @@ body.theme-contrast .site-footer-social a {
   appearance: none;
   background: var(--acad-block);
   border: 1px solid var(--acad-panel-border);
-  color: var(--acad-actor);
+  /* --acad-actor is tuned as an SVG diagram accent (paired with a matching --acad-atext fill for
+     any text drawn on top of it), not as standalone text color on the theme's own background — in
+     Dark mode it's a fairly dark indigo (#4f46e5) and in Midnight Cyber a dark teal (#155e75),
+     both low-contrast against this pill's own near-black tinted background. --acad-ink is the
+     variable actually tuned per theme for readable body text, so use that instead. */
+  color: var(--acad-ink);
   border-radius: 999px;
   padding: 0.3rem 0.85rem;
   font-size: 0.82rem;
@@ -7726,6 +7731,60 @@ body.theme-contrast .site-footer-social a {
   cursor: pointer;
 }
 .acad-info-icon:hover { filter: brightness(1.08); }
+
+/* --- Resume banner (hub) --- */
+.acad-resume-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+  padding: 0.85rem 1.1rem;
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-left: 3px solid var(--acad-em);
+  border-radius: var(--radius-lg);
+  color: var(--acad-ink);
+}
+
+.acad-resume-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.acad-resume-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--acad-muted); }
+.acad-resume-lesson { font-weight: 700; }
+.acad-resume-when { font-size: 0.8rem; color: var(--acad-muted); }
+
+.acad-resume-actions { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; }
+
+.acad-resume-go {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  background: var(--acad-em);
+  color: var(--acad-em-ink);
+  font-weight: 800;
+  font-size: 0.88rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.acad-resume-go:hover { filter: brightness(1.1); }
+
+.acad-resume-dismiss {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--acad-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.1rem 0.4rem;
+}
+.acad-resume-dismiss:hover { color: var(--acad-ink); }
+
+@media (max-width: 560px) {
+  .acad-resume-banner { flex-direction: column; align-items: stretch; }
+  .acad-resume-actions { justify-content: space-between; }
+}
 
 /* --- Benefits popover (Bootstrap Popover attached to #acadBenefitsInfo) ---
    Bootstrap's `.popover-header` uses `color: var(--bs-popover-header-color)`,
