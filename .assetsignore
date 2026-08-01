@@ -40,8 +40,8 @@ tsconfig.json
 package*.json
 wrangler.toml
 
-# --- internal working documents: CLAUDE.md, README.md, QUICK_START.md and docs/*.md are notes,
-#     not site content, and nothing on the site links to them ---
+# --- internal working documents: CLAUDE.md, README.md and docs/*.md are notes, not site content,
+#     and nothing on the site links to them ---
 *.md
 docs
 

@@ -69,26 +69,31 @@ IntegrAuth provides:
 
 ```
 website/
-├── index.html              # Main landing page
-├── privacy.html            # Privacy policy
-├── terms.html              # Terms and conditions
-├── support.html            # Support page
-├── cancellation.html       # Cancellation policy
-├── css/
-│   └── styles.css         # Main stylesheet (1353 lines)
-├── js/
-│   └── functions.js       # JavaScript functionality (192 lines)
+├── index.html, academy.html, privacy.html, terms.html, support.html,
+│   cancellation.html, verify.html, 404.html
+├── mcp-security.html, ai-agent-security.html, api-security.html   # service landing pages
+├── css/styles.css                  # main stylesheet
+├── js/functions.js                 # site-wide JS
+├── js/academy-auth.js              # accounts / sign-in, loaded on every page
+├── js/academy-labs.js              # Academy labs framework, academy.html only
+├── src/worker.ts + src/lib/server/ # Cloudflare Worker: static assets + /api/academy/* + /auth/*
 ├── images/
-│   ├── social-icons/      # Social media icons
-│   └── websites/          # Tech stack logos
-├── IntegrAuth.svg         # Brand logo
-└── CLAUDE.md              # Project memory for AI assistant
+│   ├── social-icons/               # Social media icons
+│   └── websites/                   # Tech stack logos
+├── IntegrAuth.svg                  # Brand logo
+├── wrangler.toml                   # Worker config
+└── CLAUDE.md                       # Project memory for AI assistant
 ```
+
+See `CLAUDE.md` for current file sizes and the full architecture — they drift with every change, so that file re-measures rather than this one hardcoding them.
 
 ### Available Scripts
 
-- `npm run dev` - Start development server with hot reload
+- `npm run dev` - Start local dev server with hot reload (static preview only, no Worker)
 - `npm start` - Alias for `npm run dev`
+- `npm run worker:dev` - Local Worker dev (static assets + `/api/academy/*` + `/auth/*`) — see the gotcha comment in `wrangler.toml` before running this instead of a bare `wrangler dev`
+- `npm run worker:deploy` - Deploy the Worker directly (CI does this automatically on push to `main`)
+- `npm run build` - Minify CSS/JS/HTML (see `CLAUDE.md`'s Asset Minification section for the full cache-busting workflow)
 
 ---
 
