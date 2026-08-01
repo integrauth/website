@@ -762,6 +762,7 @@ function initAcademy() {
       try { window.AcadLabs.remountAll(); } catch (e) {}
     }
     updateProgress();
+    renderResumeBanner();
     const activeLesson = lessons.filter(function (s) { return s.classList.contains('is-active'); })[0];
     if (activeLesson) {
       if (isQuizLesson(activeLesson)) syncQuizProgress(activeLesson);
@@ -898,6 +899,7 @@ function initAcademy() {
       try { window.AcadLabs.remountAll(); } catch (e) {}
     }
     updateProgress();
+    renderResumeBanner();
     const activeLesson = lessons.filter(function (s) { return s.classList.contains('is-active'); })[0];
     if (activeLesson) {
       if (isQuizLesson(activeLesson)) syncQuizProgress(activeLesson);
@@ -1210,6 +1212,7 @@ function initAcademy() {
     if (location.hash) history.replaceState(null, '', location.pathname);
     if (dropPosition) dropSavedPosition();
     updateProgress();
+    renderResumeBanner();
     const focusEl = focusId ? document.getElementById(focusId) : null;
     if (focusEl) {
       focusEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1396,19 +1399,14 @@ function initAcademy() {
   }
 
   /**
-   * `keepPosTimestamp` — record the lesson as the saved position WITHOUT restamping when it was
-   * saved. Passed only by the passive boot resume, and the distinction is load-bearing for
-   * cross-device sync.
-   *
-   * The saved position is the one field the server merges last-write-wins on the caller's timestamp.
-   * Restamping on resume meant simply OPENING the Academy counted as "I just moved here": device A
-   * (last at lesson L) is reopened, stamps L at now, and that beats the M the learner actually
-   * reached on device B yesterday — so the next sync drags every device back to L and discards the
-   * newer place. Nobody navigated anywhere; a stale tab won purely by being opened. Resuming is a
-   * READ of the saved position, so it must not rewrite when that position was set. Deliberate
-   * navigation — a chip, the pager, search, a deep link — is a real move and does restamp.
+   * Every call to showLesson() is a deliberate navigation now — a chip, the pager, search, a deep
+   * link, or clicking the hub's Resume banner. Boot no longer calls this passively to reopen a
+   * saved position (see the Resume banner section below), so acad_pos_at is unconditionally
+   * restamped to "now" below. That restamp matters for cross-device sync, which merges the saved
+   * position last-write-wins on this timestamp: it must only move when the learner actually moved,
+   * or a stale device could win a merge purely by being opened.
    */
-  function showLesson(id, skipScroll, keepPosTimestamp) {
+  function showLesson(id, skipScroll) {
     const lesson = byId[id];
     if (!lesson) return false;
     if (acadTourActive) endTour();
@@ -1429,12 +1427,7 @@ function initAcademy() {
     syncLabGate(lesson);
     try {
       localStorage.setItem(KEY_POS, id);
-      // See keepPosTimestamp in this function's header. A resume must leave the existing timestamp
-      // alone — but if there is none stored at all, write one, or the position has no age and the
-      // merge's `!localAt` clause adopts the server's copy unconditionally.
-      if (!keepPosTimestamp || !localStorage.getItem(KEY_POS_AT)) {
-        localStorage.setItem(KEY_POS_AT, new Date().toISOString());
-      }
+      localStorage.setItem(KEY_POS_AT, new Date().toISOString());
     } catch (e) {}
     buildChips(track, id);
     buildPager(lesson);
@@ -1955,21 +1948,90 @@ function initAcademy() {
     enhance();
   })();
 
-  // Boot: URL hash wins > saved position > hub
+  // ----- Resume banner (injected into the hub; see boot section below) -----
+  //
+  // Boot used to auto-open the saved lesson directly ("passive resume", showLesson(saved, true,
+  // true)) on a plain /academy visit. That silently dropped a returning visitor back inside
+  // whatever lesson they were last on — a new tab, a bookmark, or opening the site days later all
+  // looked identical to "resume reading", with no way to tell it was about to happen. The hub is
+  // now always the boot destination absent an explicit hash; this banner offers an explicit
+  // "Continue" action instead, naming the saved lesson and when it was last visited (acad_pos /
+  // acad_pos_at — unchanged, still the same fields the cross-device sync merges on). Only clicking
+  // Continue is a deliberate navigation and restamps the position (see showLesson's header);
+  // rendering this banner writes nothing, so a stale device that never gets clicked can never win
+  // a sync merge purely by having been opened.
+  let resumeBannerEl = null;
+
+  function relativeTime(iso) {
+    const then = iso ? Date.parse(iso) : NaN;
+    if (isNaN(then)) return '';
+    const diffMs = Date.now() - then;
+    const min = Math.floor(diffMs / 60000);
+    if (min < 1) return 'just now';
+    if (min < 60) return min + ' minute' + (min === 1 ? '' : 's') + ' ago';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr + ' hour' + (hr === 1 ? '' : 's') + ' ago';
+    const day = Math.floor(hr / 24);
+    if (day < 30) return day + ' day' + (day === 1 ? '' : 's') + ' ago';
+    try { return new Date(then).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); }
+    catch (e) { return ''; }
+  }
+
+  // Called on every showHub() and after every server progress merge, so it always reflects
+  // whatever acad_pos/acad_pos_at currently hold — including a newer position adopted from another
+  // device mid-session. Cheap and idempotent; safe to call even while the hub isn't visible.
+  function renderResumeBanner() {
+    let id = null, at = null;
+    try { id = localStorage.getItem(KEY_POS); at = localStorage.getItem(KEY_POS_AT); } catch (e) {}
+    const lesson = id ? byId[id] : null;
+    if (!lesson) {
+      if (resumeBannerEl) resumeBannerEl.hidden = true;
+      return;
+    }
+    if (!resumeBannerEl) {
+      resumeBannerEl = document.createElement('div');
+      resumeBannerEl.className = 'acad-resume-banner';
+      resumeBannerEl.innerHTML =
+        '<div class="acad-resume-text">' +
+          '<span class="acad-resume-label">Continue where you left off</span>' +
+          '<span class="acad-resume-lesson"></span>' +
+          '<span class="acad-resume-when"></span>' +
+        '</div>' +
+        '<div class="acad-resume-actions">' +
+          '<button type="button" class="acad-resume-go">Continue &rarr;</button>' +
+          '<button type="button" class="acad-resume-dismiss" aria-label="Dismiss">&times;</button>' +
+        '</div>';
+      hub.insertBefore(resumeBannerEl, hub.firstChild);
+      resumeBannerEl.querySelector('.acad-resume-go').addEventListener('click', function () {
+        const target = resumeBannerEl.getAttribute('data-lesson');
+        if (target) showLesson(target);
+      });
+      resumeBannerEl.querySelector('.acad-resume-dismiss').addEventListener('click', function () {
+        resumeBannerEl.hidden = true;
+      });
+    }
+    resumeBannerEl.setAttribute('data-lesson', id);
+    resumeBannerEl.querySelector('.acad-resume-lesson').textContent =
+      (TRACK_LABELS[trackOf(lesson)] || '').replace(/^Track \d+ · /, '') + ' — ' + titleOf(id);
+    const when = relativeTime(at);
+    resumeBannerEl.querySelector('.acad-resume-when').textContent = when ? ('Last visited ' + when) : '';
+    resumeBannerEl.hidden = false;
+  }
+
+  // Boot: URL hash wins > hub (with a Resume banner for any saved position)
   const initial = location.hash.slice(1);
   if (initial && byId[initial]) {
     showLesson(initial, true);
   } else if (initial && HUB_ANCHORS[initial]) {
     showHub(initial);
   } else {
+    showHub();
+    // First-ever, fresh landing on the hub (no deep link, no saved position at all) — offer the
+    // tour once. A learner with a saved position has been through the hub before; the resume
+    // banner is the relevant prompt for them, not the tour.
     let saved = null;
     try { saved = localStorage.getItem(KEY_POS); } catch (e) {}
-    if (saved && byId[saved]) {
-      // Passive resume — keep the saved position's original timestamp. See showLesson's header.
-      showLesson(saved, true, true);
-    } else {
-      showHub();
-      // First-ever, fresh landing on the hub (no deep link, no resumed lesson) — offer the tour once.
+    if (!saved) {
       try {
         if (!localStorage.getItem('acad_tour_seen')) {
           localStorage.setItem('acad_tour_seen', '1');
@@ -1981,9 +2043,9 @@ function initAcademy() {
       } catch (e) {}
     }
   }
-  // A learner who's already signed in when they land straight in a lesson (deep link,
-  // resumed position) would otherwise never see the profile nudge until they change
-  // tracks or refocus the tab — check once at boot too.
+  // A learner who's already signed in when they land straight in a lesson (deep link)
+  // would otherwise never see the profile nudge until they change tracks or refocus
+  // the tab — check once at boot too.
   maybeShowProfileNudge();
   // Same reasoning for progress sync: pull down (and push up) this account's canonical progress once
   // at boot, not just on a later login/track-change.
