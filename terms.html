@@ -15,13 +15,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.min.css?v=5.54">
+  <link rel="stylesheet" href="css/styles.min.css?v=5.61">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
     integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="js/functions.min.js?v=5.49"></script>
+  <script src="js/functions.min.js?v=5.57"></script><script src="js/academy-auth.min.js?v=1.7"></script>
 </head>
 
 <body class="bg-light">
@@ -43,7 +43,7 @@
           <li class="nav-item dropdown"><button class="nav-link dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Services</button><ul class="dropdown-menu nav-dd"><li><a class="dropdown-item" href="/#solutions">All Services</a></li><li><hr class="dropdown-divider"></li><li><a class="dropdown-item" href="/mcp-security">MCP Security</a></li><li><a class="dropdown-item" href="/ai-agent-security">AI Agent Security</a></li><li><a class="dropdown-item" href="/api-security">API Security</a></li></ul></li>
           <li class="nav-item dropdown"><button class="nav-link dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Learn</button><ul class="dropdown-menu nav-dd"><li><a class="dropdown-item" href="/academy">Academy</a></li><li><a class="dropdown-item" href="https://lab.integrauth.com">The Lab <i class="fas fa-external-link-alt nav-dd-ext" aria-hidden="true"></i></a></li><li><a class="dropdown-item" href="/verify">Verify a Certificate</a></li></ul></li>
           <li class="nav-item"><a class="nav-link" href="/#contact">Contact</a></li>
-          <li class="nav-item ms-2">
+          <li class="nav-item dropdown acad-auth-item" id="acadAuthNav"><a href="/auth/start?mode=redirect" class="nav-link acad-auth-signin" id="acadAuthSignIn">Sign in</a><button type="button" class="nav-link dropdown-toggle acad-auth-account" id="acadAuthAccountBtn" data-bs-toggle="dropdown" aria-expanded="false" hidden><span class="acad-auth-avatar" id="acadAuthAvatar"></span><span class="acad-auth-email-label" id="acadAuthEmailLabel"></span></button><ul class="dropdown-menu dropdown-menu-end nav-dd acad-auth-menu" id="acadAuthMenu"><li><a class="dropdown-item" href="/academy#acadAccount" data-acad-auth-action="profile">Profile</a></li><li><a class="dropdown-item" href="/academy#acadExam" data-acad-auth-action="certificates">Certificates</a></li><li><hr class="dropdown-divider"></li><li><button type="button" class="dropdown-item" data-acad-auth-action="signout">Sign out</button></li><li><button type="button" class="dropdown-item" data-acad-auth-action="signout-all">Sign out everywhere</button></li><li><a class="dropdown-item" href="https://lab.integrauth.com/account" target="_blank" rel="noopener noreferrer" data-acad-auth-action="manage-account">Manage account ↗</a></li></ul></li><li class="nav-item ms-2">
             <div class="dropdown theme-dropdown">
               <button class="btn theme-btn dropdown-toggle" type="button" aria-expanded="false" aria-haspopup="true" aria-label="Choose theme">
                 <i class="fas fa-moon theme-icon"></i> <span class="theme-label">Dark</span>
@@ -313,11 +313,11 @@
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">4. USER
                     REGISTRATION</span></span></a><span style="font-size: 15px;"><span data-custom-class="body_text">
                   <bdt class="statement-end-if-in-editor"></bdt>
-                </span></span> <a data-custom-class="link" href="#products"></a></div>
-            <div class="MsoNormal" style="line-height: 1.5;"><a data-custom-class="link" href="#products"><span
+                </span></span> </div>
+            <div class="MsoNormal" style="line-height: 1.5;"><span
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">
                     <bdt class="block-component"></bdt>
-                  </span></span></a> <a data-custom-class="link" href="#purchases"></a></div>
+                  </span></span> <a data-custom-class="link" href="#purchases"></a></div>
             <div class="MsoNormal" style="line-height: 1.5;"><a data-custom-class="link" href="#purchases"><span
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">
                     <bdt class="block-component"></bdt>5. PURCHASES AND PAYMENT<bdt class="statement-end-if-in-editor">
@@ -352,11 +352,11 @@
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">
                     <bdt class="block-component"></bdt>11. GUIDELINES FOR REVIEWS<bdt
                       class="statement-end-if-in-editor"></bdt>
-                  </span></span></a> <a data-custom-class="link" href="#mobile"></a></div>
-            <div class="MsoNormal" style="line-height: 1.5;"><a data-custom-class="link" href="#mobile"><span
+                  </span></span></a> </div>
+            <div class="MsoNormal" style="line-height: 1.5;"><span
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">
                     <bdt class="block-component"></bdt>
-                  </span></span></a> <a data-custom-class="link" href="#socialmedia"></a></div>
+                  </span></span> <a data-custom-class="link" href="#socialmedia"></a></div>
             <div class="MsoNormal" style="line-height: 1.5;"><a data-custom-class="link" href="#socialmedia"><span
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">
                     <bdt class="block-component"></bdt>12. SOCIAL MEDIA<bdt class="statement-end-if-in-editor"></bdt>
@@ -376,17 +376,17 @@
             <div class="MsoNormal" style="line-height: 1.5;"><a data-custom-class="link" href="#ppyes"><span
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">
                     <bdt class="block-component"></bdt>16. PRIVACY POLICY<bdt class="statement-end-if-in-editor"></bdt>
-                  </span></span></a> <a data-custom-class="link" href="#ppno"></a></div>
-            <div class="MsoNormal" style="line-height: 1.5;"><a data-custom-class="link" href="#ppno"><span
+                  </span></span></a> </div>
+            <div class="MsoNormal" style="line-height: 1.5;"><span
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">
                     <bdt class="block-component"></bdt>
-                  </span></span></a> <a data-custom-class="link" href="#dmca"></a></div>
-            <div class="MsoNormal" style="line-height: 1.5;"><a data-custom-class="link" href="#dmca"><span
+                  </span></span> </div>
+            <div class="MsoNormal" style="line-height: 1.5;"><span
                   style="color: rgb(0, 58, 250); font-size: 15px;"><span data-custom-class="body_text">
                     <bdt class="block-component"></bdt>
                     <bdt class="block-component"></bdt>
                     <bdt class="statement-end-if-in-editor"></bdt>
-                  </span></span></a></div>
+                  </span></span></div>
             <div class="MsoNormal" style="line-height: 1.5;"><span style="font-size: 15px;"><span
                   data-custom-class="body_text">
                   <bdt class="block-component"></bdt>
@@ -703,13 +703,13 @@
             <div class="MsoNormal" data-custom-class="body_text" style="line-height: 1.5;">We respect the intellectual
               property rights of others. If you believe that any material available on or through the Services infringes
               upon any copyright you own or control, please immediately refer to the <bdt class="block-component"></bdt>
-              '<bdt class="else-block"></bdt><a data-custom-class="link" href="#dmca"><span
+              '<bdt class="else-block"></bdt><span
                   style="color: rgb(0, 58, 250);">
                   <bdt class="block-component"></bdt>
                   <bdt class="block-component"></bdt>
                 </span>
                 <bdt class="statement-end-if-in-editor"></bdt>
-              </a>
+              
               <bdt class="block-component"></bdt><a data-custom-class="link" href="#copyrightyes"><span
                   style="color: rgb(0, 58, 250);">
                   <bdt class="block-component"></bdt>COPYRIGHT INFRINGEMENTS<bdt class="statement-end-if-in-editor">
@@ -823,6 +823,40 @@
                     </div>
                   </bdt>
                 </bdt>
+              </div>
+              <div class="MsoNormal" style="line-height: 1.5; text-align: left;"><br></div>
+              <div class="MsoNormal" style="line-height: 1;">
+                <div class="MsoNormal" data-custom-class="body_text" style="text-align: left; line-height: 1.5;">
+                  <span style="font-size: 11pt; line-height: 16.8667px; color: rgb(89, 89, 89);">Reading the
+                    IntegrAuth Academy lessons, using its in-page labs, the Flow Explorer, and Challenge mode does
+                    not require an account. An account is required only to take the Academy final exam and to be
+                    issued a certificate. An Academy account is created by verifying an email address with a
+                    single-use code sent to that address, and the same account is used by the IntegrAuth Lab at
+                    lab.integrauth.com. You agree to register with an email address that you control and to keep
+                    access to it secure, and you are responsible for all activity that takes place under your
+                    account. Your account is deleted at lab.integrauth.com/account; doing so deletes it everywhere, together with the progress,
+                    exam attempts, and certificates held under it.</span>
+                </div>
+              </div>
+              <div class="MsoNormal" style="line-height: 1.5; text-align: left;"><br></div>
+              <div class="MsoNormal" style="line-height: 1;">
+                <div class="MsoNormal" data-custom-class="body_text" style="text-align: left; line-height: 1.5;">
+                  <span style="font-size: 11pt; line-height: 16.8667px; color: rgb(89, 89, 89);">The Academy final
+                    exam is unsupervised: you answer it in your own browser and it is graded on our servers. It may be
+                    sat a limited number of times in any 24-hour period — currently three, counted both per account and
+                    per internet connection, so a shared or office connection may reach that limit before you have used
+                    your own attempts. A
+                    certificate records that a passing score was achieved under your account on a given date. It is not a proctored
+                    examination, a professional qualification, an accreditation, a licence, or a statement by us
+                    about your abilities, your employment, or your fitness for any role, and you agree not to
+                    present it as any of those. You agree that the first and last name you supply for a certificate
+                    is your own; once your first certificate has been issued, that name is fixed and cannot be
+                    changed. Each certificate carries a serial that anyone holding it can check at
+                    integrauth.com/verify, and you decide with whom you share that serial. We reserve the right to
+                    withdraw or invalidate a certificate that was obtained by tampering with the exam, by
+                    submitting a result that was not genuinely earned, or otherwise in breach of these Legal
+                    Terms.</span>
+                </div>
               </div>
               <div class="MsoNormal" style="line-height: 1.5; text-align: left;">
                 <bdt class="block-component"><span style="font-size: 15px;"></bdt></span>
@@ -1261,6 +1295,17 @@
                                 style="font-size: 11pt; line-height: 16.8667px; color: rgb(89, 89, 89);font-family: sans-serif; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; orphans: 2; text-align: justify; text-indent: -29.4px; text-transform: none; white-space: normal; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; background-color: rgb(255, 255, 255); text-decoration-style: initial; text-decoration-color: initial; color: rgb(89, 89, 89);">
                                 <bdt class="forloop-component"></bdt>
                               </span>
+                    </li>
+                    <li class="MsoNormal" data-custom-class="body_text" style="line-height: 1.5; text-align: left;">
+                      <span style="font-size: 11pt; line-height: 16.8667px; color: rgb(89, 89, 89);">Tamper with,
+                        automate, or otherwise interfere with the IntegrAuth Academy final exam, or record an exam
+                        result or obtain a certificate that you did not genuinely earn.</span>
+                    </li>
+                    <li class="MsoNormal" data-custom-class="body_text" style="line-height: 1.5; text-align: left;">
+                      <span style="font-size: 11pt; line-height: 16.8667px; color: rgb(89, 89, 89);">Alter, forge,
+                        or misrepresent an Academy certificate, present a certificate issued to someone else as your
+                        own, or represent an Academy certificate as a professional qualification, accreditation, or
+                        licence.</span>
                     </li>
                   </ul>
                 </div>

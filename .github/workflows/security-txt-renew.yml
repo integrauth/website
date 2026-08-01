@@ -1,7 +1,16 @@
 # Keeps .well-known/security.txt fresh (RFC 9116 treats it as stale past its Expires date).
-# Runs monthly; when Expires is within 60 days it bumps it exactly one year forward and pushes,
-# which GitHub Pages redeploys automatically. Replaces the old Claude-scheduled yearly reminder
-# so renewal never depends on any external subscription.
+# Runs monthly; when Expires is within 60 days it bumps it exactly one year forward and pushes.
+# Replaces the old Claude-scheduled yearly reminder so renewal never depends on any external
+# subscription.
+#
+# DELIVERY OF THE RENEWED FILE. On GitHub Pages the push alone redeployed. After the Cloudflare
+# Worker cutover, the live site is the ASSET SNAPSHOT from the last `wrangler deploy`, and the push
+# below is made with GITHUB_TOKEN — whose commits deliberately do NOT trigger the `ci-deploy`
+# workflow (GitHub's recursive-run guard). So a push on its own would leave the renewed security.txt
+# committed but unserved until some unrelated push happened to redeploy — a quiet way to serve a
+# stale, past-Expires file. The final step therefore explicitly dispatches ci-deploy, which IS
+# delivered even from GITHUB_TOKEN. Pre-cutover that redeploys the workers.dev copy (harmless); if
+# the dispatch ever fails or is a no-op, behaviour is no worse than before (next real push redeploys).
 #
 # Caveat: GitHub disables scheduled workflows after 60 days without repo activity. This repo gets
 # regular commits (and the bump itself is a commit), so in practice the schedule stays alive — but
@@ -15,6 +24,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # to dispatch ci-deploy after the bump (see the delivery note above)
 
 jobs:
   renew:
@@ -52,3 +62,21 @@ jobs:
           git add .well-known/security.txt
           git commit -m "chore: renew security.txt Expires to ${{ steps.bump.outputs.new }} (RFC 9116 yearly renewal)"
           git push
+
+      # Push it out to the Worker. The commit above was made with GITHUB_TOKEN and so does NOT
+      # trigger ci-deploy's `push:` run — this explicit dispatch does (workflow_dispatch is delivered
+      # even from GITHUB_TOKEN). Without it the renewed file sits committed but unserved until the
+      # next unrelated deploy. Best-effort: never fail the renewal itself over a dispatch hiccup.
+      - name: Redeploy the Worker so the renewed file is served
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          if gh workflow run ci-deploy --ref main; then
+            echo "Dispatched ci-deploy to serve the renewed security.txt."
+          else
+            echo "::warning::Could not dispatch ci-deploy. The renewed security.txt is committed but"\
+                 "will only reach the Worker on the next deploy. Trigger 'ci-deploy' manually if the"\
+                 "served copy is past its Expires date."
+          fi

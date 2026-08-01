@@ -1,0 +1,62 @@
+# Paths under the repo root that must NOT be uploaded as public static assets.
+#
+# `[assets] directory = "."` in wrangler.toml points at the repo root (the same tree GitHub Pages
+# serves today), so EVERYTHING here is a publish candidate — including the repo's own plumbing.
+# Anything not listed below is served at https://integrauth.com/<path>.
+#
+# `.git` is the important one: without it, `.git/config`, `.git/HEAD`, the refs and
+# `.git/objects/pack/*.pack` all upload, which is the entire repository history downloadable from
+# the live site. GitHub Actions checkouts create `.git` too, so CI deploys would publish it as well.
+# Verify after changing this file with:
+#   WRANGLER_LOG=debug npx wrangler deploy --dry-run 2>&1 | grep 'Ignoring asset'
+# (`.assetsignore`, `_headers` and `_redirects` are excluded by wrangler automatically.)
+#
+# NOT listed here on purpose: `.well-known` (security.txt must stay publicly reachable) and
+# `.nojekyll` (harmless, and still needed by GitHub Pages until the DNS cutover).
+
+# --- repo plumbing (never publish) ---
+.git
+.gitignore
+.claude
+.github
+.wrangler
+
+# --- local secrets (never publish) ---
+# `.dev.vars` is wrangler's standard file for local-dev secrets — it is where IA_WEBSITE_OIDC_SECRET
+# and friends live while running `npm run worker:dev`. It is gitignored, but that protects the repo,
+# not the deploy: `wrangler deploy` uploads the working tree, so a developer deploying from their own
+# machine would publish their live client secret at https://integrauth.com/.dev.vars. Same reasoning
+# for `.env`. Both are listed here so the leak is impossible rather than merely unlikely.
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+
+# --- build/dev tooling, not part of the site ---
+node_modules
+src
+tsconfig.json
+package*.json
+wrangler.toml
+
+# --- internal working documents: CLAUDE.md, README.md, QUICK_START.md and docs/*.md are notes,
+#     not site content, and nothing on the site links to them ---
+*.md
+docs
+
+# --- gitignored working dirs (never publish) ---
+# These are all in .gitignore, so a CI checkout never contains them — but `.assetsignore`'s job is
+# to protect the DEPLOY, not the repo: `wrangler deploy` uploads the working tree, so a developer
+# deploying from their own machine would otherwise publish local build output, notes and test
+# artifacts at https://integrauth.com/<path>. Same reasoning as the `.dev.vars`/`.env` block above.
+# Kept in step with .gitignore's own "never deploy to public site" entries.
+dist
+build
+logs
+coverage
+.nyc_output
+.cache
+.tmp
+.temp
+product-plans
+dev-notes

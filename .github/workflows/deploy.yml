@@ -1,0 +1,382 @@
+# CI + production deploy for the integrauth.com Cloudflare Worker (static site + /api/academy/*).
+#
+# PRs:            typecheck the Worker source only (no deploy).
+# Push to main:   same check, then deploy via `wrangler deploy`.
+#
+# This Worker is intentionally NOT yet routed at integrauth.com (see wrangler.toml's `workers_dev`
+# comment) — it deploys to its *.workers.dev URL only, so this workflow can run safely without
+# touching the live GitHub-Pages-served site. Adding the production `routes` block in wrangler.toml
+# is a deliberate, separate, manual step the product owner takes when ready to cut over.
+#
+# Required repo SECRET (Settings -> Secrets and variables -> Actions -> Secrets):
+#   CF_TOKEN   Cloudflare API token. Needs Workers Scripts:Edit + D1:Read (this Worker only READS
+#              the shared D1 binding's existence, never runs migrations against it) for now; add
+#              Workers Routes:Edit + DNS:Edit + Zone:Read on the integrauth.com zone ONLY when
+#              you're ready to add the production `routes` block to wrangler.toml. Can be the same
+#              token already used by the `integrauth/lab` repo, or a separate one scoped just to
+#              this Worker — either works, since `account_id`/`database_id` are already pinned in
+#              wrangler.toml (committed, non-secret).
+#
+# NOT required: RESEND_APIKEY (this Worker never sends email — all OTP email goes out through the
+# Lab's own Resend integration, where the credentials are collected; this site never calls the
+# Lab's API at all, it only signs users in against the Lab's OpenID Provider by redirect).
+#
+# Provisioned automatically by this workflow (not a GitHub input): the ACADEMY_PRIVATE_JWK Worker
+# secret (an ES256 P-256 private key, JWK JSON, used to sign Academy certificates) is generated
+# in the "Sync Worker secrets" step below IF ABSENT, and never rotated afterwards (rotating it
+# would invalidate every previously-issued certificate's embedded signature — see
+# src/lib/server/certs.ts's file header). This mirrors the same generate-if-absent/never-rotate
+# convention the `integrauth/lab` repo uses for its own LAB_PRIVATE_JWK / LAB_ENC_KEY.
+#
+# Dependency: the shared D1 database (`lab-db`) must already carry migrations 0045-0053 from the
+# `integrauth/lab` repo before this Worker is exercised for real — this workflow does not apply
+# those migrations (schema ownership stays entirely in the lab repo, see wrangler.toml's D1 section
+# for why). The tail of that range is the part that is easy to under-count: 0052 creates
+# `website_sessions`, without which EVERY sign-in 500s inside /auth/callback, and 0053 creates
+# `academy_progress_epoch`, without which every progress sync and reset 500s. Deploying this Worker
+# against a database that stopped at 0050 therefore looks like a total auth outage, not a missing
+# feature — merge and deploy the lab repo first.
+
+name: ci-deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Lets another workflow (security-txt-renew.yml) ask for a redeploy after it commits a change with
+  # the GITHUB_TOKEN — whose own push deliberately does NOT trigger `push:` runs (GitHub's
+  # recursive-workflow guard), so without this the renewed asset would never reach the Worker until
+  # some unrelated push happened to redeploy. A workflow_dispatch IS delivered even from
+  # GITHUB_TOKEN, which is the whole point.
+  workflow_dispatch: {}
+
+# Serialize deploys: two pushes landing close together could otherwise run `wrangler deploy`
+# concurrently and leave the older build live. PRs are cancel-in-progress (only the latest
+# commit's check matters); main is not, so a deploy already in flight always finishes.
+concurrency:
+  group: ci-deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run worker:typecheck
+
+      # A raw control byte in a source file makes that file BINARY to grep and ripgrep, which then
+      # skip it silently. That is not a theoretical tidiness concern: oidc-rp.ts once shipped with a
+      # literal NUL, US and DEL inside the character class of `safeReturnPath`'s open-redirect guard
+      # (instead of \x00-\x1f\x7f escapes). It behaved identically, typechecked, and passed review —
+      # while making the file invisible to every text search anyone ran over the Worker, including
+      # the audits looking for exactly that kind of problem. Escapes are always available; a raw
+      # control byte in these file types is always a mistake.
+      - name: No stray control bytes in source
+        run: |
+          set -euo pipefail
+          # The file list is produced on ITS OWN LINE, into a temp file, rather than piped straight
+          # into the grep. That is the fix for a real gap: with the old one-liner, a failure of
+          # `git ls-files` itself (or of `xargs`) was indistinguishable from "found nothing" — the
+          # trailing `|| true`, which the grep genuinely needs for its no-match exit status (1),
+          # swallowed the whole pipeline's failure and the step passed green having checked nothing.
+          # Now a git failure trips `set -e` here and fails the step, and the `|| true` below guards
+          # ONLY grep's legitimate no-match case. node_modules is untracked so never listed; minified
+          # files are excluded by pathspec instead of a post-`grep -v` (which was itself part of the
+          # masked pipeline).
+          srcz="$(mktemp)"
+          git ls-files -z -- '*.ts' '*.js' '*.json' '*.html' '*.css' '*.yml' '*.toml' ':(exclude)*.min.*' > "$srcz"
+          # `-r` (--no-run-if-empty) so an empty list does not run grep against stdin; `grep -a` is
+          # load-bearing: without it grep classifies a NUL-containing file as binary and its PCRE
+          # matcher never reports it — i.e. the guard would miss the ONE byte from the original
+          # incident most reliably, while catching the others. Verified empirically both ways.
+          bad=$(xargs -0 -r -a "$srcz" grep -laP '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]' 2>/dev/null || true)
+          rm -f "$srcz"
+          if [ -n "$bad" ]; then
+            echo "::error::Source files contain raw control bytes (use \\x escapes instead):"
+            echo "$bad"
+            exit 1
+          fi
+          echo "No stray control bytes."
+
+  deploy:
+    # Deploy on a push to main, or on an explicit redeploy request (workflow_dispatch — used by
+    # security-txt-renew.yml after it bumps the Expires date; see that workflow). Both are gated to
+    # the main branch. PRs never reach here.
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Deploy Worker
+        id: deploy
+        run: |
+          set -euo pipefail
+          npx wrangler deploy | tee /tmp/deploy.log
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy.log | head -n1 || true)
+          # FAIL if the URL could not be parsed. workers_dev = true (wrangler.toml), so a successful
+          # deploy ALWAYS prints a *.workers.dev URL — an empty capture here means wrangler changed
+          # its output wording (it has between majors) or the log was truncated, NOT that there is no
+          # URL. That distinction matters because the entire Smoke-probe step below — including the
+          # BLOCKING security invariants (no private key in JWKS, /auth/session no-store, no open
+          # redirect) — is driven by this value. Letting it be empty turned "the probes could not run"
+          # into a silent green deploy, the exact failure those probes exist to prevent. Stop here
+          # instead: a deploy whose result cannot be verified is a failed deploy.
+          if [ -z "$URL" ]; then
+            echo "::error::Deployed, but could not parse the *.workers.dev URL from the wrangler"\
+                 "output — the smoke/security probes cannot run. Refusing to report success. Check"\
+                 "wrangler's deploy output format."
+            exit 1
+          fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+      # Generate-if-absent, NEVER rotate: ACADEMY_PRIVATE_JWK (ES256 P-256 private key, JWK JSON) —
+      # rotating it would invalidate the signature embedded in every certificate already issued.
+      # Needs the Worker to already exist (first deploy above), same ordering as the lab repo's own
+      # provision-cf.sh (`secrets` phase runs after `wrangler deploy`, not before).
+      # FAIL-CLOSED: if we cannot positively determine whether the secret already exists, STOP.
+      # The dangerous failure mode is the opposite one — a `wrangler secret list` that errors
+      # (auth blip, API change, network) yields an empty list, the grep below misses, and we would
+      # generate and upload a NEW key, silently invalidating the signature on every certificate
+      # ever issued. An unreadable secret list is a broken deploy, not a licence to rotate.
+      - name: Sync Worker secrets
+        env:
+          # Shared with the integrauth/lab Worker, which must hold the IDENTICAL raw value. Set it
+          # once as a GitHub Secret — ideally an ORGANISATION secret shared to both repos, since a
+          # repository secret has to be added to each of them separately and two different values is
+          # the failure this is trying to avoid. Unset is tolerated (see below).
+          IA_WEBSITE_OIDC_SECRET: ${{ secrets.IA_WEBSITE_OIDC_SECRET }}
+        run: |
+          set -euo pipefail
+          if ! SECRETS_JSON=$(npx wrangler secret list --format json); then
+            echo "::error::Could not list Worker secrets. Refusing to continue: generating"\
+                 "ACADEMY_PRIVATE_JWK now could rotate the certificate signing key and invalidate"\
+                 "every certificate already issued. Fix CF_TOKEN / API access and re-run."
+            exit 1
+          fi
+          # The listing must be a JSON ARRAY before we trust its contents. `wrangler secret list`
+          # exiting 0 with empty or non-array stdout (a wrapper's banner, a truncated body, an API
+          # shape change) otherwise sails through the `jq -r '.[].name'` below as an empty result —
+          # indistinguishable from "this Worker has no secrets" — and the grep then misses,
+          # ACADEMY_PRIVATE_JWK is regenerated, and the certificate signing key the file header above
+          # says must NEVER rotate is rotated, invalidating every certificate ever issued. `[]` (a
+          # genuinely secret-less first deploy) is a valid array and still passes, so the real
+          # first-run generate path is unaffected. This mirrors the lab's provision-cf.sh
+          # `jq -e 'type=="array"'` guard on its own never-rotate secrets.
+          if ! printf '%s' "$SECRETS_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "::error::Worker secret list was not a JSON array — refusing to continue. Reading"\
+                 "it as 'no secrets exist' could rotate the never-rotate ACADEMY_PRIVATE_JWK."
+            exit 1
+          fi
+          if ! EXISTING=$(printf '%s' "$SECRETS_JSON" | jq -r '.[].name'); then
+            echo "::error::Worker secret list was not valid JSON — refusing to continue (see above)."
+            exit 1
+          fi
+          if printf '%s\n' "$EXISTING" | grep -qxF 'ACADEMY_PRIVATE_JWK'; then
+            echo "ACADEMY_PRIVATE_JWK already set — leaving it (never rotated)."
+          else
+            JWK=$(node -e '
+              const { generateKeyPairSync } = require("crypto");
+              const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+              process.stdout.write(JSON.stringify(privateKey.export({ format: "jwk" })));
+            ')
+            echo "::add-mask::${JWK}"
+            printf '%s' "$JWK" | npx wrangler secret put ACADEMY_PRIVATE_JWK
+            echo "  set ACADEMY_PRIVATE_JWK"
+          fi
+
+          # IA_WEBSITE_OIDC_SECRET is SHARED with the integrauth/lab Worker, which must hold the
+          # identical raw value — it stores only the SHA-256, so it can never tell anyone what the
+          # value is. That is why this is never GENERATED here: a value we invented would be one the
+          # provider does not know, and every sign-in would fail invalid_client. It is instead
+          # mirrored from a GitHub Secret, which is the one place a human can set it once and have
+          # both Workers converge on it.
+          #
+          # Synced on EVERY deploy when the GitHub Secret is present, deliberately: that makes an
+          # update propagate (rotating the shared secret is then "change it in one place, redeploy
+          # both") instead of being pinned forever by a get-or-create.
+          if [ -n "${IA_WEBSITE_OIDC_SECRET:-}" ]; then
+            printf '%s' "$IA_WEBSITE_OIDC_SECRET" | npx wrangler secret put IA_WEBSITE_OIDC_SECRET
+            echo "  synced IA_WEBSITE_OIDC_SECRET from the GitHub Secret"
+          elif printf '%s\n' "$EXISTING" | grep -qxF 'IA_WEBSITE_OIDC_SECRET'; then
+            # Already on the Worker and no GitHub Secret to compare against. Leave it alone rather
+            # than clearing it — but say so, because a value nobody can read is a value nobody can
+            # confirm matches the Lab's.
+            echo "IA_WEBSITE_OIDC_SECRET is set on the Worker but no GitHub Secret was provided —"\
+                 "leaving the existing value in place."
+          else
+            # A warning rather than a failure, because the deploy order is deliberately staged: this
+            # Worker is meant to be deployable before sign-in is wired up, and it degrades honestly
+            # without the secret — rpConfigFromEnv() returns null, /auth/* answers 503
+            # sign_in_unavailable, and the account-free Academy (lessons, labs, Flow Explorer,
+            # Challenge mode) keeps working.
+            echo "::warning::IA_WEBSITE_OIDC_SECRET is not set, so sign-in will answer 503"\
+                 "sign_in_unavailable. Add it as a GitHub Secret (organisation-level, shared to this"\
+                 "repo AND integrauth/lab, so both get the same value) and re-run. Also make sure"\
+                 "this Worker's /auth/callback URL is in the Lab's IA_WEBSITE_REDIRECT_URIS — the"\
+                 "'OIDC callback URL (cross-check against the Lab)' step below prints it."
+          fi
+
+      # This Worker's own callback URL, reported for cross-checking. The Lab normally registers it
+      # ITSELF — its provision-cf.sh derives the account's workers.dev subdomain from the Cloudflare
+      # API and appends `<worker>.<subdomain>.workers.dev/auth/callback` to IA_WEBSITE_REDIRECT_URIS
+      # at deploy time — so this is a verification aid and a manual fallback, not the primary path.
+      # It earns its place because the derivation is deliberately best-effort (a narrowly-scoped
+      # CF_TOKEN or an account with no workers.dev subdomain both make it skip with a warning), and
+      # because the Lab matches redirect URIs by EXACT string equality, where a silent mismatch shows
+      # up only as a generic invalid_client_or_redirect.
+      - name: OIDC callback URL (cross-check against the Lab)
+        if: always()
+        run: |
+          set -uo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          {
+            echo "### OIDC callback for this deploy"
+            echo
+            if [ -n "$URL" ]; then
+              echo "This Worker's callback is:"
+              echo
+              echo '```'
+              echo "${URL}/auth/callback"
+              echo '```'
+              echo
+              echo "\`integrauth/lab\` appends this to \`IA_WEBSITE_REDIRECT_URIS\` automatically"
+              echo "during its own deploy. If sign-in fails with \`invalid_client_or_redirect\`,"
+              echo "check that the above appears **verbatim** in that list — and look for a"
+              echo "\`workers.dev subdomain\` warning in the Lab's deploy log."
+            else
+              echo "The workers.dev URL was not captured from this run — take it from the deploy log."
+            fi
+            echo
+            echo "Committed on the Lab side (production, already in its \`wrangler.toml\`):"
+            echo
+            echo '```toml'
+            echo 'IA_WEBSITE_REDIRECT_URIS = "https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback"'
+            echo 'IA_WEBSITE_BACKCHANNEL_LOGOUT_URI = "https://integrauth.com/auth/backchannel-logout"'
+            echo '```'
+            echo
+            echo "Comma-separated, **max 5** entries, exact string equality, **no trailing slash**"
+            echo "(\`/auth/callback/\` passes the Lab's registration check but never matches, because"
+            echo "this site sends the no-slash form)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Smoke probe against the *.workers.dev URL this run just deployed to. The reachability checks
+      # (verify shape, homepage 200, /auth/session shape) are warnings — this Worker isn't serving
+      # real traffic yet. But the three invariants at the END of this step (no private key in JWKS,
+      # /auth/session no-store, no open redirect) are BLOCKING: their failure is silent in normal use,
+      # which is exactly why CI must catch it. This step is deliberately NOT gated on
+      # `steps.deploy.outputs.url` any more — the deploy step now hard-fails when the URL can't be
+      # parsed, so reaching here guarantees a URL, and an `if:` gate could only reintroduce the
+      # silent-skip this whole arrangement exists to prevent.
+      - name: Smoke probe
+        run: |
+          set -uo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          sleep 5
+          body=$(curl -sS -m 20 "$URL/api/academy/certificates/verify/does-not-exist" || true)
+          if printf '%s' "$body" | grep -q '"valid":false'; then
+            echo "OK: $URL/api/academy/certificates/verify/does-not-exist -> valid:false"
+          else
+            echo "::warning::Smoke probe against $URL didn't return the expected valid:false shape (got: $body)"
+          fi
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' "$URL/" || echo 000)
+          if [ "$code" = "200" ]; then
+            echo "OK: $URL/ -> 200"
+          else
+            echo "::warning::$URL/ returned $code, expected 200"
+          fi
+
+          # /auth/session is the frontend's capability probe: js/academy-auth.js decides whether
+          # accounts exist on this host by calling it and looking for a JSON `loggedIn` field. If
+          # this ever stops answering that shape, the Academy silently drops to its account-free
+          # mode — sign-in and certificates just quietly disappear with no error anywhere. Worth a
+          # probe precisely because the failure is invisible.
+          body=$(curl -sS -m 20 "$URL/auth/session" || true)
+          if printf '%s' "$body" | grep -q '"loggedIn":false'; then
+            echo "OK: $URL/auth/session -> loggedIn:false"
+          else
+            echo "::warning::$URL/auth/session didn't return the expected loggedIn:false shape"\
+                 "(got: $body). The frontend treats that as 'accounts unavailable on this host'."
+          fi
+
+          # A signed-in-only route must reject an anonymous caller. A 200 here would mean the
+          # session gate is not in the request path at all.
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' "$URL/api/academy/progress" || echo 000)
+          if [ "$code" = "401" ]; then
+            echo "OK: $URL/api/academy/progress -> 401 without a session"
+          else
+            echo "::error::$URL/api/academy/progress returned $code, expected 401. A session-gated"\
+                 "route answering anything else means the auth gate is not being applied."
+            exit 1
+          fi
+
+          # --- BLOCKING probes for the three invariants whose failure is silent ---
+          #
+          # Each of these was a real defect found by re-audit on 2026-07-30, and none of them would
+          # have produced a visible symptom in normal use. They are `::error::` + exit 1, unlike the
+          # warnings above, because "quietly wrong" is exactly the failure mode being guarded.
+
+          # 1. The JWKS route must NEVER publish the private half. `"d"` in an EC JWK is the private
+          #    scalar; leaking it lets anyone forge certificates in any learner's name, permanently.
+          # An empty response must FAIL, not pass: a probe that greps nothing finds nothing, and a
+          # network hiccup would print OK for an invariant it never actually checked.
+          jwks=$(curl -sS -m 20 "$URL/api/academy/.well-known/jwks.json" || true)
+          if [ -z "$jwks" ]; then
+            echo "::error::could not fetch $URL/api/academy/.well-known/jwks.json — the private-key"\
+                 "leak probe did not run, which is a failure, not a pass."
+            exit 1
+          fi
+          if printf '%s' "$jwks" | grep -q '"d"'; then
+            echo "::error::$URL/api/academy/.well-known/jwks.json contains a \"d\" member — the"\
+                 "PRIVATE key half is being published. Do not leave this deployed."
+            exit 1
+          fi
+          echo "OK: JWKS publishes no private key material"
+
+          # 2. Nothing under /auth/* may be cacheable. /auth/session returns the caller's own email
+          #    and device list; a 200 with no Cache-Control is eligible for heuristic freshness in a
+          #    shared proxy, i.e. one user's identity served to another.
+          cc=$(curl -sS -m 20 -D - -o /dev/null "$URL/auth/session" 2>/dev/null | tr -d '\r' \
+                 | grep -i '^cache-control:' || true)
+          if printf '%s' "$cc" | grep -qi 'no-store'; then
+            echo "OK: /auth/session is no-store"
+          else
+            echo "::error::/auth/session did not send Cache-Control: no-store (got: '${cc:-none}')."\
+                 "That response carries the caller's email and session list."
+            exit 1
+          fi
+
+          # 3. The post-login return path must not be an open redirect. A tab is the interesting
+          #    payload: the URL parser strips tab/CR/LF before parsing, so `/<TAB>/evil.com` used to
+          #    resolve to https://evil.com/ while passing a naive single-slash check.
+          # Same rule as the JWKS probe: a fetch that returned nothing checked nothing. An absent
+          # Location header on a REAL response is fine (503 sign_in_unavailable renders a page, no
+          # redirect, nothing reflected) — but only if we actually got headers back.
+          hdrs=$(curl -sS -m 20 -D - -o /dev/null "$URL/auth/start?mode=redirect&return=/%09/evil.example" 2>/dev/null || true)
+          if [ -z "$hdrs" ]; then
+            echo "::error::could not fetch $URL/auth/start — the open-redirect probe did not run,"\
+                 "which is a failure, not a pass."
+            exit 1
+          fi
+          loc=$(printf '%s' "$hdrs" | tr -d '\r' | grep -i '^location:' || true)
+          if printf '%s' "$loc" | grep -qi 'evil.example'; then
+            echo "::error::/auth/start reflected a hostile return path into Location ($loc) —"\
+                 "safeReturnPath is not rejecting control characters. This is an open redirect."
+            exit 1
+          fi
+          echo "OK: hostile return path was not reflected into the redirect"

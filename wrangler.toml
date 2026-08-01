@@ -1,0 +1,125 @@
+name = "integrauth-website"
+# The IntegrAuth Cloudflare account — same account as the sister `integrauth/lab` repo.
+# Committed (account ids are not secrets) so wrangler works from any checkout without discovery.
+account_id = "caf8f7aaecfdec65f1b9f5ac8185f750"
+main = "src/worker.ts"
+compatibility_date = "2025-06-20"
+compatibility_flags = ["nodejs_compat"]
+
+# --- workers.dev ---
+# INTENTIONALLY left enabled (unlike the sister `integrauth/lab` repo, which disables
+# workers.dev to force one canonical origin). The product owner wants to exercise this
+# Worker on its *.workers.dev URL first and cut integrauth.com's DNS over from GitHub
+# Pages manually, later, once it's verified. Do NOT add a `routes`/`custom_domain` block
+# until that manual cutover is actually happening — doing so would start routing live
+# production traffic (integrauth.com) through this Worker.
+#
+# When ready to go live, add:
+#   routes = [
+#     { pattern = "integrauth.com", custom_domain = true },
+#     { pattern = "www.integrauth.com", custom_domain = true }
+#   ]
+workers_dev = true
+
+# --- Static assets ---
+# Serves the existing static site (index.html, academy.html, css/, js/, images/, etc.)
+# straight from the repo root — the same directory GitHub Pages serves today.
+# See .assetsignore for what is deliberately NOT published (notably `.git`).
+#
+# LOCAL DEV GOTCHA: because the assets directory IS the repo root, wrangler's own local state
+# directory (`.wrangler/`) sits *inside* the tree it watches — so a plain `wrangler dev` writes
+# state, retriggers its own watcher, and reload-loops forever without ever serving a request.
+# Always run it via `npm run worker:dev`, which passes `--persist-to ../.wrangler-state` to put
+# that state outside the watched tree. (Verified: 250+ reloads/minute before, 1 after.)
+[assets]
+binding = "ASSETS"
+directory = "."
+
+# Only /api/academy/* and /auth/* are routed to the Worker; every other request is answered
+# directly by Cloudflare's asset server without a Worker invocation (faster, and no per-asset
+# Worker request billed for ~200 static files incl. 43 logos). Security headers for those static
+# responses come from the `_headers` file at the repo root instead of from security.ts —
+# keep the two in sync when either changes.
+#
+# KEEP IN SYNC with the path prefixes src/worker.ts dispatches on. A prefix the Worker handles but
+# that is missing here never reaches the Worker at all — the asset server answers it first, and the
+# symptom is a plain 404 on a route that looks correctly implemented. /auth/* is the OIDC Relying
+# Party surface (login start, callback, session, logout, back-channel logout).
+run_worker_first = ["/api/academy/*", "/auth/*"]
+
+# Serve the repo's custom 404.html for unmatched paths. WITHOUT this, the default is "none",
+# which returns a bare bodyless 404 — i.e. the custom 404 page GitHub Pages serves today would
+# silently stop working after the cutover. (Verified: default "none" returns Content-Length: 0.)
+not_found_handling = "404-page"
+
+# Left at the default "auto-trailing-slash", which is what makes the site's extensionless URL
+# convention work: /academy serves academy.html, and /academy.html 307-redirects to /academy.
+# Verified locally against the real asset server — do not change without re-testing every page.
+html_handling = "auto-trailing-slash"
+
+# --- D1 database ---
+# SHARED with the `integrauth/lab` repo — this is the SAME physical D1 instance
+# (lab-db), not a copy. Schema/migrations for it are owned by the `integrauth/lab`
+# repo. This Worker only:
+#   - reads (never writes) the Lab-owned `users` table, to learn whether the account
+#     behind a session is still active and what address to show in the navbar. It does
+#     NOT touch the Lab-owned `sessions` table at all — that was true of an earlier
+#     shared-cookie design that was withdrawn; this Worker now mints and validates its
+#     own sessions only.
+#   - reads/writes its OWN tables: website_sessions, profiles, academy_lesson_progress,
+#     academy_quiz_progress, academy_last_position, academy_exam_attempts,
+#     academy_certificates, academy_progress_epoch.
+# Never run migrations from this repo against this database, and never alter any
+# Lab-owned table from here.
+[[d1_databases]]
+binding = "DB"
+database_name = "lab-db"
+database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
+
+[vars]
+# Same Turnstile site key the Lab uses (committed there too — a Turnstile SITE key is the public
+# half of the widget, safe to commit; only TURNSTILE_SECRET is sensitive). Both apps share one
+# widget — scripts/provision-cf.sh in the lab repo keeps integrauth.com/www.integrauth.com in that
+# widget's allowed-domains list. If the widget is ever re-created, update this value AND the lab
+# repo's wrangler.toml together (both must carry the same site key).
+PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAD3VSnt3hqHZSCXw"
+
+# --- OIDC Relying Party (see src/lib/server/oidc-rp.ts) ---
+# This site authenticates users by redirecting to the Lab's OpenID Provider and exchanging an
+# authorization code — it does NOT share a session cookie with the Lab (that design was rejected;
+# src/lib/server/session.ts's header explains why at length).
+#
+# Both values are non-secret identifiers, hence [vars] rather than Wrangler secrets. The issuer must
+# match the `iss` claim byte for byte, so no trailing slash.
+LAB_ISSUER = "https://lab.integrauth.com"
+OIDC_CLIENT_ID = "integrauth-website"
+
+# NOT here, and must never be committed: IA_WEBSITE_OIDC_SECRET — the client secret for the
+# `integrauth-website` OIDC client. THE SAME RAW VALUE must exist in the `integrauth/lab` Worker
+# under the same name; the Lab stores only its SHA-256, so it can never be read back or compared.
+#
+# Provision it as ONE GitHub Secret named IA_WEBSITE_OIDC_SECRET — organisation-level, shared to this
+# repo AND integrauth/lab — and each repo's deploy workflow mirrors it into its own Worker. Rotating
+# is then "change the GitHub Secret, redeploy both". Neither CI ever GENERATES it: a value one side
+# invented would be one the other does not know, and a generated Wrangler secret is masked out of the
+# log and unreadable afterwards, so nobody could tell the other side what to match.
+#
+#   openssl rand -base64 32     # once, then paste into the GitHub Secret
+#
+# For a purely local run, `.dev.vars` (gitignored, and in .assetsignore) does the same job.
+#
+# Until it is set, `rpConfigFromEnv()` returns null and the /auth routes answer 503
+# `sign_in_unavailable`; the rest of the site is unaffected, which is deliberate so the Worker can be
+# deployed before the secret is provisioned.
+#
+# ALSO REQUIRED, on the Lab side: this site's callback URL must appear VERBATIM in the Lab's
+# IA_WEBSITE_REDIRECT_URIS (comma-separated, max 5, exact string match at request time — no
+# host/port/scheme laxity, NO trailing slash). Both halves are handled there already: the two
+# production entries are committed, and the `*.workers.dev` one for pre-cutover staging is derived
+# from the Cloudflare API by the Lab's provision-cf.sh at deploy time (that hostname depends on the
+# account subdomain, so it is not knowable from either repo). This repo's deploy prints its own
+# callback into the run summary for cross-checking if sign-in ever fails
+# `invalid_client_or_redirect`.
+
+[observability]
+enabled = true
