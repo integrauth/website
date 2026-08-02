@@ -1081,6 +1081,13 @@ function initAcademy() {
     const hubText = document.getElementById('acadHubProgressText');
     if (hubFill) hubFill.style.width = pct + '%';
     if (hubText) hubText.textContent = opened + '/' + lessons.length + ' lessons read · ' + pct + '%';
+    // Mirrored at the bottom of the hub next to "Reset all progress", so the tour's final step
+    // (which spotlights .acad-hub-foot while talking about "your progress") actually has a
+    // progress bar to point at instead of just a bare reset button.
+    const hubFillBottom = document.getElementById('acadHubProgressFillBottom');
+    const hubTextBottom = document.getElementById('acadHubProgressTextBottom');
+    if (hubFillBottom) hubFillBottom.style.width = pct + '%';
+    if (hubTextBottom) hubTextBottom.textContent = opened + '/' + lessons.length + ' lessons read · ' + pct + '%';
     // Unlock the final-exam widget the moment every lesson is read (checked cheaply:
     // only while it's still showing its locked state, so an unlocked exam in progress
     // is never clobbered by a stray remount on later lesson views).
@@ -1249,7 +1256,11 @@ function initAcademy() {
   const ACAD_TOUR = [
     { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 133 byte-sized lessons and hands-on labs — free, and no account needed to learn (only the final exam and certificate ask you to sign in). Here’s how to get from your first lesson to your certificate.' },
     { selector: '.acad-track-card', title: '1. Pick a track', text: 'Click any track card — or a lesson link inside it — to start reading. Each lesson is a 3–5 minute read.' },
-    { title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
+    // No dedicated selector of its own on purpose: chips/pager only exist inside an open lesson,
+    // not on the hub the tour plays out on, so this reused .acad-track-card's spotlight instead of
+    // falling back to a page-top scroll — which read as a random, disconnected highlight since the
+    // step's own text is about navigating within a track, the same thing step 1 pointed at.
+    { selector: '.acad-track-card', title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
     { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
     { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in five real-world scenarios, then pick the fix.' },
     // Question count must match `N` in lab-exam's draw (js/academy-labs.js) — it was left saying 25
@@ -2024,6 +2035,20 @@ function initAcademy() {
     showLesson(initial, true);
   } else if (initial && HUB_ANCHORS[initial]) {
     showHub(initial);
+    // A deep link arriving from another page (e.g. the navbar's Profile/Certificates links)
+    // fires this scrollIntoView before Bootstrap's CSS — loaded async, see the boot loader
+    // section — has actually applied. Bootstrap's grid/spacing rules reflow the hub afterward,
+    // so the first scroll lands at coordinates that are stale by the time layout settles and
+    // the learner ends up back near the top instead of at the section they clicked. Re-run the
+    // same scroll+pulse once the window's `load` event says every stylesheet has resolved.
+    window.addEventListener('load', function () {
+      if (hub.hidden) return;
+      const el = document.getElementById(initial);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.classList.add('acad-hub-pulse');
+      setTimeout(function () { el.classList.remove('acad-hub-pulse'); }, 2200);
+    });
   } else {
     showHub();
     // First-ever, fresh landing on the hub (no deep link, no saved position at all) — offer the

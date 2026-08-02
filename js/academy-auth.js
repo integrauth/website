@@ -584,7 +584,24 @@
    * dev, an origin that was never deployed) falls through to the Lab's own plain confirmation page
    * — signed out either way, just not automatically returned.
    */
+  /**
+   * Both sign-out paths replace this page's #acadAccountPanel with its short signed-out state the
+   * moment the server confirms — the academy-auth-changed listener re-renders it synchronously,
+   * well before the reload or cross-origin redirect that follows actually takes effect. Collapsing
+   * a tall, multi-box panel (profile + devices + account + danger zone) down to one line shifts
+   * everything below it upward without the browser adjusting scroll position, so a learner who was
+   * scrolled down to click the button — the normal case on mobile, where the panel fills most of
+   * the screen — is left looking at whatever now sits at their old scroll offset, usually the
+   * footer, with no visible sign anything worked until the reload/redirect lands a moment later.
+   * Scrolling the (now short) panel into view right away closes that gap.
+   */
+  function settleScrollAfterSignOut() {
+    var panel = document.getElementById('acadAccountPanel');
+    if (panel) panel.scrollIntoView({ block: 'start' });
+  }
+
   function navigateToLabLogout() {
+    settleScrollAfterSignOut();
     var back = window.location.origin + '/';
     window.location.href = LAB_ORIGIN + '/oidc/logout?client_id=integrauth-website' +
       '&post_logout_redirect_uri=' + encodeURIComponent(back);
@@ -910,70 +927,93 @@
   // every academy-auth-changed event) while still refetching the moment the signed-in email changes.
   var navProfileCache = null;
 
-  function renderNavAuth(session) {
-    var nav = document.getElementById('acadAuthNav');
-    if (!nav) return;
-    var signInEl = document.getElementById('acadAuthSignIn');
-    var accountBtn = document.getElementById('acadAuthAccountBtn');
-    if (!signInEl || !accountBtn) return;
-    if (session.loggedIn) {
-      signInEl.hidden = true;
-      accountBtn.hidden = false;
-      var email = session.email || '';
-      // The control is icon-only now (no visible email/name next to it, on either the desktop
-      // navbar or the collapsed hamburger menu — same markup drives both). The identity still
-      // goes on `aria-label`, not just a static "Your account", so screen-reader users aren't
-      // left with less information than before; it updates in place, same as the old visible
-      // label did. Once the learner has set a certificate name, it's friendlier than an email
-      // address, so it replaces this the moment it's known.
-      accountBtn.setAttribute('aria-label', 'Your account: ' + email);
+  // There are now TWO instances of this control on every page: the original inside the
+  // collapsible hamburger menu (`#acadAuthNav`), and a compact `.acad-auth-quick` copy sitting
+  // next to the navbar-toggler so sign-in/account is visible without opening the hamburger on
+  // mobile, and reads as its own noticeable control on desktop. Both share the `.acad-auth-item`
+  // class and the same inner `.acad-auth-signin`/`.acad-auth-account`/`.acad-auth-avatar` classes,
+  // so everything below operates on "every matching instance", not a single element by id.
+  function navAuthItems() {
+    return Array.prototype.slice.call(document.querySelectorAll('.acad-auth-item'));
+  }
 
-      if (navProfileCache && navProfileCache.email === email && navProfileCache.firstName) {
-        accountBtn.setAttribute('aria-label', 'Your account: ' + navProfileCache.firstName);
-      } else if (!navProfileCache || navProfileCache.email !== email) {
-        navProfileCache = { email: email, firstName: null };
-        getProfile().then(function (profile) {
-          if (!profile || !profile.firstName) return;
-          // The signed-in identity may have moved on while this was in flight (sign-out, a switch
-          // to a different account) — a stale response must not paint someone else's name in.
-          if (getSession().email !== email) return;
-          navProfileCache = { email: email, firstName: profile.firstName };
-          accountBtn.setAttribute('aria-label', 'Your account: ' + profile.firstName);
-        }).catch(function () {});
+  function renderNavAuth(session) {
+    var navs = navAuthItems();
+    if (!navs.length) return;
+    navs.forEach(function (nav) {
+      var signInEl = nav.querySelector('.acad-auth-signin');
+      var accountBtn = nav.querySelector('.acad-auth-account');
+      if (!signInEl || !accountBtn) return;
+      if (session.loggedIn) {
+        signInEl.hidden = true;
+        accountBtn.hidden = false;
+        accountBtn.setAttribute('aria-label', 'Your account: ' + (session.email || ''));
+      } else {
+        signInEl.hidden = false;
+        accountBtn.hidden = true;
+        accountBtn.setAttribute('aria-label', 'Your account');
       }
-    } else {
-      signInEl.hidden = false;
-      accountBtn.hidden = true;
-      accountBtn.setAttribute('aria-label', 'Your account');
-      navProfileCache = null;
+    });
+    if (!session.loggedIn) { navProfileCache = null; return; }
+    // The control is icon-only now (no visible email/name next to it, in the hamburger menu, the
+    // quick control, or the collapsed hamburger's list view — same markup drives all of them). The
+    // identity still goes on `aria-label`, not just a static "Your account", so screen-reader users
+    // aren't left with less information than before; it updates in place, same as the old visible
+    // label did. Once the learner has set a certificate name, it's friendlier than an email
+    // address, so it replaces this the moment it's known.
+    var email = session.email || '';
+    if (navProfileCache && navProfileCache.email === email && navProfileCache.firstName) {
+      setAccountAriaLabel(navProfileCache.firstName);
+    } else if (!navProfileCache || navProfileCache.email !== email) {
+      navProfileCache = { email: email, firstName: null };
+      getProfile().then(function (profile) {
+        if (!profile || !profile.firstName) return;
+        // The signed-in identity may have moved on while this was in flight (sign-out, a switch
+        // to a different account) — a stale response must not paint someone else's name in.
+        if (getSession().email !== email) return;
+        navProfileCache = { email: email, firstName: profile.firstName };
+        setAccountAriaLabel(profile.firstName);
+      }).catch(function () {});
     }
   }
 
+  function setAccountAriaLabel(text) {
+    navAuthItems().forEach(function (nav) {
+      var accountBtn = nav.querySelector('.acad-auth-account');
+      if (accountBtn) accountBtn.setAttribute('aria-label', 'Your account: ' + text);
+    });
+  }
+
   function wireNavAuth() {
-    var nav = document.getElementById('acadAuthNav');
-    if (!nav) return;
+    var navs = navAuthItems();
+    if (!navs.length) return;
     renderNavAuth(getSession());
     document.addEventListener('academy-auth-changed', function (e) { renderNavAuth(e.detail.session); });
 
-    var signInEl = document.getElementById('acadAuthSignIn');
-    if (signInEl) {
-      // The element is a real <a href="/auth/start?..."> so it still works with JS disabled (it
-      // then does the full-page redirect flow). Intercept it here only to upgrade that to the
-      // nicer pop-up, and let the plain navigation stand if anything goes wrong.
-      signInEl.addEventListener('click', function (e) {
-        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-        e.preventDefault();
-        signIn({});
-      });
-    }
+    navs.forEach(function (nav) {
+      var signInEl = nav.querySelector('.acad-auth-signin');
+      if (signInEl) {
+        // The element is a real <a href="/auth/start?..."> so it still works with JS disabled (it
+        // then does the full-page redirect flow). Intercept it here only to upgrade that to the
+        // nicer pop-up, and let the plain navigation stand if anything goes wrong.
+        signInEl.addEventListener('click', function (e) {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+          e.preventDefault();
+          signIn({});
+        });
+      }
+    });
 
-    nav.addEventListener('click', function (e) {
+    // Bound once at the document level (rather than per-nav) since both instances' menu items
+    // carry the same `[data-acad-auth-action]` attribute and there is nothing instance-specific
+    // about which one triggered it.
+    document.addEventListener('click', function (e) {
       var actionEl = e.target.closest ? e.target.closest('[data-acad-auth-action]') : null;
       if (!actionEl) return;
       var action = actionEl.getAttribute('data-acad-auth-action');
       if (action === 'signout') {
         e.preventDefault();
-        signOut().then(function () { window.location.reload(); }).catch(signOutFailed);
+        signOut().then(function () { settleScrollAfterSignOut(); window.location.reload(); }).catch(signOutFailed);
       } else if (action === 'signout-all') {
         e.preventDefault();
         confirmSignOutEverywhere();
@@ -998,7 +1038,7 @@
       confirmLabel: 'Try again',
       cancelLabel: 'Not now'
     }).then(function (retry) {
-      if (retry) return signOut().then(function () { window.location.reload(); }).catch(signOutFailed);
+      if (retry) return signOut().then(function () { settleScrollAfterSignOut(); window.location.reload(); }).catch(signOutFailed);
     });
   }
 
@@ -1263,7 +1303,7 @@
             // Success reloads into the signed-out page; failure is loud (see signOutFailed) —
             // this tab is genuinely still signed in when the round trip fails, and reloading
             // into a signed-in page while claiming otherwise would be the worst of both.
-            signOut().then(function () { window.location.reload(); }).catch(signOutFailed);
+            signOut().then(function () { settleScrollAfterSignOut(); window.location.reload(); }).catch(signOutFailed);
           }
         }, 'Sign out'),
         mk('button', {

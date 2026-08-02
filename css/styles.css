@@ -5815,6 +5815,11 @@ body.theme-contrast .lab-showcase-cta:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem 1.5rem;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
 }
 .acad-box.acad-lab-cta .acad-tag {
   color: var(--primary-color);
@@ -7593,6 +7598,113 @@ body.theme-contrast .site-footer-social a {
   flex-shrink: 0;
 }
 
+/* --- Desktop: highlight the in-menu sign-in/account control so it doesn't blend into the
+   plain-text nav links next to it. Scoped away from .acad-auth-quick (below), which is already
+   an icon-only circle and needs none of this. */
+@media (min-width: 992px) {
+  .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin {
+    padding: 0.4rem 1rem;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.16);
+    border: 1px solid rgba(99, 102, 241, 0.45);
+    transition: var(--transition);
+  }
+  .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:hover,
+  .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:focus-visible {
+    background: rgba(99, 102, 241, 0.32);
+    color: #fff;
+  }
+  .acad-auth-item:not(.acad-auth-quick) .acad-auth-account {
+    padding: 0.2rem 0.7rem 0.2rem 0.2rem;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.14);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    transition: var(--transition);
+  }
+  .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:hover,
+  .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:focus-visible {
+    background: rgba(99, 102, 241, 0.26);
+  }
+}
+
+body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin,
+body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-account {
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.45);
+}
+body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:hover,
+body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:focus-visible,
+body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:hover,
+body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:focus-visible {
+  background: rgba(34, 211, 238, 0.26);
+  color: #e0f2fe;
+}
+
+body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin,
+body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-account {
+  background: #000;
+  border-color: #000;
+  color: #fff !important;
+}
+body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:hover,
+body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:focus-visible,
+body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:hover,
+body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:focus-visible {
+  background: #fff;
+  border-color: #000;
+  color: #000 !important;
+}
+
+/* --- Compact copy of the sign-in/account control, sitting outside the collapsible hamburger
+   menu (next to the toggler) so it's visible on mobile without opening the menu. Desktop already
+   shows the highlighted in-menu control above, so this stays hidden there. */
+.acad-auth-quick { display: none; }
+
+@media (max-width: 991.98px) {
+  .acad-auth-quick {
+    display: flex;
+    align-items: center;
+    margin-right: 0.65rem;
+  }
+  .acad-auth-quick .acad-auth-signin,
+  .acad-auth-quick .acad-auth-account {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    padding: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #fff;
+    font-size: 0.9rem;
+  }
+  .acad-auth-quick .acad-auth-signin:hover,
+  .acad-auth-quick .acad-auth-account:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+  .acad-auth-quick .acad-auth-avatar {
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: 0.72rem;
+    background: transparent;
+    color: inherit;
+  }
+}
+
+body.theme-cyber .acad-auth-quick .acad-auth-signin,
+body.theme-cyber .acad-auth-quick .acad-auth-account {
+  background: rgba(34, 211, 238, 0.14);
+  border-color: rgba(34, 211, 238, 0.4);
+}
+
+body.theme-contrast .acad-auth-quick .acad-auth-signin,
+body.theme-contrast .acad-auth-quick .acad-auth-account {
+  background: #000;
+  border-color: #000;
+}
+
 /* Sign-out actions in the navbar account dropdown read as destructive, themed via --acad-bad
    like their .acad-lab-btn.danger counterparts in the account panel. Selector keys off the
    menu's #acadAuthMenu id (not just .acad-auth-menu) so its specificity beats the per-theme
@@ -7739,12 +7851,14 @@ body.theme-contrast .site-footer-social a {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin: 0 0 1.25rem;
+  max-width: 640px;
+  margin: 0 auto 1.25rem;
   padding: 0.85rem 1.1rem;
   background: var(--acad-panel);
   border: 1px solid var(--acad-panel-border);
   border-left: 3px solid var(--acad-em);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
   color: var(--acad-ink);
 }
 
