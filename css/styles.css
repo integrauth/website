@@ -7600,8 +7600,17 @@ body.theme-contrast .site-footer-social a {
 
 /* --- Desktop: highlight the in-menu sign-in/account control so it doesn't blend into the
    plain-text nav links next to it. Scoped away from .acad-auth-quick (below), which is already
-   an icon-only circle and needs none of this. */
+   an icon-only circle and needs none of this. Hidden below 992px instead: with the quick control
+   (below) now covering mobile, keeping this ALSO visible inside the hamburger list duplicated the
+   same sign-in/account control twice on one page — this is the desktop-only copy now, the same
+   split the CSS already used for showing/hiding each one. */
+.acad-auth-item:not(.acad-auth-quick) { display: none; }
+
 @media (min-width: 992px) {
+  .acad-auth-item:not(.acad-auth-quick) {
+    display: flex;
+    align-items: center;
+  }
   .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin {
     padding: 0.4rem 1rem;
     border-radius: 999px;
@@ -7612,7 +7621,7 @@ body.theme-contrast .site-footer-social a {
   .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:hover,
   .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:focus-visible {
     background: rgba(99, 102, 241, 0.32);
-    color: #fff;
+    color: var(--primary-color) !important;
   }
   .acad-auth-item:not(.acad-auth-quick) .acad-auth-account {
     padding: 0.2rem 0.7rem 0.2rem 0.2rem;
@@ -7637,7 +7646,7 @@ body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin:focus-v
 body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:hover,
 body.theme-cyber .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:focus-visible {
   background: rgba(34, 211, 238, 0.26);
-  color: #e0f2fe;
+  color: #e0f2fe !important;
 }
 
 body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin,
@@ -7675,6 +7684,9 @@ body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:foc
     height: 2.1rem;
     padding: 0;
     border-radius: 50%;
+    /* Dark-navbar default (Dark theme) — Light theme overrides this below, since the navbar itself
+       swaps to a light background there (applyTheme() toggles the <nav> between navbar-dark/bg-dark
+       and navbar-light/bg-light per theme), and a white-on-near-white icon was invisible. */
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.25);
     color: #fff;
@@ -7693,16 +7705,33 @@ body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:foc
   }
 }
 
+/* Light theme: navbar-light/bg-light means a light, near-white navbar background — the dark-on-tint
+   pairing below matches how .navbar-brand/.navbar-nav .nav-link already go dark under this theme.
+   Excludes High Contrast even though it also carries bg-light as its base class (see THEMES in
+   functions.js) — its own black/white override further below comes later in the cascade and wins. */
+body.bg-light .acad-auth-quick .acad-auth-signin,
+body.bg-light .acad-auth-quick .acad-auth-account {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.25);
+  color: var(--dark-color, #212529);
+}
+body.bg-light .acad-auth-quick .acad-auth-signin:hover,
+body.bg-light .acad-auth-quick .acad-auth-account:hover {
+  background: rgba(15, 23, 42, 0.12);
+}
+
 body.theme-cyber .acad-auth-quick .acad-auth-signin,
 body.theme-cyber .acad-auth-quick .acad-auth-account {
   background: rgba(34, 211, 238, 0.14);
   border-color: rgba(34, 211, 238, 0.4);
+  color: #fff;
 }
 
 body.theme-contrast .acad-auth-quick .acad-auth-signin,
 body.theme-contrast .acad-auth-quick .acad-auth-account {
   background: #000;
   border-color: #000;
+  color: #fff;
 }
 
 /* Sign-out actions in the navbar account dropdown read as destructive, themed via --acad-bad
