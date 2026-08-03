@@ -91,9 +91,40 @@ cover the browser doing the clicking, never some other device.
 | `IA_WEBSITE_OIDC_SECRET` | Both Workers (shared value) | One **organisation-level GitHub Secret**, mirrored into both by CI on every deploy. Neither side ever generates it. | Safe, but must happen on **both** sides together — "change it in one place, redeploy both" |
 | `ACADEMY_PRIVATE_JWK` | website Worker only | CI generates once, if absent | **Never.** Invalidates every issued certificate JWT's signature. Enforced by `.github/cert-signing-key.kid` — see that file and `deploy.yml`'s "Sync Worker secrets" / "Certificate signing key continuity" steps |
 | `EXAM_IP_HASH_PEPPER` | website Worker only | Optional GitHub Secret; CI generates if absent | Safe — re-buckets the exam rate limit once, nothing durable depends on it |
-| `LAB_ENC_KEY`, `LAB_PRIVATE_JWK` | lab Worker only | lab's `provision-cf.sh` generates once, if absent | **Never** — same class of risk as `ACADEMY_PRIVATE_JWK` (strands enrolled TOTP secrets / invalidates issued JWTs). Lab's own script fails closed the same way |
+| `LAB_ENC_KEY` | lab Worker only | lab's `provision-cf.sh` generates once, if absent | **Never** — strands every enrolled TOTP secret and every stored signing key (it is the AES-GCM key they are encrypted under). Lab's own script fails closed the same way |
+| `LAB_PRIVATE_JWK` | lab Worker only | lab's `provision-cf.sh` generates once, if absent | **Don't touch the env var** — but unlike `ACADEMY_PRIVATE_JWK`, the Lab *can* rotate its signing key properly, via `POST /api/keys/rotate` (`signing_keys`, migration 0032). That demotes the outgoing key to `retired`, which stays in the JWKS and keeps verifying everything it signed. The destructive operation is `POST /api/keys/:kid/remove`; see the note below |
 | `IA_WEBSITE_REDIRECT_URIS`, `IA_WEBSITE_POST_LOGOUT_REDIRECT_URIS` | lab `wrangler.toml` (committed, **not** secret) | Committed for production; both hostnames (apex + `www`) are just the two entries | Edit directly in the Lab repo |
 | `IA_WEBSITE_BACKCHANNEL_LOGOUT_URI` | lab `wrangler.toml` (committed, **not** secret) | Committed for production; a fallback only — each login's `oidc_sessions.backchannel_logout_uri` is derived from the `redirect_uri` that specific login used (`websiteBackchannelLogoutUri` in the Lab's `oidc.ts`), and this var only matters if that derivation can't parse it | Edit directly in the Lab repo |
+
+### Why the two apps have opposite rules about their signing keys
+
+Both sign certificates with ES256 and publish a JWKS, but only one of them can rotate.
+
+**This repo has a single-key JWKS.** `ACADEMY_PRIVATE_JWK` is the only key `certs.ts` knows about, so
+there is no "retired but still verifying" state to rotate *into* — replacing it is indistinguishable
+from removing it, and every forwarded Academy certificate JWT stops verifying at once. Hence the
+never-rotate rule and the `.github/cert-signing-key.kid` guard.
+
+**The Lab has a multi-key JWKS** (`signing_keys`, migration 0032) and a real lifecycle:
+`current` → `retired` → `removed`. A retired key still verifies and still appears in the JWKS, so
+rotation there is routine and safe. **Keeping retired keys is what makes it safe** — the Lab
+deliberately has no sweep for that table. Only `POST /api/keys/:kid/remove` invalidates anything, and
+it now refuses with 409 (reporting how many certificates it would affect) unless the caller re-sends
+`{"confirm":true}`. Remove a key when it is compromised; never as housekeeping.
+
+**Serial lookup is the survivable path in both.** Neither app's verification is signature-only:
+this repo's `GET /api/academy/certificates/verify/:serial` and the Lab's
+`GET /api/certificates/verify/:serial` both answer from the issuing app's own records and need no key
+at all. That is why losing a signing key is "forwarded JWTs quietly stop verifying" rather than
+"every certificate is void" — and why both `/verify` pages are worth keeping pointed at.
+
+It is also the only path that works for a certificate shared as an **image** — a screenshot or PDF
+carries no JWT, only what is printed on it. Both apps therefore mint the same style of short,
+transcribable credential ID over the Crockford alphabet: `IA-XXXX-XXXX-XXXX` here
+(`generateCertificateSerial` in `src/lib/server/certs.ts`) and `IAL-XXXX-XXXX-XXXX` in the Lab
+(`generateCredentialId` in its `src/lib/server/certificates.ts`). **The prefixes differ on purpose** —
+the two credentials are verified by different sites, and the prefix is what tells a holder which
+`/verify` to use. Keep them distinct if either format is ever revised.
 
 *(Pre-cutover, the Lab's `provision-cf.sh` also auto-derived and appended `*.workers.dev` staging entries for the redirect/post-logout lists and could repoint the backchannel URI at that staging origin via an opt-in `IA_WEBSITE_PRECUTOVER` flag. All of that was removed 2026-08 and stays removed: the website's `workers_dev` was briefly re-enabled the same day, but only as a bot-challenge-free URL for its own CI health-check probes — never a real sign-in target — so it is deliberately left unregistered here. See the Lab's `docs/WEBSITE-SSO.md`.)*
 
