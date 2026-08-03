@@ -7845,6 +7845,10 @@ body.theme-contrast .acad-auth-quick .acad-auth-account {
 .acad-profile-nudge { border-left-color: var(--acad-actor); }
 .acad-profile-nudge .acad-update-reload { background: var(--acad-actor); color: var(--acad-atext, #fff); }
 
+/* --- Sign-in-to-sync nudge (reuses .acad-update-toast's shape) --- */
+.acad-login-nudge { border-left-color: var(--acad-actor); }
+.acad-login-nudge .acad-update-reload { background: var(--acad-actor); color: var(--acad-atext, #fff); }
+
 /* --- Benefits info icon (next to the Academy hub heading) --- */
 .acad-info-wrap {
   display: flex;

@@ -55,6 +55,7 @@
   var AUTH_EVENT_KEY = 'acad_auth_event_v1';
 
   var NUDGE_DISMISS_KEY = 'acad_nudge_dismissed';
+  var LOGIN_NUDGE_DISMISS_KEY = 'acad_login_nudge_dismissed';
 
   var memSession = null;     // last-known session: {loggedIn:true,...} or {loggedIn:false}
   var sessionPromise = null; // in-flight refreshSession(), so concurrent callers share one request
@@ -689,6 +690,29 @@
 
   function dismissProfileNudge() {
     writeStore(NUDGE_DISMISS_KEY, '1');
+  }
+
+  /* ---------------------------------------------------------------------
+   * Sign-in-to-sync nudge (data only; academy.html renders it)
+   *
+   * Mirrors the profile nudge above, inverted: shown to a LOGGED-OUT learner whose
+   * device is carrying real local progress, so it's at risk of never reaching an
+   * account (cleared cache, new device, browser reinstall). Whether there's actually
+   * anything worth syncing is a question only academy.html's reader closure can answer
+   * (it owns acad_read/acad_quiz/acad_pos) — this just gates on session state and the
+   * dismiss flag, same shape as shouldShowProfileNudge, and academy.html passes in the
+   * "is there local progress" bit.
+   * --------------------------------------------------------------------- */
+
+  function shouldShowLoginNudge(hasLocalProgress) {
+    var session = getSession();
+    if (session.loggedIn) return false;
+    if (!hasLocalProgress) return false;
+    return readStore(LOGIN_NUDGE_DISMISS_KEY) !== '1';
+  }
+
+  function dismissLoginNudge() {
+    writeStore(LOGIN_NUDGE_DISMISS_KEY, '1');
   }
 
   /* ---------------------------------------------------------------------
@@ -1398,6 +1422,8 @@
     getCertificateJwt: getCertificateJwt,
     shouldShowProfileNudge: shouldShowProfileNudge,
     dismissProfileNudge: dismissProfileNudge,
+    shouldShowLoginNudge: shouldShowLoginNudge,
+    dismissLoginNudge: dismissLoginNudge,
     describeApiError: describeApiError,
     formatDateTime: formatDateTime
   };
