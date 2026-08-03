@@ -4751,24 +4751,6 @@ body.theme-contrast .acad-hero {
   .acad-tour-card { left: 1rem; right: 1rem; bottom: 1rem; transform: none; width: auto; }
 }
 
-.acad-hub-foot {
-  text-align: center;
-  margin-top: 1.25rem;
-}
-
-.acad-hub-foot button {
-  border: 0;
-  background: none;
-  color: var(--acad-muted);
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: underline;
-  padding: 0.25rem 0.5rem;
-}
-
-.acad-hub-foot button:hover {
-  color: var(--primary-color);
-}
 
 .acad-reader-foot {
   display: flex;
@@ -6828,7 +6810,7 @@ body.theme-cyber .back-to-top {
 /* --- Print: clean single-lesson output (great for cheat sheets) --- */
 @media print {
   .navbar, .acad-toolbar, #acadChips, .acad-pager, .acad-reader-foot,
-  .acad-progress, .acad-hub-progress, footer, .acad-hubtools, .acad-hub-foot, .acad-lab-reset,
+  .acad-progress, .acad-hub-progress, footer, .acad-hubtools, .acad-lab-reset,
   .acad-reset-track, #acadFlows, #acadExam, #acadChallenge, .acad-try,
   .acad-tour-card, .acad-flowx-next {
     display: none !important;
