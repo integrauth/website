@@ -1372,7 +1372,7 @@ function initAcademy() {
 
   if (acadCurrentBuild) {
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible') { checkForUpdate(); maybeShowProfileNudge(); }
+      if (document.visibilityState === 'visible') { checkForUpdate(); maybeShowProfileNudge(); maybeShowLoginNudge(); }
     });
   }
 
@@ -1409,6 +1409,38 @@ function initAcademy() {
     });
   }
 
+  // Sign-in-to-sync nudge: mirrors the live-update toast and the profile nudge above —
+  // same trigger points (tab refocus, crossing into a new track), same toast shape. Shown
+  // to a learner who is NOT signed in but whose device already holds real progress, so
+  // it's one cleared cache / lost device away from being gone for good. hasUnsyncedLocalProgress()
+  // is this closure's own check (it owns acad_read/acad_quiz/acad_pos); AcademyAuth only
+  // knows the session + dismiss state, so both are passed together.
+  function showLoginNudge() {
+    if (document.querySelector('.acad-login-nudge')) return;
+    const toast = document.createElement('div');
+    toast.className = 'acad-update-toast acad-login-nudge';
+    toast.setAttribute('role', 'status');
+    toast.innerHTML =
+      '<span>Sign in to save your progress so it isn’t lost.</span>' +
+      '<button type="button" class="acad-update-reload acad-nudge-signin">Sign in</button>' +
+      '<button type="button" class="acad-update-dismiss" aria-label="Dismiss">&times;</button>';
+    toast.querySelector('.acad-nudge-signin').addEventListener('click', function () {
+      toast.remove();
+      window.AcademyAuth.dismissLoginNudge();
+      window.AcademyAuth.signIn({});
+    });
+    toast.querySelector('.acad-update-dismiss').addEventListener('click', function () {
+      toast.remove();
+      window.AcademyAuth.dismissLoginNudge();
+    });
+    document.body.appendChild(toast);
+  }
+
+  function maybeShowLoginNudge() {
+    if (!window.AcademyAuth || typeof window.AcademyAuth.shouldShowLoginNudge !== 'function') return;
+    if (window.AcademyAuth.shouldShowLoginNudge(hasUnsyncedLocalProgress())) showLoginNudge();
+  }
+
   /**
    * Every call to showLesson() is a deliberate navigation now — a chip, the pager, search, a deep
    * link, or clicking the hub's Resume banner. Boot no longer calls this passively to reopen a
@@ -1425,7 +1457,7 @@ function initAcademy() {
     reader.hidden = false;
     lessons.forEach(function (s) { s.classList.toggle('is-active', s === lesson); });
     const track = trackOf(lesson);
-    if (track !== acadLastCheckedTrack) { acadLastCheckedTrack = track; checkForUpdate(); maybeShowProfileNudge(); }
+    if (track !== acadLastCheckedTrack) { acadLastCheckedTrack = track; checkForUpdate(); maybeShowProfileNudge(); maybeShowLoginNudge(); }
     const label = document.getElementById('acadTrackLabel');
     if (label) label.textContent = TRACK_LABELS[track] || track;
     const read = readSet();
