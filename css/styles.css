@@ -5965,6 +5965,15 @@ body.theme-cyber .acad-lab { --acad-warn: #fbbf24; }
   padding: 0.15rem 0.6rem;
   margin-bottom: 0.45rem;
 }
+/* Labs that are NOT simulations (today: the final exam, graded server-side and issuing a real
+   verifiable certificate) opt out of the default "· simulated" pill via `def.pill`. Filled with the
+   theme-tuned --acad-em/--acad-em-ink emphasis pair rather than --acad-actor, which is an SVG
+   diagram accent and is nearly illegible as standalone text in Dark and Midnight Cyber. */
+.acad-lab-pill-real {
+  color: var(--acad-em-ink);
+  background: var(--acad-em);
+  border-color: var(--acad-em);
+}
 .acad-lab-title { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--acad-ink); }
 .acad-lab-blurb { margin: 0; font-size: 0.92rem; color: var(--acad-muted); }
 .acad-lab-reset {
@@ -7287,6 +7296,16 @@ body.theme-contrast .err-code {
    land after this file in document order — at equal specificity its white .dropdown-menu
    background would then beat this base (dark-theme) rule. bg-light/contrast/cyber survive via
    their body-scoped overrides below; dark relies on this rule, so it must outrank Bootstrap. */
+/* SAME hazard, same fix, for the theme picker's menu — which had been missed. `.theme-menu` does
+   declare z-index: 1100, but as a SINGLE class it ties with Bootstrap's own `.dropdown-menu`
+   (z-index: 1000) and loses on document order, so it computed as 1000 — BELOW .navbar's 1030. The
+   navbar therefore painted over the top of the open menu and clipped its first row ("Light"),
+   which got dramatically worse in the 992-1400px band where the navbar was 81px tall instead of
+   58px. Two classes here so it outranks Bootstrap regardless of load order. */
+.dropdown-menu.theme-menu {
+  z-index: 1100;
+}
+
 .dropdown-menu.nav-dd {
   z-index: 1100;
   min-width: 220px;
@@ -7662,6 +7681,50 @@ body.theme-contrast .acad-auth-item:not(.acad-auth-quick) .acad-auth-account:foc
   background: #fff;
   border-color: #000;
   color: #000 !important;
+}
+
+/* --- Tight-desktop band: 992px to 1399.98px -------------------------------------------------
+   Bootstrap expands the navbar at 992px, but the full-width layout needs about 1350px: the brand
+   is ~224px and the expanded collapse ~1125px. Anywhere between 992px and that, the eight nav
+   links plus a text "Sign in" pill and the ~166px-wide theme button do not fit. Measured before
+   this rule at a 1200px viewport: the collapse ran to x=1262, i.e. 62px PAST the right edge, so
+   the theme picker was clipped off-screen entirely and "Sign in" wrapped onto two lines inside
+   its pill — which also pushed the whole bar from 58px to 81px tall and left everything in it
+   vertically ragged. The upper bound is 1399.98px rather than 1200px for exactly that reason: a
+   1200px cap left 1200-1350px still broken, which is a very common laptop range.
+
+   The fix is the one the mobile layout already reaches for: spend less horizontal space. The
+   theme button drops its text label (it keeps its icon and caret, and its aria-label already
+   carries the accessible name), the nav links give back some margin/padding, and the sign-in
+   pill is told never to wrap. Nothing is hidden that isn't recoverable in one click, and the
+   >=1200px layout is untouched. */
+@media (min-width: 992px) and (max-width: 1399.98px) {
+  /* Biggest single saving (~120px): icon + caret only. aria-label="Choose theme" on the button
+     keeps this labelled for assistive tech, and the checkmark in the open menu still shows which
+     theme is active. */
+  .theme-btn .theme-label {
+    display: none;
+  }
+  .theme-btn {
+    padding-left: var(--space-md);
+    padding-right: var(--space-md);
+  }
+
+  /* ~8px per link back, across eight links. */
+  .navbar-nav .nav-link {
+    margin: 0 0.15rem;
+    padding: var(--space-sm) 0.6rem !important;
+  }
+
+  /* The actual wrap. Without this the pill breaks "Sign in" across two lines and grows the bar. */
+  .acad-auth-item:not(.acad-auth-quick) .acad-auth-signin {
+    white-space: nowrap;
+    padding: 0.4rem 0.75rem;
+  }
+
+  .navbar-brand span {
+    font-size: 1.05rem;
+  }
 }
 
 /* --- Compact copy of the sign-in/account control, sitting outside the collapsible hamburger

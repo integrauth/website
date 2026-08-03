@@ -495,7 +495,8 @@
     var body = el('div', { class: 'acad-lab-body' });
     var head = el('div', { class: 'acad-lab-head' }, [
       el('div', { class: 'acad-lab-head-text' }, [
-        el('span', { class: 'acad-lab-pill' }, '🧪 Interactive lab · simulated'),
+        el('span', { class: 'acad-lab-pill' + (def.pill ? ' acad-lab-pill-real' : '') },
+          def.pill || '🧪 Interactive lab · simulated'),
         el('h4', { class: 'acad-lab-title' }, def.title),
         def.blurb ? el('p', { class: 'acad-lab-blurb' }, def.blurb) : null
       ]),
@@ -6953,6 +6954,10 @@ var EXAM_POOL_ERROR = (function validateExamPool() {
 })();
 
 AcadLabs.register('lab-exam', {
+  // NOT a simulation, unlike every other widget here: answers are graded server-side and a pass
+  // mints a real certificate with a serial anyone can check at /verify. The default
+  // "· simulated" pill would actively misdescribe it.
+  pill: '🎓 Official exam · graded on our servers',
   title: 'Final exam — earn your certificate',
   blurb: '50 questions drawn at random from a larger pool — at least 4 from every one of the 12 tracks. Score 80% or higher to unlock a personalised, permanently-saved certificate. Up to 3 attempts in any 24 hours; every one of them is kept in your exam history. Sign-in is required for this widget only — everything else in the Academy stays free and public.',
   onReset: function () { try { localStorage.removeItem('acad_exam'); } catch (e) { /* noop */ } },

@@ -308,9 +308,15 @@ $(function() {
   // stacking context (which otherwise traps absolute/fixed descendants invisibly).
   function positionThemeMenu($toggle, $menu) {
     const rect = $toggle[0].getBoundingClientRect();
+    // Hang the menu off the NAVBAR's bottom edge, not the button's. The button sits a few px inside
+    // the bar, so anchoring to it tucked the menu's top row under the navbar — invisible until the
+    // z-index fix (see .dropdown-menu.theme-menu in styles.css) stopped the bar painting over it,
+    // and still visually wrong. Falls back to the button when the navbar can't be measured.
+    const navbar = document.querySelector('.navbar');
+    const navBottom = navbar ? navbar.getBoundingClientRect().bottom : rect.bottom;
     $menu.css({
       position: 'fixed',
-      top: (rect.bottom + 8) + 'px',
+      top: (Math.max(rect.bottom, navBottom) + 8) + 'px',
       right: (window.innerWidth - rect.right) + 'px',
       left: 'auto',
       margin: 0
