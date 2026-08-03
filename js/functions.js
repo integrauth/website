@@ -2102,8 +2102,11 @@ function initAcademy() {
   }
   // A learner who's already signed in when they land straight in a lesson (deep link)
   // would otherwise never see the profile nudge until they change tracks or refocus
-  // the tab — check once at boot too.
+  // the tab — check once at boot too. Same reasoning for the signed-out login nudge: a
+  // learner landing straight on the hub (no lesson, so no track-change check fires) with
+  // prior local progress would otherwise never see it until their first refocus.
   maybeShowProfileNudge();
+  maybeShowLoginNudge();
   // Same reasoning for progress sync: pull down (and push up) this account's canonical progress once
   // at boot, not just on a later login/track-change.
   //
