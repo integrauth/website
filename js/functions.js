@@ -308,9 +308,15 @@ $(function() {
   // stacking context (which otherwise traps absolute/fixed descendants invisibly).
   function positionThemeMenu($toggle, $menu) {
     const rect = $toggle[0].getBoundingClientRect();
+    // Hang the menu off the NAVBAR's bottom edge, not the button's. The button sits a few px inside
+    // the bar, so anchoring to it tucked the menu's top row under the navbar — invisible until the
+    // z-index fix (see .dropdown-menu.theme-menu in styles.css) stopped the bar painting over it,
+    // and still visually wrong. Falls back to the button when the navbar can't be measured.
+    const navbar = document.querySelector('.navbar');
+    const navBottom = navbar ? navbar.getBoundingClientRect().bottom : rect.bottom;
     $menu.css({
       position: 'fixed',
-      top: (rect.bottom + 8) + 'px',
+      top: (Math.max(rect.bottom, navBottom) + 8) + 'px',
       right: (window.innerWidth - rect.right) + 'px',
       left: 'auto',
       margin: 0
@@ -1081,13 +1087,6 @@ function initAcademy() {
     const hubText = document.getElementById('acadHubProgressText');
     if (hubFill) hubFill.style.width = pct + '%';
     if (hubText) hubText.textContent = opened + '/' + lessons.length + ' lessons read · ' + pct + '%';
-    // Mirrored at the bottom of the hub next to "Reset all progress", so the tour's final step
-    // (which spotlights .acad-hub-foot while talking about "your progress") actually has a
-    // progress bar to point at instead of just a bare reset button.
-    const hubFillBottom = document.getElementById('acadHubProgressFillBottom');
-    const hubTextBottom = document.getElementById('acadHubProgressTextBottom');
-    if (hubFillBottom) hubFillBottom.style.width = pct + '%';
-    if (hubTextBottom) hubTextBottom.textContent = opened + '/' + lessons.length + ' lessons read · ' + pct + '%';
     // Unlock the final-exam widget the moment every lesson is read (checked cheaply:
     // only while it's still showing its locked state, so an unlocked exam in progress
     // is never clobbered by a stray remount on later lesson views).
@@ -1268,7 +1267,10 @@ function initAcademy() {
     // correct-answer count had been scored against a different denominator.
     { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Sign in with a free account, score 80%+, and download a certificate anyone can verify.' },
     { selector: '#acadAccount', title: '6. Your account', text: 'Signing in is the same free account as the IntegrAuth Lab — one sign-in, both apps. Here you can set the name that prints on your certificate, see which devices are signed in, and sign out of the Academy on one device or everywhere at once.' },
-    { selector: '.acad-hub-foot', title: 'Your progress', text: 'Progress saves in this browser — and syncs to your account across devices when you sign in. Reset a single track, or replay this tour anytime from the button up top.' }
+    // Points at the progress bar at the TOP of the hub. There used to be a second, identical bar at
+    // the very bottom that existed only to give this step something to spotlight; it has been
+    // removed as a duplicate, so this step targets the real one.
+    { selector: '.acad-hub-progress', title: 'Your progress', text: 'Progress saves in this browser — and syncs to your account across devices when you sign in. Reset a single track from inside it, reset everything here, or replay this tour anytime — all from this bar.' }
   ];
   let acadTourActive = false;
   let acadTourStep = 0;
