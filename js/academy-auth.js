@@ -1306,9 +1306,10 @@
       var acctBox = mk('div', { class: 'acad-lab-panel' });
       acctBox.appendChild(mk('div', { class: 'acad-lab-panel-title' }, 'Account'));
       acctBox.appendChild(mk('p', { class: 'acad-lab-note' },
-        'Your Academy account is the same account as lab.integrauth.com. Changing your email, ' +
-        'managing passkeys or two-factor, and deleting your account are all done there — deleting ' +
-        'it removes your Academy progress, exam attempts and certificates too.'));
+        'Your Academy account is the same account as lab.integrauth.com — and, if you sign in there ' +
+        'too, sunnahfast.integrauth.com\'s tracker sync. Changing your email, managing passkeys or ' +
+        'two-factor, and deleting your account are all done there — deleting it removes your Academy ' +
+        'progress, exam attempts and certificates, and any synced sunnahfast trackers, too.'));
       acctBox.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('a', {
           class: 'acad-lab-btn', href: LAB_ORIGIN + '/account',
