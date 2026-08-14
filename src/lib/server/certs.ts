@@ -279,3 +279,58 @@ export function normalizeCertificateSerial(input: string): string | null {
   }
   return `${SERIAL_PREFIX}-${groups.join('-')}`;
 }
+
+/**
+ * Characters a stored serial can possibly contain, in ANY format this table has ever
+ * held: `IA-XXXX-XXXX-XXXX`, a 36-character `randomUUID`, and the nanoid-style
+ * `genId()` output that migration `0050_academy_certificates.sql` describes. Anything
+ * outside this set is junk and is never worth a D1 round trip.
+ */
+const OPAQUE_SERIAL_CHARS = /^[A-Za-z0-9_-]+$/;
+
+/** Shortest input worth a lookup at all — below this it cannot be any minted format. */
+const SERIAL_MIN_INPUT_LEN = 8;
+
+/**
+ * What to try looking up, in order, for a caller-supplied certificate id — at most two,
+ * deduplicated, empty when the input cannot be one of ours.
+ *
+ * WHY THIS EXISTS. `normalizeCertificateSerial` alone answers an authoritative
+ * `{valid:false}` for anything that is not `IA` + 12 Crockford characters. That is
+ * correct for junk and WRONG for a real certificate minted before this format: those
+ * keep their original serial forever, because the serial is the `jti` inside an
+ * already-signed JWT and rewriting it would invalidate the signature. The docstring on
+ * `generateCertificateSerial` above names the predecessor (a 36-character `randomUUID`)
+ * in its own aside, and the Lab's migration `0050` describes the column as `genId()`
+ * output — neither survives normalisation, so before this function existed every such
+ * holder was told, authoritatively, that their real credential was not in our records.
+ *
+ * The sister repo hit this exact defect on its own verifier and fixed it the same way
+ * (`integrauth/lab`, `src/lib/server/certificates.ts` → `serialLookupCandidates`): the
+ * RAW string first, because legacy serials are case-sensitive and must match byte for
+ * byte, and only then the canonicalised form, which is what rescues a lowercased or
+ * mis-hyphenated `IA-…` typed off a screenshot.
+ *
+ * This does NOT weaken the enumeration-oracle property that
+ * `generateCertificateSerial` reasons about: every legacy format has strictly MORE
+ * entropy than the 60 bits of the current one, so the raw arm cannot be guessed sooner
+ * than the canonical one can.
+ */
+export function certificateSerialLookupCandidates(input: string): string[] {
+  if (typeof input !== 'string') return [];
+  const trimmed = input.trim();
+  if (
+    trimmed.length < SERIAL_MIN_INPUT_LEN ||
+    trimmed.length > SERIAL_MAX_INPUT_LEN ||
+    !OPAQUE_SERIAL_CHARS.test(trimmed)
+  ) {
+    // Still allow a canonical `IA-…` through: it contains only safe characters anyway,
+    // but a caller may have sent it with spaces, which the charset test above rejects.
+    const canonicalOnly = normalizeCertificateSerial(input);
+    return canonicalOnly ? [canonicalOnly] : [];
+  }
+  const canonical = normalizeCertificateSerial(trimmed);
+  const out = [trimmed];
+  if (canonical && canonical !== trimmed) out.push(canonical);
+  return out;
+}

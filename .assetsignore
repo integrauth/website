@@ -36,6 +36,7 @@
 # --- build/dev tooling, not part of the site ---
 node_modules
 src
+tests
 tsconfig.json
 package*.json
 wrangler.toml

@@ -10,7 +10,7 @@
 // the asset server instead and never reaches this code at all, which fails as a 404 rather than as
 // anything that would draw attention.
 
-import { createApp } from './lib/server/api';
+import { createApp, sweepExpiredExamIpHashes } from './lib/server/api';
 import { createAuthApp } from './lib/server/auth';
 import { withSecurityHeaders } from './lib/server/security';
 import type { Env } from './lib/server/env';
@@ -40,6 +40,25 @@ export default {
         false
       );
     }
+  },
+
+  /**
+   * Cron handler — `[triggers] crons` in wrangler.toml (audit finding R22-W-02).
+   *
+   * One job only: erase exam `ip_hash` values past their 24-hour retention window, which
+   * `privacy.html` promises unconditionally but which was previously driven only by a subsequent
+   * exam submission. See `sweepExpiredExamIpHashes` for the full reasoning.
+   *
+   * A throw here is logged and swallowed: a failed housekeeping run must not mark the scheduled
+   * event as failed and it is retried on the next tick an hour later, but a silent failure with
+   * nothing in `wrangler tail` would leave a broken privacy commitment looking healthy.
+   */
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      sweepExpiredExamIpHashes(env.DB).catch((error) => {
+        console.error('scheduled exam ip_hash sweep failed:', error);
+      })
+    );
   },
 } satisfies ExportedHandler<Env>;
 

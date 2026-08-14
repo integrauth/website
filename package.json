@@ -13,7 +13,8 @@
     "build": "npm run build:css && npm run build:js && npm run build:html",
     "worker:dev": "wrangler dev --persist-to ../.wrangler-state",
     "worker:deploy": "wrangler deploy",
-    "worker:typecheck": "tsc --noEmit"
+    "worker:typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types \"tests/*.test.mjs\""
   },
   "keywords": [
     "IAM",

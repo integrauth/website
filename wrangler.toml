@@ -90,6 +90,18 @@ binding = "DB"
 database_name = "lab-db"
 database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 
+# Hourly housekeeping, one job: erase exam `ip_hash` values past their 24-hour retention window
+# (audit finding R22-W-02). privacy.html promises that erasure unconditionally, but the only thing
+# that used to perform it was the next exam submission — so on a quiet week the most recent hashes
+# outlived the promise, and the last attempt before traffic stopped was never scrubbed at all.
+# `scheduled` in src/worker.ts is the handler; it touches nothing else and no Lab-owned table.
+#
+# This is the only writer of a schedule here. If a deploy ever fails on this block, the CF_TOKEN is
+# missing the scope to manage cron triggers — fix the token, do not drop the trigger, or the site
+# goes back to publishing a retention commitment it does not keep.
+[triggers]
+crons = ["23 * * * *"]
+
 [vars]
 # Same Turnstile site key the Lab uses (committed there too — a Turnstile SITE key is the public
 # half of the widget, safe to commit; only TURNSTILE_SECRET is sensitive). Both apps share one
