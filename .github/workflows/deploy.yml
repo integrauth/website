@@ -92,6 +92,14 @@ jobs:
       - run: npm ci
       - run: npm run worker:typecheck
 
+      # `node --test` with type-stripping — no test framework and no extra dependency, but it does
+      # need the Node 22 pinned above. Covers the certificate-serial path on both sides: the server
+      # lookup, and the client functions extracted from the shipped verify.html. Wired in here
+      # because a test nothing runs is documentation, and this particular defect's whole failure mode
+      # is being invisible to us — a wrong verdict on /verify is only ever seen by a third party who
+      # never tells us. It gates the deploy for the same reason.
+      - run: npm test
+
       # A raw control byte in a source file makes that file BINARY to grep and ripgrep, which then
       # skip it silently. That is not a theoretical tidiness concern: oidc-rp.ts once shipped with a
       # literal NUL, US and DEL inside the character class of `safeReturnPath`'s open-redirect guard
