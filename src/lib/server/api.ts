@@ -67,7 +67,7 @@ import {
   signCertificateJwt,
   getPublicJwks,
   generateCertificateSerial,
-  normalizeCertificateSerial,
+  certificateSerialLookupCandidates,
 } from './certs';
 import { EXAM_QUESTION_COUNT, gradeExam, isKnownQuestion, type SubmittedAnswer } from './exam';
 import { clientIpFromHeader, hashClientIp } from './ip';
@@ -237,6 +237,28 @@ function normalizeName(value: string): string {
 /** ISO timestamp marking the start of the abuse-counting window ending now. */
 function abuseWindowStartIso(): string {
   return new Date(Date.now() - ABUSE_WINDOW_MS).toISOString();
+}
+
+/**
+ * Erase exam `ip_hash` values that have aged out of the counting window — the scheduled half.
+ *
+ * WHY IT IS SCHEDULED AS WELL AS ON THE WRITE PATH (audit finding R22-W-02). The submission
+ * handler below already scrubs on every attempt, and that is the cheap, common case. But it is
+ * driven ENTIRELY by a subsequent submission, and the exam is the only sign-in-gated action on
+ * this site: a quiet week leaves the last attempts' hashes in place indefinitely, and the very
+ * last attempt before traffic stops is never scrubbed at all, because nothing runs after it.
+ *
+ * `privacy.html` tells people "we erase that hash 24 hours later". That is a published
+ * commitment, not an implementation note, so it cannot be left conditional on traffic. The cron
+ * in `wrangler.toml` runs this hourly, which makes the erasure happen within an hour of the
+ * 24-hour mark whether or not anyone sits the exam.
+ *
+ * It reuses `abuseWindowStartIso()` deliberately: the scrub MUST use the same window start the
+ * counts use — see the note on `scrubExamAttemptIpHashesBefore` — so a later boundary can never
+ * erase keys that are still being counted.
+ */
+export async function sweepExpiredExamIpHashes(db: D1Database): Promise<void> {
+  await scrubExamAttemptIpHashesBefore(db, abuseWindowStartIso());
 }
 
 /**
@@ -1086,16 +1108,19 @@ export function createApp() {
   // cheerful `{valid:false}` — that is the bug this contract exists to prevent.
   // Callers must branch on `response.ok` FIRST and only then read `valid`.
   app.get('/certificates/verify/:serial', async (c) => {
-    // Canonicalise what the human typed (case, hyphens, spaces, 0/O and 1/I/L
-    // confusions) before comparing against the stored canonical form. Input that
-    // can't be one of our serials is answered as an authoritative "no such
-    // certificate" without touching the database.
-    const serial = normalizeCertificateSerial(c.req.param('serial'));
-    if (!serial) {
-      return c.json({ valid: false });
+    // Try what the human typed VERBATIM, then the canonicalised form (case, hyphens,
+    // spaces, 0/O and 1/I/L confusions). Both arms are needed: a certificate minted
+    // before the `IA-…` format keeps its original serial forever — it is the `jti`
+    // inside an already-signed JWT — and canonicalising is exactly what makes such a
+    // serial unfindable. See certificateSerialLookupCandidates for the full reasoning.
+    // Input that can be no format we have ever minted yields no candidates and is
+    // answered as an authoritative "no such certificate" without touching the database.
+    const candidates = certificateSerialLookupCandidates(c.req.param('serial'));
+    let row = null;
+    for (const candidate of candidates) {
+      row = await getCertificateBySerial(c.env.DB, candidate);
+      if (row) break;
     }
-
-    const row = await getCertificateBySerial(c.env.DB, serial);
     if (!row) {
       // Same 200 shape whether found or not — simplest for the frontend, and for a
       // public credential-verification endpoint the existence-leak concern is minor
@@ -1114,11 +1139,15 @@ export function createApp() {
 
   // Explicit "download the signed artifact" affordance: session-gated, owner-checked.
   app.get('/certificates/:serial/jwt', requireSession, async (c) => {
-    const serial = normalizeCertificateSerial(c.req.param('serial'));
-    if (!serial) {
-      return c.json({ error: 'not_found' }, 404);
+    // Same two-arm lookup as the public verifier above, and for the same reason: the
+    // holder of a legacy-serial certificate must still be able to download their own
+    // signed artifact. The owner check below is unchanged and still decides access.
+    const candidates = certificateSerialLookupCandidates(c.req.param('serial'));
+    let row = null;
+    for (const candidate of candidates) {
+      row = await getCertificateBySerial(c.env.DB, candidate);
+      if (row) break;
     }
-    const row = await getCertificateBySerial(c.env.DB, serial);
     if (!row || row.user_id !== c.get('userId')) {
       return c.json({ error: 'not_found' }, 404);
     }
