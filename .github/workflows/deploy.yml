@@ -225,6 +225,66 @@ jobs:
             echo '```'
             echo
             echo 'Differing values falsify the single-egress-IP premise. Matching values do not confirm it.'
+            echo
+            # R22-W-02 — WHY THE CRON TRIGGER IS OFF, answered with the error body instead of a guess.
+            #
+            # wrangler reported only "A request to the Cloudflare API (…/schedules) failed" and
+            # swallowed the response, so wrangler.toml records the missing permission as UNCONFIRMED
+            # and this repo has been guessing at token scopes ever since. Cloudflare has no
+            # cron/schedules permission group at all — the documented requirement for this endpoint
+            # is Workers Scripts:Write, which CF_TOKEN demonstrably HAS, because the deploy step
+            # above uploaded the script with it. So the standing diagnosis is probably wrong and the
+            # only way to find out is to read what the API actually says.
+            #
+            # Both calls are STATE-PRESERVING on purpose. The GET is read-only. The PUT sends the
+            # schedule list the Worker already has — `[]`, since no [triggers] block is configured —
+            # so it exercises the exact method, endpoint and permission that failed while leaving
+            # the Worker exactly as it was. A PUT of the REAL cron would have "fixed" R22-W-02 by
+            # writing production state that no committed file declares, which is the config-drift
+            # class this audit keeps finding. The fix belongs in wrangler.toml or nowhere.
+            # Account id from wrangler.toml (committed, non-secret) rather than a repo Variable that
+            # may not exist — an empty one would silently build a URL for account "" and the 404
+            # would read like a permission answer.
+            ACCT=$(sed -n 's/^account_id *= *"\([^"]*\)".*/\1/p' wrangler.toml | head -1)
+            [ -n "$ACCT" ] || echo "COULD NOT READ account_id — the calls below are meaningless"
+            SCHED="https://api.cloudflare.com/client/v4/accounts/$ACCT/workers/scripts/integrauth-website/schedules"
+            echo '#### R22-W-02 — what the schedules endpoint actually returns'
+            echo '```'
+            echo "GET (read-only):"
+            GET_BODY=$(curl -sS --max-time 15 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$SCHED" 2>&1) \
+              || GET_BODY='GET FAILED'
+            echo "$GET_BODY"
+            echo
+            # The PUT is GATED ON THE READ, and this is not belt-and-braces. `PUT []` is only a
+            # no-op if the live schedule list is ALREADY empty; if a cron were somehow set, an
+            # unconditional PUT would silently delete it, and the GET above would print the
+            # evidence of what was destroyed a moment too late to stop it. So: only write when
+            # we have positively read back an empty list. Anything else — a non-empty list, a
+            # failed GET, an unparseable body — skips the write and says why. A probe that
+            # cannot prove it is safe does not get to run.
+            # `.result.schedules | length` alone is WRONG and was caught before this shipped: on an
+            # error body there is no `.result`, and jq's `null | length` is 0 — so an UNAUTHORIZED
+            # read would have reported "empty" and released the write. That is this audit's most
+            # repeated defect (an absent measurement treated as a zero) reproduced inside the tool
+            # built to measure. The count is only trusted when the API says success AND the field is
+            # genuinely an array.
+            LIVE_COUNT=$(printf '%s' "$GET_BODY" | jq -r '
+              if .success == true and (.result.schedules | type) == "array"
+              then (.result.schedules | length) else "unknown" end' 2>/dev/null || echo 'unknown')
+            if [ "$LIVE_COUNT" = "0" ]; then
+              echo "PUT [] (verified no-op: the GET above read back an empty schedule list):"
+              curl -sS --max-time 15 -w '\nHTTP %{http_code}\n' -X PUT \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H 'Content-Type: application/json' --data '[]' "$SCHED" || echo "PUT FAILED"
+            else
+              echo "PUT SKIPPED — live schedule count is '$LIVE_COUNT', not 0."
+              echo "Writing [] would have DELETED a real cron trigger. The write-permission"
+              echo "question stays unanswered, which is the correct outcome here."
+            fi
+            echo '```'
+            echo
+            echo 'A 200 on the PUT means the token can already write schedules and the standing'
+            echo '"missing scope" diagnosis is wrong. A 403 names the permission in `errors[].message`.'
           } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
       # =================== END TEMPORARY — DELETE THIS STEP AFTER ONE RUN ===================
 
