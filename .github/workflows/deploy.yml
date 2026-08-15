@@ -286,6 +286,26 @@ jobs:
             echo 'A 200 on the PUT means the token can already write schedules and the standing'
             echo '"missing scope" diagnosis is wrong. A 403 names the permission in `errors[].message`.'
           } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # The same three numbers again as ::notice:: ANNOTATIONS. Not redundancy: the step
+          # summary is only readable by a human with the run page open — it is not exposed by the
+          # Actions API at all — and the job log is thousands of lines of echoed step scripts.
+          # Annotations are the one channel that is both compact and machine-readable, which is
+          # what makes these measurements reviewable by anything other than eyes.
+          echo "::notice title=R22-W-03 legacy serials::$(
+            npx wrangler d1 execute lab-db --remote --json --command \
+              "SELECT count(*) AS n FROM academy_certificates WHERE serial NOT GLOB 'IA-[0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z]-*'" 2>/dev/null \
+              | jq -c '[.[0].results[0].n] | first' 2>/dev/null || echo 'UNREAD')"
+          echo "::notice title=R22-W-01 egress IPs::$(
+            for i in 1 2 3; do
+              curl -sS --max-time 10 "${{ steps.deploy.outputs.probe_url }}/api/academy/__diag/egress-ip" \
+                | jq -r '.egress_ip // "null"' 2>/dev/null || echo 'FAILED'
+            done | tr '\n' ' ')"
+          echo "::notice title=R22-W-02 schedules::GET=$(
+            curl -sS --max-time 15 -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$SCHED" || echo FAILED) body=$(
+            curl -sS --max-time 15 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$SCHED" \
+              | head -c 300 || echo FAILED)"
       # =================== END TEMPORARY — DELETE THIS STEP AFTER ONE RUN ===================
 
       # Generate-if-absent, NEVER rotate: ACADEMY_PRIVATE_JWK (ES256 P-256 private key, JWK JSON) —
