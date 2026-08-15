@@ -225,7 +225,7 @@ jobs:
             echo '```'
             echo
             echo 'Differing values falsify the single-egress-IP premise. Matching values do not confirm it.'
-          } >> "$GITHUB_STEP_SUMMARY"
+          } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
       # =================== END TEMPORARY — DELETE THIS STEP AFTER ONE RUN ===================
 
       # Generate-if-absent, NEVER rotate: ACADEMY_PRIVATE_JWK (ES256 P-256 private key, JWK JSON) —
