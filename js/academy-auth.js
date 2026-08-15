@@ -580,10 +580,19 @@
    * it gets ended too — a background API call from this site's server could never reach a cookie
    * scoped to a different origin. `client_id` (no `id_token_hint` needed — this site never retains
    * the ID token past login) lets the Lab resolve `post_logout_redirect_uri` against its registered
-   * list (which includes the pre-cutover workers.dev origin — the Lab's provision-cf.sh registers
-   * it automatically); an exact match bounces the browser straight back here, anything else (local
-   * dev, an origin that was never deployed) falls through to the Lab's own plain confirmation page
-   * — signed out either way, just not automatically returned.
+   * list; an exact match bounces the browser straight back here, anything else falls through to the
+   * Lab's own plain confirmation page — signed out either way, just not automatically returned.
+   *
+   * That registered list is EXACTLY `https://integrauth.com/,https://www.integrauth.com/`
+   * (IA_WEBSITE_POST_LOGOUT_REDIRECT_URIS, committed in the Lab's wrangler.toml). An earlier version
+   * of this comment claimed it "includes the pre-cutover workers.dev origin — the Lab's
+   * provision-cf.sh registers it automatically", which was true before the 2026-08 DNS cutover and
+   * is not true now: the three `append_website_workers_dev_*` helpers were deleted from that script
+   * at the cutover, and they stayed deleted when `workers_dev` was re-enabled on 2026-08-01 for
+   * CI's bot-challenge-free health probe. So on localhost and on the *.workers.dev host this lands
+   * on the Lab's confirmation page rather than returning here — which is correct, because neither
+   * host is meant to carry a real sign-in or sign-out (see wrangler.toml's `workers_dev` comment,
+   * and the matching refusal in `/auth/start`).
    */
   /**
    * Both sign-out paths replace this page's #acadAccountPanel with its short signed-out state the

@@ -161,6 +161,42 @@ export function isLocalDevHost(url: URL): boolean {
   return DEV_COOKIE_HOSTS.has(url.hostname);
 }
 
+/**
+ * True when this request arrived on the Worker's `*.workers.dev` hostname — an origin this Worker
+ * answers on whose `/auth/callback` is deliberately NOT registered at the Lab, and which therefore
+ * cannot complete a login.
+ *
+ * WHY THIS PREDICATE EXISTS (audit finding R22-W-05). `rpConfigFromEnv` in ./oidc-rp derives
+ * `redirect_uri` from the live request origin, so `/auth/start` will happily build an authorization
+ * URL for any host that reaches this Worker. The Lab matches `redirect_uri` by exact string
+ * equality against `IA_WEBSITE_REDIRECT_URIS`, committed in its wrangler.toml as exactly
+ * `https://integrauth.com/auth/callback,https://www.integrauth.com/auth/callback` — nothing else.
+ * `workers_dev = true` was re-enabled here on 2026-08-01 purely so `ci-deploy`'s Smoke and signing-
+ * key-continuity probes have a URL outside the zone's Bot Fight Mode; the three
+ * `append_website_workers_dev_*` helpers that used to register that origin were deleted from the
+ * Lab's provision-cf.sh at the 2026-08 cutover and stayed deleted, deliberately. So a login begun
+ * on that host is refused by the OP only AFTER a full redirect, stranding the visitor on an error
+ * page at a domain they did not choose to visit. `/auth/start` refuses it locally instead.
+ *
+ * NOT a general "is this origin registered?" check, on purpose: this Worker holds no copy of the
+ * Lab's redirect-URI list, and duplicating that list into this repo would manufacture exactly the
+ * cross-repo drift that produced this finding. It names the one host we positively know is
+ * unregistered by decision rather than by omission.
+ *
+ * `localhost` is deliberately NOT included even though it is equally unregistered: bouncing to the
+ * Lab is the documented local-dev behaviour, and a developer landing on a Lab error page is not a
+ * stranded visitor. It lives beside `isLocalDevHost` because both classify the request host, and
+ * because keeping every such rule in one file is what stops a second, subtly different copy
+ * appearing elsewhere.
+ *
+ * If the workers.dev callback is ever registered at the Lab on purpose, delete this and its call
+ * site in `/auth/start`: it enforces a decision, it is not a security boundary.
+ */
+export function isUnregisterableLoginHost(url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  return host === 'workers.dev' || host.endsWith('.workers.dev');
+}
+
 /** Picks the cookie name valid for this request. See DEV_COOKIE_HOSTS for why it keys on the host. */
 export function sessionCookieName(url: URL): string {
   return isLocalDevHost(url) ? SESSION_COOKIE_DEV : SESSION_COOKIE_PROD;

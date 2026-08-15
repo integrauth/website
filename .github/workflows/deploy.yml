@@ -185,6 +185,49 @@ jobs:
           fi
           echo "probe_url=$PROBE_URL" >> "$GITHUB_OUTPUT"
 
+      # ===================== TEMPORARY — DELETE THIS STEP AFTER ONE RUN =====================
+      # Two measurements the audit has twice recorded as "argued, not measured", each of which
+      # decides a finding's severity rather than merely informing it. Both are READ-ONLY and both
+      # print to the job summary; nothing is stored and nothing is asserted on.
+      #
+      #  1. R22-W-03 — how many Academy certificates predate the `IA-XXXX-XXXX-XXXX` serial format.
+      #     Those were unverifiable by any code path until this week's two-arm lookup shipped. If
+      #     this returns 0 the fix was insurance; anything else means real holders were being told
+      #     their credential was not in our records.
+      #  2. R22-W-01 — whether this Worker really egresses from ONE IP, the premise under the Lab's
+      #     10x first-party rate allowance. Called three times ON PURPOSE: differing values falsify
+      #     the premise, matching values do NOT confirm it (CI reaches one Cloudflare colo).
+      #
+      # `|| true` throughout: a diagnostic must never fail a production deploy. A failed reading is
+      # reported as a failed reading — the thing this audit keeps insisting on is that an absent
+      # measurement is stated, not silently treated as a zero.
+      - name: TEMPORARY diagnostics (delete after reading)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          {
+            echo "### Audit measurements (temporary)"
+            echo
+            echo '#### R22-W-03 — certificates with a pre-`IA-` serial'
+            echo '```'
+            npx wrangler d1 execute lab-db --remote --json --command \
+              "SELECT count(*) AS legacy_serials FROM academy_certificates WHERE serial NOT GLOB 'IA-[0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z]-*'" \
+              2>&1 || echo "QUERY FAILED — this is an unread measurement, not a zero"
+            echo '```'
+            echo
+            echo '#### R22-W-01 — Worker egress IP, three readings'
+            echo '```'
+            for i in 1 2 3; do
+              curl -sS --max-time 10 "${{ steps.deploy.outputs.probe_url }}/api/academy/__diag/egress-ip" \
+                || echo "reading $i FAILED"
+              echo
+            done
+            echo '```'
+            echo
+            echo 'Differing values falsify the single-egress-IP premise. Matching values do not confirm it.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      # =================== END TEMPORARY — DELETE THIS STEP AFTER ONE RUN ===================
+
       # Generate-if-absent, NEVER rotate: ACADEMY_PRIVATE_JWK (ES256 P-256 private key, JWK JSON) —
       # rotating it would invalidate the signature embedded in every certificate already issued.
       # Needs the Worker to already exist (first deploy above), same ordering as the lab repo's own

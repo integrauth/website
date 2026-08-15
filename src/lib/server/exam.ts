@@ -77,6 +77,90 @@ export function isKnownQuestion(id: string): boolean {
 }
 
 /**
+ * Questions guaranteed per track by the client's stratified draw — `GUAR` in js/academy-labs.js's
+ * `pick()`. Mirrored here for the same reason EXAM_QUESTION_COUNT and EXAM_PASS_PERCENT are.
+ */
+export const EXAM_GUARANTEED_PER_TRACK = 4;
+
+/**
+ * The track a question belongs to, derived from its id.
+ *
+ * Ids are `<track>-<NN>` (`basics-01`, `foundations-07`, …) and the pool's own `t:` display label
+ * is 1:1 with that prefix across all 96 questions — measured, not assumed. Deriving the track here
+ * rather than shipping a second mapping means this cannot drift from the key above: a question the
+ * key knows always has a track, and a question it does not know is rejected before this is reached.
+ */
+export function trackOfQuestion(id: string): string {
+  const cut = id.lastIndexOf('-');
+  return cut > 0 ? id.slice(0, cut) : id;
+}
+
+/**
+ * How many questions from each track a well-formed sitting must contain, derived from the key.
+ *
+ * This mirrors `pick()` in js/academy-labs.js exactly, including its edge case. `pick()` takes
+ * `min(GUAR, |track|)` from every track, concatenates them, fills to N from what is left, shuffles
+ * and then `slice(0, N)`. That final slice is the catch: while the guaranteed set is no larger than
+ * N it survives intact and the per-track floor holds, but if tracks ever multiply to the point that
+ * `sum(min(GUAR, |track|)) > N`, the slice starts discarding guaranteed questions at random and the
+ * client itself stops honouring the floor. Today that sum is 12 x 4 = 48 against N = 50, so the
+ * floor holds; a 13th track would make it 52 and this returns an empty map, standing the per-track
+ * rule down rather than rejecting every real learner's exam. That is the whole reason this is
+ * computed rather than written down as "at least 4 of each".
+ */
+export function requiredQuestionsPerTrack(): Map<string, number> {
+  const poolByTrack = new Map<string, number>();
+  for (const id of Object.keys(EXAM_ANSWER_KEY)) {
+    const track = trackOfQuestion(id);
+    poolByTrack.set(track, (poolByTrack.get(track) ?? 0) + 1);
+  }
+  const required = new Map<string, number>();
+  let guaranteed = 0;
+  for (const [track, size] of poolByTrack) {
+    const floor = Math.min(EXAM_GUARANTEED_PER_TRACK, size);
+    required.set(track, floor);
+    guaranteed += floor;
+  }
+  return guaranteed > EXAM_QUESTION_COUNT ? new Map() : required;
+}
+
+/**
+ * True when `ids` is shaped like a draw the Academy's own exam panel would have produced.
+ *
+ * WHY THE SERVER CHECKS THE DRAW AT ALL, given that the answers are public anyway. It is not an
+ * anti-cheating measure and cannot be one — this file's header is straight about the fact that a
+ * determined reader can look the answers up in the public bundle, and refusing a malformed draw
+ * does nothing about that. What it fixes is a different, quieter problem: the exam panel promises
+ * the learner "50 questions ... at least 4 from every track", and until this existed that promise
+ * was a client-side property only. `academy_exam_attempts.question_ids_json` stored whatever the
+ * caller sent, so a recorded attempt could legitimately be 50 questions from one track, and
+ * anything ever computed over that column would be reading caller-controlled data presented as a
+ * measurement of a stratified sitting. Now a stored attempt matches the advertised shape.
+ *
+ * The caller must have already checked length, distinctness and that every id is known — this only
+ * adds the stratification, and assumes those.
+ *
+ * RESIDUAL, stated so nobody mistakes this for more than it is: the server still does not ISSUE the
+ * draw. It cannot tell a genuine sitting from a synthesised one that happens to be well-formed, and
+ * a scripted 100% pass remains one request away, bounded only by the 3-per-account-and-network
+ * daily limit. Closing that needs a server-issued, server-bound draw (a stored or signed draw id
+ * the submission must reference), which is a real design change to both halves of the exam.
+ */
+export function isWellFormedDraw(ids: string[]): boolean {
+  const required = requiredQuestionsPerTrack();
+  if (required.size === 0) return true; // floor cannot be asserted — see requiredQuestionsPerTrack
+  const seen = new Map<string, number>();
+  for (const id of ids) {
+    const track = trackOfQuestion(id);
+    seen.set(track, (seen.get(track) ?? 0) + 1);
+  }
+  for (const [track, floor] of required) {
+    if ((seen.get(track) ?? 0) < floor) return false;
+  }
+  return true;
+}
+
+/**
  * Grades a sitting. Throws `Error('unknown_question')` if any id is not in the key (a pool/key
  * drift, or a fabricated id) so the route can answer 400 rather than score against a partial key.
  * The caller is responsible for having already validated array length, distinctness and the shape

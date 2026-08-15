@@ -21,6 +21,15 @@
 //      the progress-sync tables (which have no daily cap because a real learner
 //      syncs constantly). Explicitly backstops, not rate limiters — see
 //      MAX_*_PER_DAY and MAX_STORED_* below.
+//   3. A minimum interval between calls to POST /progress/reset. That route grows
+//      no rows at all — one epoch row per learner, forever — so neither of the
+//      above applied to it, and it was for a while the one authenticated write
+//      here with no bound of any kind (audit finding R22-W-08): each call is an
+//      upsert plus up to three DELETEs against the shared D1, and one session
+//      could issue them as fast as it could send. It is bounded by elapsed time
+//      rather than a count because there is nothing per-reset to count without a
+//      migration, which this repo may not write — see
+//      MIN_PROGRESS_RESET_INTERVAL_MS in store.ts.
 //
 // A real per-IP/per-session limiter would need a Durable Object or KV
 // (in-memory-per-isolate counters aren't reliable on Workers, since concurrent
@@ -46,6 +55,8 @@ import {
   deleteQuizProgress,
   getProgressEpoch,
   bumpProgressEpoch,
+  getLastProgressResetAt,
+  progressResetRetryAfterSeconds,
   insertExamAttempt,
   listExamAttempts,
   countExamAttemptsSince,
@@ -69,7 +80,13 @@ import {
   generateCertificateSerial,
   certificateSerialLookupCandidates,
 } from './certs';
-import { EXAM_QUESTION_COUNT, gradeExam, isKnownQuestion, type SubmittedAnswer } from './exam';
+import {
+  EXAM_QUESTION_COUNT,
+  gradeExam,
+  isKnownQuestion,
+  isWellFormedDraw,
+  type SubmittedAnswer,
+} from './exam';
 import { clientIpFromHeader, hashClientIp } from './ip';
 
 interface Vars {
@@ -396,6 +413,46 @@ export function createApp() {
    * preserved by worker.ts, which otherwise pins `no-store` on every API response
    * (correct for the session-scoped routes, wrong for this one).
    */
+  /**
+   * ============================ TEMPORARY — DELETE AFTER READING ============================
+   *
+   * Reports the IP this Worker EGRESSES from, by asking an echo service. It exists to settle one
+   * unmeasured premise behind audit finding R22-W-01: this repo's own comment claims all Relying
+   * Party traffic reaches the Lab's token endpoint from a single IP, and the Lab grants a 10x
+   * first-party rate allowance partly on that basis. Nobody has ever checked it, on either side.
+   *
+   * WHY IT CANNOT BE A CI STEP INSTEAD: a GitHub runner curling anything reports GITHUB's IP. Only
+   * code running inside the Worker can observe the Worker's egress.
+   *
+   * WHAT ONE READING PROVES, precisely: differing values across calls FALSIFY the single-IP premise
+   * outright. Matching values do NOT confirm it — Cloudflare egress varies by colo, and CI reaches
+   * one colo. So this is a cheap disproof, not a proof, and the CI step calls it three times for
+   * that reason.
+   *
+   * Deliberately harmless while it exists: no request input reaches the fetch, the upstream is a
+   * fixed constant, the response is a bare IP string, and an egress IP is not secret — every server
+   * this Worker calls already sees it. It is still removed on the next deploy, because a public
+   * endpoint that makes an outbound request is not something to leave lying around for no reason.
+   */
+  app.get('/__diag/egress-ip', async (c) => {
+    try {
+      const res = await fetch('https://api.ipify.org?format=text', {
+        headers: { accept: 'text/plain' },
+      });
+      const ip = (await res.text()).trim().slice(0, 64);
+      return c.json({ egress_ip: ip, upstream_status: res.status }, 200, {
+        'Cache-Control': 'no-store',
+      });
+    } catch (error) {
+      // Never throw: this is a diagnostic, and a failed reading must read as "unknown" rather than
+      // becoming a 500 on a production deploy's smoke sequence.
+      return c.json({ egress_ip: null, error: String(error).slice(0, 200) }, 200, {
+        'Cache-Control': 'no-store',
+      });
+    }
+  });
+  /* ========================== END TEMPORARY — DELETE AFTER READING ========================== */
+
   app.get('/.well-known/jwks.json', async (c) => {
     const jwks = await getPublicJwks(c.env);
     c.header('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
@@ -702,6 +759,22 @@ export function createApp() {
       }
     }
 
+    // Throttle before ANY write, including the epoch bump. This is the one authenticated write on
+    // this Worker with no cap of its own (audit finding R22-W-08) — see
+    // MIN_PROGRESS_RESET_INTERVAL_MS in store.ts for why it is an interval rather than the daily
+    // cap the exam and certificate routes use, why ten seconds, and the one legitimate case it can
+    // refuse. Deliberately answered with a bare `rate_limited` and no `scope`: `describeApiError`
+    // in academy-auth.js gives `scope:'account'` exam-specific wording ("you have used all 3 of
+    // your final-exam attempts"), which would be nonsense on a progress reset. With no scope it
+    // renders the generic "Too many attempts — please wait a bit and try again."
+    const retryAfterReset = progressResetRetryAfterSeconds(
+      await getLastProgressResetAt(c.env.DB, userId),
+      Date.now()
+    );
+    if (retryAfterReset !== null) {
+      return c.json({ error: 'rate_limited' }, 429, { 'Retry-After': String(retryAfterReset) });
+    }
+
     // The epoch bump comes BEFORE the deletes, and the order is load-bearing. The in-statement
     // guard on every merge write compares against the CURRENT epoch — so with delete-then-bump, a
     // sync that passed the route pre-check at the old epoch and is mid-flight through its own
@@ -777,6 +850,16 @@ export function createApp() {
       }
       seenIds.add(id);
       parsed.push({ id, choice });
+    }
+
+    // ...and the sitting must be shaped like a draw our own exam panel would have produced: at
+    // least the guaranteed number of questions from every track. Everything above validates the
+    // entries one at a time; this is the only check on the draw AS A WHOLE. See `isWellFormedDraw`
+    // for what this does and does not buy — in particular that it is not an anti-cheating measure,
+    // but the thing that makes the stored `question_ids_json` mean what the UI told the learner it
+    // would mean.
+    if (!isWellFormedDraw(parsed.map((a) => a.id))) {
+      return c.json({ error: 'invalid_answers' }, 400);
     }
 
     // Authoritative grading. `gradeExam` throws `unknown_question` only if an id passed the

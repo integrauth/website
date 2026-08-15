@@ -140,11 +140,15 @@ export function rpConfigFromEnv(env: Env, requestUrl: URL): RpConfig | null {
   // Derived from the live request rather than configured, so the same build works on
   // *.workers.dev, on localhost, and on integrauth.com with no redeploy. The Lab matches redirect
   // URIs by exact string equality, so every origin this Worker answers on must appear verbatim in
-  // its IA_WEBSITE_REDIRECT_URIS list.
+  // its IA_WEBSITE_REDIRECT_URIS list. Two of the origins this Worker answers on do NOT appear
+  // there and cannot complete a login: localhost, and the `*.workers.dev` host `workers_dev = true`
+  // brings back for CI's health probes. `/auth/start` refuses the latter outright rather than
+  // redirecting into a rejection at the Lab — see `isUnregisterableLoginHost` in ./session.
   const redirectUri = `${requestUrl.origin}/auth/callback`;
 
   return { issuer, clientId, clientSecret: secret, redirectUri };
 }
+
 
 /** URLs derived from the issuer. Hardcoded rather than discovered — see `buildAuthorizeUrl`. */
 export function authorizeEndpoint(issuer: string): string {

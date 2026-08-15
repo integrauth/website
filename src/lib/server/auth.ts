@@ -22,6 +22,7 @@ import {
   clearSessionCookie,
   createSession,
   IDLE_MS,
+  isUnregisterableLoginHost,
   listSessions,
   parseSessionCookie,
   revokeSession,
@@ -238,9 +239,19 @@ export function createAuthApp() {
     const mode = url.searchParams.get('mode') === 'redirect' ? 'redirect' : 'popup';
 
     const config = rpConfigFromEnv(c.env, url);
-    if (!config) {
-      // Sign-in genuinely cannot work yet (no client secret provisioned). Say so plainly rather
-      // than bouncing the user to a provider that will reject an unseeded client.
+    if (!config || isUnregisterableLoginHost(url)) {
+      // Sign-in cannot work on this request, for one of two reasons, and both get the same answer.
+      //
+      //   1. No client secret is provisioned yet (`rpConfigFromEnv` returned null). Say so plainly
+      //      rather than bouncing the user to a provider that will reject an unseeded client.
+      //   2. This is the `*.workers.dev` host, whose `/auth/callback` is deliberately not in the
+      //      Lab's `IA_WEBSITE_REDIRECT_URIS` — see `isUnregisterableLoginHost` for the whole reason. Left
+      //      to run, this route would mint a transaction cookie and redirect the browser to the
+      //      Lab, which would then refuse the unregistered `redirect_uri` and strand the visitor on
+      //      an error page at lab.integrauth.com. Refusing here keeps that failure local.
+      //
+      // Neither is reachable from a real visitor on integrauth.com or www.integrauth.com: nothing
+      // links to the workers.dev host, and the secret is provisioned on every deploy.
       //
       // BOTH modes get the HTML closing page, and the popup mode especially. An earlier version
       // returned raw JSON here on the grounds that "its caller is fetch(), not a human" — which is

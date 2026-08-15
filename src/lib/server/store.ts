@@ -434,6 +434,85 @@ export async function bumpProgressEpoch(db: D1Database, userId: string): Promise
   return getProgressEpoch(db, userId);
 }
 
+/**
+ * When this learner last reset, or null if they never have.
+ *
+ * Reads the `reset_at` column migration 0053 describes as "when the most recent reset happened",
+ * which it kept for the "your progress was reset on <date>" question. It is deliberately NOT part
+ * of any merge decision — the epoch counter is the authority there, precisely because client clocks
+ * are not trustworthy — and this does not make it one. It is a server-written timestamp being read
+ * back by the same server, for the throttle below.
+ */
+export async function getLastProgressResetAt(
+  db: D1Database,
+  userId: string
+): Promise<string | null> {
+  const row = await db
+    .prepare('SELECT reset_at FROM academy_progress_epoch WHERE user_id = ?')
+    .bind(userId)
+    .first<{ reset_at: string | null }>();
+  return row?.reset_at ?? null;
+}
+
+/**
+ * Shortest gap allowed between two resets by one account.
+ *
+ * WHY THERE IS A LIMIT HERE AT ALL (audit finding R22-W-08). api.ts's header names this site's two
+ * abuse defences as the CSRF guard plus "per-user daily caps on the two endpoints that INSERT rows
+ * with no natural bound ... plus total-row ceilings on the progress-sync tables". `POST
+ * /progress/reset` was neither: authenticated, uncapped, and every single call performs an upsert
+ * plus up to three DELETEs against a D1 shared with the Lab. Storage stays bounded — there is one
+ * epoch row per learner however many times they reset — so this is write VOLUME, not growth, and
+ * one authenticated session was enough to generate it without limit.
+ *
+ * WHY A MINIMUM INTERVAL RATHER THAN THE DAILY CAP EVERY OTHER LIMIT HERE USES. A daily cap needs a
+ * count of resets inside a window, and there is nothing to count: the table holds one row per
+ * learner carrying a monotonic counter and the time of the latest reset, and adding a per-reset row
+ * would mean a migration — which must land in the Lab's repo, since it owns this database's
+ * migration history. An interval is derivable from what is already stored, and for bounding write
+ * rate it is arguably the better shape anyway: a daily cap of N still permits an N-request burst,
+ * while this bounds the sustained rate forever.
+ *
+ * WHY TEN SECONDS, and why that is not felt by a real learner. Every reset in the product is behind
+ * a confirm dialog (`acadConfirm` in functions.js) that a human has to read and accept. The only
+ * sequence that legitimately produces two resets close together is resetting two tracks in a row,
+ * and `resetTrack()` returns to the hub afterwards — so the second reset costs a track card, a
+ * lesson, the reset button and the dialog before it can be sent. Ten seconds sits well under that
+ * and roughly three orders of magnitude above the rate a loop achieves.
+ *
+ * THE ONE CASE THAT CAN LEGITIMATELY BE REFUSED, recorded rather than hidden: `pushResetToServer`
+ * shows a "we couldn't reach the server" toast with a Try again button when a reset fails. If the
+ * first request actually succeeded and only its response was lost, a retry inside the window is
+ * answered 429 and the toast comes back — the reset did happen, but the learner is told it did not.
+ * That needs a human to click Try again within ten seconds of reading a toast, and clicking it once
+ * more resolves it. The alternative (letting a repeat through, or half-performing it by skipping
+ * the epoch bump) is worse: the bump is what stops another device re-uploading pre-reset progress,
+ * and 0053's header is emphatic that a reset which does not stick is the unrecoverable failure this
+ * whole mechanism exists to prevent. Refusing the operation outright keeps it all-or-nothing.
+ */
+export const MIN_PROGRESS_RESET_INTERVAL_MS = 10_000;
+
+/**
+ * Seconds a caller must wait before resetting again, or null when the reset may proceed.
+ *
+ * Pure and clock-injected so it is unit-testable without a Worker or a database. An absent or
+ * unparseable `reset_at` allows the reset: a learner who has never reset must not be throttled, and
+ * a value we cannot read is not evidence of anything. A `reset_at` in the FUTURE (a clock step on
+ * the server between the write and this read) is treated as "just reset", which is the conservative
+ * direction — it delays a reset by at most the interval rather than disabling the throttle.
+ */
+export function progressResetRetryAfterSeconds(
+  lastResetAt: string | null,
+  nowMs: number
+): number | null {
+  if (!lastResetAt) return null;
+  const lastMs = Date.parse(lastResetAt);
+  if (!Number.isFinite(lastMs)) return null;
+  const elapsed = nowMs - lastMs;
+  if (elapsed >= MIN_PROGRESS_RESET_INTERVAL_MS) return null;
+  return Math.max(1, Math.ceil((MIN_PROGRESS_RESET_INTERVAL_MS - elapsed) / 1000));
+}
+
 // ---------------------------------------------------------------------------
 // academy_last_position
 // ---------------------------------------------------------------------------
