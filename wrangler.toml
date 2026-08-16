@@ -90,33 +90,30 @@ binding = "DB"
 database_name = "lab-db"
 database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 
-# DISABLED, and this is a live TODO rather than a decision. Restore it as:
-#
-#   [triggers]
-#   crons = ["23 * * * *"]
+# ENABLED 2026-08-15, after the explanation for its previous failure was measured false. The
+# history is kept deliberately: this block sat off on a diagnosis that was wrong, and the
+# correction is worth more than a clean comment.
 #
 # One job: erase exam `ip_hash` values past their 24-hour retention window (audit finding
-# R22-W-02). privacy.html promises that erasure unconditionally, but the only thing that performs
-# it today is the next exam submission — so on a quiet week the most recent hashes outlive the
+# R22-W-02). privacy.html promises that erasure unconditionally, but the only other thing that
+# performs it is the next exam submission — so on a quiet week the most recent hashes outlive the
 # promise, and the last attempt before traffic stops is never scrubbed at all. The handler is
-# already shipped and inert: `scheduled` in src/worker.ts, which touches nothing else and no
-# Lab-owned table. Re-adding the two lines above is the entire remaining change.
+# `scheduled` in src/worker.ts, which touches nothing else and no Lab-owned table.
 #
-# WHY IT IS OFF. Deploy run #49 (2026-08-14) failed with:
+# WHY IT WAS OFF, and why that reason did not survive contact with the API. Deploy run #49
+# (2026-08-14) failed with:
 #
 #   Some triggers failed to deploy for integrauth-website:
 #     - A request to the Cloudflare API (/accounts/…/workers/scripts/integrauth-website/schedules)
 #       failed.
 #
-# The script itself uploads fine; only the schedules call is refused. It is disabled rather than
-# left failing because a red deploy blocks EVERY future website deploy, which is a worse outcome
-# than the retention gap it was closing.
+# The script itself uploaded fine; only the schedules call was refused. Disabling it was the right
+# call at the time — a red deploy blocks EVERY subsequent website deploy, which is worse than the
+# retention gap it was closing.
 #
-# THIS COMMENT USED TO SAY "CF_TOKEN is missing a scope that covers cron triggers", and that is now
-# MEASURED FALSE. It is corrected rather than quietly reworded, because it sent two people down a
-# dead end and the correction is the useful part (audit R22-W-02).
-#
-# Measured 2026-08-15 by calling the endpoint directly from the deploy job, with this same token:
+# The cause was then recorded as "CF_TOKEN is missing a scope that covers cron triggers", because
+# wrangler swallowed the API's response body and nobody could see otherwise. **That is now MEASURED
+# FALSE**, by calling the endpoint directly from the deploy job with this same token:
 #
 #   GET  /accounts/…/workers/scripts/integrauth-website/schedules  -> 200 {"schedules":[]}
 #   PUT  (same URL, body [] — the list it already had)             -> 200 {"schedules":[]} success
@@ -128,16 +125,18 @@ database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 # and the documented requirement for this endpoint is Workers Scripts:Write — which the deploy step
 # exercises seconds earlier every single run.
 #
-# So whatever failed in run #49, it was NOT authorization, and no amount of widening the token will
-# fix it. Remaining candidates, none yet tested: a transient API failure that a retry would clear,
-# or something specific to writing a NON-empty schedule list (the probe wrote an empty one, because
-# writing the real cron from CI would have put production into a state no committed file declares).
+# So run #49's failure was NOT authorization, and widening the token would have fixed nothing.
 #
-# THE NEXT STEP IS TO SIMPLY TRY IT: restore the two lines above and deploy. The failure mode is
-# understood and cheap — a red deploy blocks subsequent website deploys until reverted, so revert
-# immediately if it fails, and this time the error is worth capturing properly rather than guessing
-# from. Until someone does that, this and privacy.html's unconditional 24-hour erasure promise both
-# stay open.
+# THE LESSON, and the reason this comment is long: an error whose body nobody read produced a
+# confident wrong cause; that cause was written down as fact; and it then justified leaving a
+# privacy promise unkept for a day. One direct call to the endpoint settled it. **Read the error
+# before naming the cause.**
+#
+# If this ever fails again: revert these two lines FIRST, because a red deploy blocks every other
+# deploy — then reproduce it against the endpoint directly rather than through wrangler, which does
+# not surface the API's response.
+[triggers]
+crons = ["23 * * * *"]
 
 [vars]
 # Same Turnstile site key the Lab uses (committed there too — a Turnstile SITE key is the public
