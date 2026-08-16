@@ -723,6 +723,48 @@ export async function scrubExamAttemptIpHashesBefore(
     .run();
 }
 
+/**
+ * Claim a time window for a periodic job, so exactly one request runs it.
+ *
+ * The website's stand-in for a cron trigger, and it exists because there is no cron trigger to be
+ * had: the Cloudflare account is at the Workers Free plan's limit of **5 cron triggers,
+ * account-wide**, all five held by other products (see the lab repo's `src/worker.ts`, and this
+ * repo's `wrangler.toml` for the attempts that ran into it). The lab repo solves the same problem
+ * with a counter in a Durable Object; this Worker has none, so it claims in the D1 both apps already
+ * share. Table from migration `0061_academy_sweep_claim.sql`, in the lab repo, which owns this
+ * schema.
+ *
+ * **Returns true at most once per window.** One statement does the whole thing, and D1 serialises
+ * writes, so of N concurrent requests inside the same window exactly one sees `changes == 1`.
+ * Splitting it into a SELECT then an UPDATE would reintroduce the race it exists to avoid.
+ *
+ * The `<` guard is what makes this a claim rather than a counter: a second call inside the same
+ * window updates nothing and reports 0. Relaxing it to `<=`, or dropping it, would run the job on
+ * every request — for a table-wide UPDATE, the difference between one write an hour and one per
+ * request.
+ *
+ * `windowStart` is epoch SECONDS. Numeric on purpose: SQLite compares ISO strings lexicographically
+ * and would appear correct until a format change made it quietly wrong.
+ *
+ * Callers must treat a throw as "not claimed" — housekeeping must never affect the request it rode
+ * in on.
+ */
+export async function claimSweepWindow(
+  db: D1Database,
+  job: string,
+  windowStart: number
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `INSERT INTO academy_sweep_claim (job, window_start) VALUES (?1, ?2)
+       ON CONFLICT(job) DO UPDATE SET window_start = ?2
+         WHERE academy_sweep_claim.window_start < ?2`
+    )
+    .bind(job, windowStart)
+    .run();
+  return res.meta.changes === 1;
+}
+
 // ---------------------------------------------------------------------------
 // academy_certificates
 // ---------------------------------------------------------------------------

@@ -90,17 +90,15 @@ binding = "DB"
 database_name = "lab-db"
 database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 
-# DISABLED, and this is a live TODO rather than a decision. Restore it as:
+# NO `[triggers]` BLOCK, PERMANENTLY — and this is now a decision rather than a TODO.
 #
-#   [triggers]
-#   crons = ["23 * * * *"]
+# The job it would have run: erase exam `ip_hash` values once they age out of the 24-hour counting
+# window (audit R22-W-02). That erasure is promised in privacy.html, and until 2026-08-16 the only
+# thing performing it was the next exam submission — so a quiet week left hashes in place and the
+# last attempt before traffic stopped was never scrubbed at all.
 #
-# One job: erase exam `ip_hash` values past their 24-hour retention window (audit finding
-# R22-W-02). privacy.html promises that erasure unconditionally, but the only thing that performs
-# it today is the next exam submission — so on a quiet week the most recent hashes outlive the
-# promise, and the last attempt before traffic stops is never scrubbed at all. The handler is
-# already shipped and inert: `scheduled` in src/worker.ts, which touches nothing else and no
-# Lab-owned table. Re-adding the two lines above is the entire remaining change.
+# It now runs WITHOUT a cron; see the fix note further down. What follows is why a cron was never
+# available, kept because three separate attempts were made before anyone found the reason.
 #
 # WHY IT IS OFF. Deploy run #49 (2026-08-14) failed with:
 #
@@ -166,19 +164,28 @@ database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 # Three attempts were spent on token scopes for a quota problem. **The API's own error body would
 # have said so on day one.**
 #
-# THE FIX IS THEREFORE NOT A CRON. The Lab hit this same wall and solved it without a slot:
-# `maybeRunCleanup` (`src/lib/server/cleanup.ts`) claims the window with an atomic counter, so the
-# first request of the period runs the sweep in `waitUntil` — no cron, no added latency, and a failed
-# claim can never affect the request it rode in on. Porting that pattern here is the way to keep
-# privacy.html's promise.
+# FIXED WITHOUT A CRON, 2026-08-16. The Lab hit this same wall and answered it with `maybeRunCleanup`;
+# this Worker now does the same thing in `maybeSweepExpiredExamIpHashes` (api.ts), called from
+# `worker.ts` on every invocation: claim the hour atomically in `academy_sweep_claim` (lab migration
+# 0061 — this repo does not write migrations), then run the sweep in `waitUntil`. At most one request
+# an hour does any work, none of them pay latency, and a claim that throws is swallowed.
 #
-# Two things to get right when doing it, both easy to miss:
-#   - **Arithmetic.** Worst-case age is `cutoff + claim window`. An HOURLY window with a 23h cutoff
-#     honours a 24-hour promise; a DAILY window cannot honour it at any cutoff.
-#   - **It needs traffic.** `run_worker_first` routes only `/api/academy/*` and `/auth/*` to this
-#     Worker, so static page views do not trigger a sweep. This is "reliably within 24h whenever the
-#     Academy is used", not a guarantee under zero traffic. Only a real scheduler gives that, and
-#     that needs one of the five slots freed.
+# ONE CORRECTION WORTH KEEPING, because an earlier version of this comment got it wrong and the
+# mistake was the dangerous direction. It said "an hourly window with a 23h cutoff honours a 24-hour
+# promise". **Do not do that.** `scrubExamAttemptIpHashesBefore` must be called with the SAME window
+# start the counts use — scrubbing earlier erases hashes still inside the 24-hour counting window,
+# which under-counts attempts and hands out extra exam tries on the limit protecting a credential
+# learners give to employers. The retention floor IS the counting window: worst case is 24h + up to
+# one sweep window, and no mechanism, cron included, could ever have erased at exactly 24h.
+# `privacy.html` now describes that instead of promising a deadline nothing could meet.
+#
+# The remaining limitation, stated rather than papered over: the sweep needs SOME request to arrive.
+# `run_worker_first` routes only `/api/academy/*` and `/auth/*` here, so static page views do not
+# trigger it. In practice any learner opening a lesson syncs progress and claims the hour. Under
+# genuinely zero traffic nothing runs and erasure happens on the next request — which privacy.html
+# says, rather than implying a timer. A hard guarantee independent of traffic needs a real scheduler,
+# and that needs one of the five account cron slots freed (or Workers Paid, which raises the limit to
+# 250).
 
 [vars]
 # Same Turnstile site key the Lab uses (committed there too — a Turnstile SITE key is the public

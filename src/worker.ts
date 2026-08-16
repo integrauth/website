@@ -10,7 +10,7 @@
 // the asset server instead and never reaches this code at all, which fails as a 404 rather than as
 // anything that would draw attention.
 
-import { createApp, sweepExpiredExamIpHashes } from './lib/server/api';
+import { createApp, maybeSweepExpiredExamIpHashes } from './lib/server/api';
 import { createAuthApp } from './lib/server/auth';
 import { withSecurityHeaders } from './lib/server/security';
 import type { Env } from './lib/server/env';
@@ -42,29 +42,39 @@ export default {
     }
   },
 
-  /**
-   * Cron handler — `[triggers] crons` in wrangler.toml (audit finding R22-W-02).
-   *
-   * One job only: erase exam `ip_hash` values past their 24-hour retention window, which
-   * `privacy.html` promises unconditionally but which was previously driven only by a subsequent
-   * exam submission. See `sweepExpiredExamIpHashes` for the full reasoning.
-   *
-   * A throw here is logged and swallowed: a failed housekeeping run must not mark the scheduled
-   * event as failed and it is retried on the next tick an hour later, but a silent failure with
-   * nothing in `wrangler tail` would leave a broken privacy commitment looking healthy.
-   */
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(
-      sweepExpiredExamIpHashes(env.DB).catch((error) => {
-        console.error('scheduled exam ip_hash sweep failed:', error);
-      })
-    );
-  },
+  // NOTE: no `scheduled()` cron handler, and the same reason the sibling `integrauth/lab` Worker has
+  // none — the Cloudflare account both share is at its Workers Free-plan limit of 5 cron triggers,
+  // account-wide, all five held by other products. A sixth is refused by the schedules API (audit
+  // R22-W-02; wrangler.toml records the attempts).
+  //
+  // There WAS a handler here, written against a `[triggers]` block that never deployed. It is gone
+  // rather than left inert, because a `scheduled()` export reads as "this runs on a schedule" to
+  // everyone who opens this file, and it did not — which is the exact defect class this audit keeps
+  // finding. The sweep now runs from the request path via `maybeSweepExpiredExamIpHashes` in
+  // `route()` below: an atomic hourly claim, work in `waitUntil`, no cron slot needed.
+  //
+  // If a slot ever frees up, re-adding is small: `sweepExpiredExamIpHashes` is still exported from
+  // api.ts and is what the handler would call.
 } satisfies ExportedHandler<Env>;
 
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   {
     const url = new URL(request.url);
+
+    // The retention sweep that would be a cron trigger if one were available (audit R22-W-02): the
+    // account is at the Workers Free plan's limit of 5 cron triggers, account-wide, all five held by
+    // other products, so a sixth is refused by the API. `maybeSweepExpiredExamIpHashes` claims an
+    // hour atomically and does the work in `waitUntil` — at most one request an hour pays anything,
+    // and none of them pay latency.
+    //
+    // Placed HERE, before the prefix branches, so every Worker invocation is a candidate: an
+    // `/auth/*` sign-in claims the hour just as well as an Academy API call. Putting it in the Hono
+    // app's middleware would have covered only `/api/academy/*` and thrown away half the eligible
+    // traffic — on a site whose entire difficulty with this job is having too little of it.
+    //
+    // Not awaited, and the helper swallows its own rejections: housekeeping must never delay or fail
+    // the request it rode in on.
+    void maybeSweepExpiredExamIpHashes(env.DB, (p) => ctx.waitUntil(p));
 
     if (url.pathname.startsWith('/api/academy/')) {
       const response = await app.fetch(request, env, ctx);

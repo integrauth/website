@@ -63,6 +63,7 @@ import {
   countExamAttemptsByIpSince,
   oldestExamAttemptSince,
   scrubExamAttemptIpHashesBefore,
+  claimSweepWindow,
   getExamAttemptById,
   insertCertificateIfAbsent,
   recomputeBestCertificate,
@@ -88,6 +89,7 @@ import {
   type SubmittedAnswer,
 } from './exam';
 import { clientIpFromHeader, hashClientIp } from './ip';
+import { SWEEP_JOB_EXAM_IP, sweepWindowStartSeconds } from './sweep';
 
 interface Vars {
   userId: string;
@@ -257,25 +259,70 @@ function abuseWindowStartIso(): string {
 }
 
 /**
- * Erase exam `ip_hash` values that have aged out of the counting window — the scheduled half.
+ * Erase exam `ip_hash` values that have aged out of the counting window.
  *
- * WHY IT IS SCHEDULED AS WELL AS ON THE WRITE PATH (audit finding R22-W-02). The submission
- * handler below already scrubs on every attempt, and that is the cheap, common case. But it is
- * driven ENTIRELY by a subsequent submission, and the exam is the only sign-in-gated action on
- * this site: a quiet week leaves the last attempts' hashes in place indefinitely, and the very
- * last attempt before traffic stops is never scrubbed at all, because nothing runs after it.
+ * WHY THIS EXISTS SEPARATELY FROM THE WRITE PATH (audit finding R22-W-02). The submission handler
+ * below already scrubs on every attempt, and that is the cheap, common case. But it is driven
+ * ENTIRELY by a subsequent submission, and the exam is the only sign-in-gated action on this site:
+ * a quiet week leaves the last attempts' hashes in place indefinitely, and the very last attempt
+ * before traffic stops is never scrubbed at all, because nothing runs after it.
  *
- * `privacy.html` tells people "we erase that hash 24 hours later". That is a published
- * commitment, not an implementation note, so it cannot be left conditional on traffic. The cron
- * in `wrangler.toml` runs this hourly, which makes the erasure happen within an hour of the
- * 24-hour mark whether or not anyone sits the exam.
- *
- * It reuses `abuseWindowStartIso()` deliberately: the scrub MUST use the same window start the
- * counts use — see the note on `scrubExamAttemptIpHashesBefore` — so a later boundary can never
- * erase keys that are still being counted.
+ * It reuses `abuseWindowStartIso()` deliberately, and that is a correctness requirement rather than
+ * tidiness: the scrub MUST use the same window start the counts use — see the note on
+ * `scrubExamAttemptIpHashesBefore` — so a later boundary can never erase keys still being counted.
+ * **Do not "improve" this by scrubbing earlier than the window** to make an erasure deadline look
+ * tighter: erasing a hash that is still inside the counting window under-counts that connection's
+ * attempts and hands out extra exam tries, on the limit protecting a credential learners give to
+ * employers. The retention floor is the counting window, and it is not negotiable from here.
  */
 export async function sweepExpiredExamIpHashes(db: D1Database): Promise<void> {
   await scrubExamAttemptIpHashesBefore(db, abuseWindowStartIso());
+}
+
+/**
+ * Run the sweep at most once an hour, from whichever request happens to claim the hour.
+ *
+ * **This is the cron trigger's replacement, and there is no cron trigger to be had.** The Cloudflare
+ * account is at the Workers Free plan's limit of 5 cron triggers account-wide, all five held by
+ * other products — three attempts to add a sixth for this Worker were refused by the schedules API
+ * (the full account is in `wrangler.toml`). The lab repo hit the same wall and answered it the same
+ * way, in `maybeRunCleanup`: claim a window atomically, do the work in `waitUntil`. This is that
+ * pattern, with the claim in D1 because this Worker has no Durable Object.
+ *
+ * **Adds nothing to anyone's latency.** The claim is one indexed write, and the sweep itself runs in
+ * `waitUntil` after the response is on its way. A claim that throws returns false rather than
+ * propagating: housekeeping must never fail the request it rode in on.
+ *
+ * WHAT THIS DOES AND DOES NOT GUARANTEE, stated because `privacy.html` makes a public commitment
+ * about it and the difference is real:
+ *
+ *   - Worst-case retention is **the counting window plus one sweep window** — 24h + up to 1h. It
+ *     cannot be less than the counting window (see `sweepExpiredExamIpHashes`), so "erased at
+ *     exactly 24 hours" was never achievable by any mechanism, cron included.
+ *   - It needs SOME request to arrive. `run_worker_first` routes only `/api/academy/*` and `/auth/*`
+ *     here, so static page views do not trigger it. In practice any learner opening a lesson syncs
+ *     progress and claims the hour; under genuinely zero traffic nothing runs, and the erasure
+ *     happens on the next request instead. `privacy.html` says so rather than implying a timer.
+ *
+ * Called from `worker.ts` for BOTH prefixes rather than from this app's middleware, so that a
+ * sign-in or a session refresh is as good a trigger as an Academy API call.
+ */
+export async function maybeSweepExpiredExamIpHashes(
+  db: D1Database,
+  waitUntil: ((p: Promise<unknown>) => void) | undefined,
+  now: () => number = Date.now
+): Promise<boolean> {
+  if (!waitUntil) return false;
+  const windowStart = sweepWindowStartSeconds(now());
+  let claimed = false;
+  try {
+    claimed = await claimSweepWindow(db, SWEEP_JOB_EXAM_IP, windowStart);
+  } catch {
+    return false;
+  }
+  if (!claimed) return false;
+  waitUntil(sweepExpiredExamIpHashes(db).catch(() => undefined));
+  return true;
 }
 
 /**
