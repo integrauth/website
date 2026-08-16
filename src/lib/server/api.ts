@@ -413,46 +413,6 @@ export function createApp() {
    * preserved by worker.ts, which otherwise pins `no-store` on every API response
    * (correct for the session-scoped routes, wrong for this one).
    */
-  /**
-   * ============================ TEMPORARY — DELETE AFTER READING ============================
-   *
-   * Reports the IP this Worker EGRESSES from, by asking an echo service. It exists to settle one
-   * unmeasured premise behind audit finding R22-W-01: this repo's own comment claims all Relying
-   * Party traffic reaches the Lab's token endpoint from a single IP, and the Lab grants a 10x
-   * first-party rate allowance partly on that basis. Nobody has ever checked it, on either side.
-   *
-   * WHY IT CANNOT BE A CI STEP INSTEAD: a GitHub runner curling anything reports GITHUB's IP. Only
-   * code running inside the Worker can observe the Worker's egress.
-   *
-   * WHAT ONE READING PROVES, precisely: differing values across calls FALSIFY the single-IP premise
-   * outright. Matching values do NOT confirm it — Cloudflare egress varies by colo, and CI reaches
-   * one colo. So this is a cheap disproof, not a proof, and the CI step calls it three times for
-   * that reason.
-   *
-   * Deliberately harmless while it exists: no request input reaches the fetch, the upstream is a
-   * fixed constant, the response is a bare IP string, and an egress IP is not secret — every server
-   * this Worker calls already sees it. It is still removed on the next deploy, because a public
-   * endpoint that makes an outbound request is not something to leave lying around for no reason.
-   */
-  app.get('/__diag/egress-ip', async (c) => {
-    try {
-      const res = await fetch('https://api.ipify.org?format=text', {
-        headers: { accept: 'text/plain' },
-      });
-      const ip = (await res.text()).trim().slice(0, 64);
-      return c.json({ egress_ip: ip, upstream_status: res.status }, 200, {
-        'Cache-Control': 'no-store',
-      });
-    } catch (error) {
-      // Never throw: this is a diagnostic, and a failed reading must read as "unknown" rather than
-      // becoming a 500 on a production deploy's smoke sequence.
-      return c.json({ egress_ip: null, error: String(error).slice(0, 200) }, 200, {
-        'Cache-Control': 'no-store',
-      });
-    }
-  });
-  /* ========================== END TEMPORARY — DELETE AFTER READING ========================== */
-
   app.get('/.well-known/jwks.json', async (c) => {
     const jwks = await getPublicJwks(c.env);
     c.header('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');

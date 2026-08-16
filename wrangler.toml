@@ -108,12 +108,36 @@ database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 #     - A request to the Cloudflare API (/accounts/…/workers/scripts/integrauth-website/schedules)
 #       failed.
 #
-# The script itself uploads fine; only the schedules call is refused, so CF_TOKEN is missing a
-# scope that covers cron triggers. Wrangler did not print the API error body, so the exact missing
-# permission is UNCONFIRMED — widen the token, redeploy, and read the error again if it persists.
-# It is disabled rather than left failing because a red deploy blocks EVERY future website deploy,
-# including the certificate-verification fix in the same PR, which is a worse outcome than the
-# retention gap it was closing. Both are open until the token is fixed.
+# The script itself uploads fine; only the schedules call is refused. It is disabled rather than
+# left failing because a red deploy blocks EVERY future website deploy, which is a worse outcome
+# than the retention gap it was closing.
+#
+# THIS COMMENT USED TO SAY "CF_TOKEN is missing a scope that covers cron triggers", and that is now
+# MEASURED FALSE. It is corrected rather than quietly reworded, because it sent two people down a
+# dead end and the correction is the useful part (audit R22-W-02).
+#
+# Measured 2026-08-15 by calling the endpoint directly from the deploy job, with this same token:
+#
+#   GET  /accounts/…/workers/scripts/integrauth-website/schedules  -> 200 {"schedules":[]}
+#   PUT  (same URL, body [] — the list it already had)             -> 200 {"schedules":[]} success
+#
+# **The token can already READ and WRITE this Worker's schedules.** A permission it demonstrably has
+# cannot be the permission it is missing. Corroborating: Cloudflare publishes no cron or schedules
+# permission group at all (the Workers account permissions are Workers Scripts, Workers KV,
+# Workers R2, Workers Tail, Workers Builds Configuration, Workers Observability, Account Settings),
+# and the documented requirement for this endpoint is Workers Scripts:Write — which the deploy step
+# exercises seconds earlier every single run.
+#
+# So whatever failed in run #49, it was NOT authorization, and no amount of widening the token will
+# fix it. Remaining candidates, none yet tested: a transient API failure that a retry would clear,
+# or something specific to writing a NON-empty schedule list (the probe wrote an empty one, because
+# writing the real cron from CI would have put production into a state no committed file declares).
+#
+# THE NEXT STEP IS TO SIMPLY TRY IT: restore the two lines above and deploy. The failure mode is
+# understood and cheap — a red deploy blocks subsequent website deploys until reverted, so revert
+# immediately if it fails, and this time the error is worth capturing properly rather than guessing
+# from. Until someone does that, this and privacy.html's unconditional 24-hour erasure promise both
+# stay open.
 
 [vars]
 # Same Turnstile site key the Lab uses (committed there too — a Turnstile SITE key is the public
