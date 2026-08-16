@@ -147,17 +147,38 @@ database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 #      fails, so the ordinary deploy output is lost too — only the stderr ERROR survives. If anyone
 #      touches this step, echo the log on failure as well.
 #
-# WHAT IS LEFT, and it is now a sharp question rather than a vague one. The direct probe wrote an
-# EMPTY schedule list and got 200; wrangler writes a NON-EMPTY one and fails. Same endpoint, same
-# token, same account. So the discriminating test is a direct
-# `PUT [{"cron":"23 * * * *"}]` against that URL:
+# ROOT CAUSE — and it was written down in the sibling repo the whole time.
 #
-#   - 200 → Cloudflare accepts the real cron and WRANGLER is the problem (body shape, API version).
-#     Note this would also leave the trigger live while no committed file declares it, so put the
-#     list back to [] straight after unless the drift is accepted deliberately.
-#   - 4xx → the body finally names the actual constraint, which is what nobody has ever seen.
+# `integrauth/lab`'s `src/worker.ts:46` says: "no `scheduled()` cron handler — the account is at its
+# free-plan 5-cron limit (all held by the other products)". **This Worker and the Lab share one
+# Cloudflare account** (see `account_id` at the top of this file), so a cron here would be the SIXTH,
+# and the schedules API refuses it.
 #
-# Until someone runs that, this and privacy.html's unconditional 24-hour erasure promise stay open.
+# That accounts for every observation, which is why it is recorded as the cause rather than another
+# hypothesis:
+#
+#   - `PUT []` returns 200         — zero crons is inside the limit
+#   - wrangler's non-empty PUT fails — it would be the sixth
+#   - identical failure two days apart — a quota, not a blip
+#   - not an authorization error   — correct, it never was
+#   - wrangler never printed the body — which is exactly why nobody saw "limit exceeded"
+#
+# Three attempts were spent on token scopes for a quota problem. **The API's own error body would
+# have said so on day one.**
+#
+# THE FIX IS THEREFORE NOT A CRON. The Lab hit this same wall and solved it without a slot:
+# `maybeRunCleanup` (`src/lib/server/cleanup.ts`) claims the window with an atomic counter, so the
+# first request of the period runs the sweep in `waitUntil` — no cron, no added latency, and a failed
+# claim can never affect the request it rode in on. Porting that pattern here is the way to keep
+# privacy.html's promise.
+#
+# Two things to get right when doing it, both easy to miss:
+#   - **Arithmetic.** Worst-case age is `cutoff + claim window`. An HOURLY window with a 23h cutoff
+#     honours a 24-hour promise; a DAILY window cannot honour it at any cutoff.
+#   - **It needs traffic.** `run_worker_first` routes only `/api/academy/*` and `/auth/*` to this
+#     Worker, so static page views do not trigger a sweep. This is "reliably within 24h whenever the
+#     Academy is used", not a guarantee under zero traffic. Only a real scheduler gives that, and
+#     that needs one of the five slots freed.
 
 [vars]
 # Same Turnstile site key the Lab uses (committed there too — a Turnstile SITE key is the public
