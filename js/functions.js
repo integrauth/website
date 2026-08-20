@@ -330,6 +330,17 @@ $(function() {
     const $menu = $('.theme-menu').first();
     const wasOpen = $menu.hasClass('show');
 
+    // A mouse click on the toggle is always preceded by hovering it, and on desktop the hover
+    // handler below has already opened the menu by the time the click lands — so reading
+    // "already open" as "toggle it closed" made a plain click on the button a guaranteed
+    // no-op for anyone who clicks toggles rather than trusting hover. The first click after a
+    // hover-open therefore CONFIRMS the open menu (and eats the flag); a second click, an
+    // outside click, ESC, or picking a theme still closes it. Keyboard and touch never set
+    // the flag (themeHoverOpen gates on hover-capable media), so their click toggles as before.
+    const byHover = themeOpenedByHover;
+    themeOpenedByHover = false;
+    if (wasOpen && byHover) return;
+
     $('.theme-menu').removeClass('show');
     $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
 
@@ -388,6 +399,10 @@ $(function() {
   // cancelled by a mouseenter on EITHER the toggle or the (now body-level) menu — bridges that gap
   // without needing to compute the physical distance between them.
   let themeHoverCloseTimer = null;
+  // Set when the hover handler (not a click) is what opened the menu — the toggle's click
+  // handler reads-and-clears it; see the comment there. Declared with the hover machinery but
+  // hoisted usage is fine: the click handler only runs after this assignment has executed.
+  let themeOpenedByHover = false;
   function themeHoverMediaOk() {
     return window.matchMedia('(hover: hover) and (pointer: fine) and (min-width: 992px)').matches;
   }
@@ -401,6 +416,9 @@ $(function() {
     positionThemeMenu($toggle, $menu);
     $menu.addClass('show');
     $toggle.attr('aria-expanded', 'true');
+    // Arm the click handler's confirm-instead-of-close branch — this assignment is the whole
+    // mechanism; without it byHover never reads true and the first click closes the menu again.
+    themeOpenedByHover = true;
   }
   function themeHoverClose() {
     if (!themeHoverMediaOk()) return;
@@ -632,8 +650,11 @@ function initAcademy() {
     try { localStorage.setItem(KEY_EPOCH, String(epoch)); } catch (e) {}
   }
 
-  // All of this browser's Academy progress in one place, so both call sites below (account
-  // switch, sign-out) wipe the same list instead of drifting out of sync with each other.
+  // All of this browser's Academy progress in one place. Its only caller today is
+  // resetAllProgress ("Reset all") — the account-switch/sign-out ownership wipe lives in
+  // academy-auth.js with its own key list, because it must run on every page, not just
+  // academy.html. The two lists deliberately differ: the ownership wipe excludes
+  // acad_drill_v1 (browser-local practice stats, not account progress).
   function clearLocalProgress() {
     try {
       localStorage.removeItem(KEY_READ);
@@ -646,6 +667,11 @@ function initAcademy() {
       // the safe direction: the server answers with canonical truth and the current epoch, and this
       // device adopts both instead of uploading progress under the wrong epoch.
       localStorage.removeItem(KEY_EPOCH);
+      // Daily-drill practice state (academy-labs.js's lab-drill). Local-only by design — it has
+      // no server table, so "Reset all" is the only reset that touches it. Deliberately NOT in
+      // academy-auth.js's ownership wipe: like acad_tour_seen it is this browser's practice
+      // stats, not account progress, and clearLocalProgress()'s only caller is resetAllProgress.
+      localStorage.removeItem('acad_drill_v1');
     } catch (e) {}
   }
 
@@ -778,6 +804,18 @@ function initAcademy() {
 
   let acadSyncTimer = null;
 
+  // Until the FIRST sync decision has been made against a server-confirmed identity (firstSync
+  // after AcademyAuth.ready(), or a confirmed academy-auth-changed event), scheduleSync must not
+  // fire at all. A deep-link boot calls showLesson() synchronously, whose saveRead() would
+  // otherwise queue an 800ms plain sync off the CACHED session — posting epoch 0 while ready()
+  // is still two round trips away. Any account that has ever been reset rejects epoch 0 as stale
+  // and answers with post-reset truth, which applyServerProgress applies authoritatively,
+  // destroying the anonymous progress claimAnonymousProgress() was about to carry over — a third
+  // entry point into the exact bug class the boot/listener claim paths were built to close.
+  // Nothing is lost by holding back: the snapshot reads localStorage at fire time, so the marks
+  // made before the gate lifts ride out with the first legitimate sync.
+  let acadFirstSyncSettled = false;
+
   /**
    * Monotonic generation counter for progress writes.
    *
@@ -804,6 +842,7 @@ function initAcademy() {
   // boot if a session is already cached. No-ops silently when logged out.
   function scheduleSync() {
     if (acadApplyingServerProgress) return;
+    if (!acadFirstSyncSettled) return; // see acadFirstSyncSettled above
     if (!window.AcademyAuth || !window.AcademyAuth.getSession().loggedIn) return;
     if (acadSyncTimer) clearTimeout(acadSyncTimer);
     acadSyncTimer = setTimeout(function () {
@@ -986,6 +1025,9 @@ function initAcademy() {
     // fires on the unconfirmed boot event too, so it has to make the same distinction itself.
     const confirmed = !!(e.detail && e.detail.confirmed);
     updateProgress();
+    // A confirmed event — signed in OR out — settles the first-sync decision; lift the boot gate
+    // BEFORE branching so claimAnonymousProgress's own internal scheduleSync() calls pass it.
+    if (confirmed) acadFirstSyncSettled = true;
     if (confirmed && session && session.loggedIn) {
       if (hasUnsyncedLocalProgress()) claimAnonymousProgress();
       else scheduleSync();
@@ -1219,6 +1261,9 @@ function initAcademy() {
     if (dropPosition) dropSavedPosition();
     updateProgress();
     renderResumeBanner();
+    // Clear any leftover lesson-search state: navigating away from the hub with results showing
+    // used to strand the track grid and persona paths hidden behind a stale results pane.
+    if (resetHubSearch) resetHubSearch();
     const focusEl = focusId ? document.getElementById(focusId) : null;
     if (focusEl) {
       focusEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1253,7 +1298,7 @@ function initAcademy() {
 
   // Guided tour: teaches newcomers how to get from lesson 1 to the certificate.
   const ACAD_TOUR = [
-    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 133 byte-sized lessons and hands-on labs — free, and no account needed to learn (only the final exam and certificate ask you to sign in). Here’s how to get from your first lesson to your certificate.' },
+    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 135 byte-sized lessons and hands-on labs — free, and no account needed to learn (only the final exam and certificate ask you to sign in). Here’s how to get from your first lesson to your certificate.' },
     { selector: '.acad-track-card', title: '1. Pick a track', text: 'Click any track card — or a lesson link inside it — to start reading. Each lesson is a 3–5 minute read.' },
     // No dedicated selector of its own on purpose: chips/pager only exist inside an open lesson,
     // not on the hub the tour plays out on, so this reused .acad-track-card's spotlight instead of
@@ -1261,12 +1306,13 @@ function initAcademy() {
     // step's own text is about navigating within a track, the same thing step 1 pointed at.
     { selector: '.acad-track-card', title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
     { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
-    { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in five real-world scenarios, then pick the fix.' },
+    { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in ten real-world scenarios, then pick the fix.' },
+    { selector: '#acadDrill', title: '5. Daily drill', text: 'Five quick questions a day from across every track — wrong answers come back sooner, and a streak keeps you honest. The gentlest way to make it stick.' },
     // Question count must match `N` in lab-exam's draw (js/academy-labs.js) — it was left saying 25
     // after the exam grew to 50, which is also what made a legacy saved pass unclaimable: its raw
     // correct-answer count had been scored against a different denominator.
-    { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Sign in with a free account, score 80%+, and download a certificate anyone can verify.' },
-    { selector: '#acadAccount', title: '6. Your account', text: 'Signing in is the same free account as the IntegrAuth Lab — one sign-in, both apps. Here you can set the name that prints on your certificate, see which devices are signed in, and sign out of the Academy on one device or everywhere at once.' },
+    { selector: '#acadExam', title: '6. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Sign in with a free account, score 80%+, and download a certificate anyone can verify.' },
+    { selector: '#acadAccount', title: '7. Your account', text: 'Signing in is the same free account as the IntegrAuth Lab — one sign-in, both apps. Here you can set the name that prints on your certificate, see which devices are signed in, and sign out of the Academy on one device or everywhere at once.' },
     // Points at the progress bar at the TOP of the hub. There used to be a second, identical bar at
     // the very bottom that existed only to give this step something to spotlight; it has been
     // removed as a duplicate, so this step targets the real one.
@@ -1488,9 +1534,9 @@ function initAcademy() {
     if (gotoBtn) {
       e.preventDefault();
       const id = gotoBtn.getAttribute('data-goto');
-      const HUB_SECTIONS = { __flows__: 'acadFlows', __challenge__: 'acadChallenge', __exam__: 'acadExam' };
+      const HUB_SECTIONS = { __flows__: 'acadFlows', __challenge__: 'acadChallenge', __drill__: 'acadDrill', __exam__: 'acadExam' };
       // Only the explicit "back to all tracks" action retires the saved position — chaining into
-      // the hub widgets (__flows__/__challenge__/__exam__) is exploration, not "I am done reading".
+      // the hub widgets (__flows__/__challenge__/__drill__/__exam__) is exploration, not "I am done reading".
       if (id === '__hub__') showHub(null, true);
       else if (HUB_SECTIONS[id]) showHub(HUB_SECTIONS[id]);
       else showLesson(id);
@@ -1551,8 +1597,13 @@ function initAcademy() {
   document.addEventListener('pointerdown', onLabTouch);
   document.addEventListener('keydown', onLabTouch);
 
+  // Wrapped, not bound directly: as a raw listener the click Event would land in
+  // showHub's focusId parameter and dropPosition would be undefined, so the top
+  // "All tracks" button would never write the acad_pos_at tombstone the bottom
+  // `__hub__` button writes — and the Resume banner (or a cross-device merge)
+  // would resurrect the lesson the learner explicitly backed out of.
   const backBtn = document.getElementById('acadBack');
-  if (backBtn) backBtn.addEventListener('click', showHub);
+  if (backBtn) backBtn.addEventListener('click', function () { showHub(null, true); });
 
   // Themed stand-in for window.confirm(), styled to match the Academy (acad-*
   // tokens, all 4 themes) instead of a native OS dialog. Returns a Promise<boolean>.
@@ -1750,6 +1801,10 @@ function initAcademy() {
         try { window.AcadLabs.remountAll(); } catch (e) {}
       }
       updateProgress();
+      // The already-rendered Resume banner still holds the pre-reset lesson; without this,
+      // a signed-out learner (whose reset never round-trips through applyServerProgress)
+      // keeps a live "Continue where you left off" pointing at progress they just erased.
+      renderResumeBanner();
     });
   }
 
@@ -1762,7 +1817,7 @@ function initAcademy() {
   // (e.g. the navbar's "Certificates"/"Profile" links point at /academy#acadExam /
   // #acadAccount). Route those through showHub's existing focusId scroll+pulse instead of
   // falling through to the plain "clear hash, go to hub top" branch below.
-  const HUB_ANCHORS = { acadFlows: 1, acadChallenge: 1, acadExam: 1, acadAccount: 1 };
+  const HUB_ANCHORS = { acadFlows: 1, acadChallenge: 1, acadDrill: 1, acadExam: 1, acadAccount: 1 };
 
   window.addEventListener('hashchange', function () {
     const id = location.hash.slice(1);
@@ -1805,6 +1860,19 @@ function initAcademy() {
 
   // ----- Hub enhancements (injected so no-JS pages keep the static track grid) -----
   const grid = hub.querySelector('.acad-track-grid');
+
+  // Assigned inside the search block below; showHub() calls it (when set) so returning to the
+  // hub never shows a stale results pane over a hidden track grid.
+  let resetHubSearch = null;
+
+  // Minimal HTML escaper for the few places hub UI interpolates strings into innerHTML —
+  // most importantly the search box's own value, which is user-typed and must never be
+  // parsed as markup (self-XSS today, reflected XSS the day search ever gets URL wiring).
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
 
   // Persona learning paths — ordered cross-track playlists. Unknown ids are skipped.
   const PERSONA_PATHS = [
@@ -1904,8 +1972,8 @@ function initAcademy() {
         return hay.indexOf(q) !== -1;
       });
       grid.hidden = true; paths.hidden = true; results.hidden = false;
-      if (!hits.length) { results.innerHTML = '<p class="acad-search-none">No lessons match “' + q + '”.</p>'; return; }
-      results.innerHTML = '<p class="acad-search-count">' + hits.length + ' lesson' + (hits.length > 1 ? 's' : '') + ' match “' + q + '”</p>';
+      if (!hits.length) { results.innerHTML = '<p class="acad-search-none">No lessons match “' + escapeHtml(q) + '”.</p>'; return; }
+      results.innerHTML = '<p class="acad-search-count">' + hits.length + ' lesson' + (hits.length > 1 ? 's' : '') + ' match “' + escapeHtml(q) + '”</p>';
       const ul = document.createElement('div');
       ul.className = 'acad-search-list';
       hits.forEach(function (l) {
@@ -1913,13 +1981,21 @@ function initAcademy() {
         a.href = '#' + l.id;
         a.setAttribute('data-goto', l.id);
         a.className = 'acad-search-hit';
-        a.innerHTML = '<span class="acad-search-track">' + (TRACK_LABELS[trackOf(l)] || '').replace(/^Track \d+ · /, '') + '</span>' +
-          '<span class="acad-search-title">' + (l.getAttribute('data-title') || l.id) + '</span>';
+        a.innerHTML = '<span class="acad-search-track">' + escapeHtml((TRACK_LABELS[trackOf(l)] || '').replace(/^Track \d+ · /, '')) + '</span>' +
+          '<span class="acad-search-title">' + escapeHtml(l.getAttribute('data-title') || l.id) + '</span>';
         ul.appendChild(a);
       });
       results.appendChild(ul);
     }
     search.addEventListener('input', runSearch);
+
+    // Hook for showHub(): an empty query routed through runSearch() restores the
+    // grid/paths/results visibility trio to its resting state.
+    resetHubSearch = function () {
+      if (!search.value) return;
+      search.value = '';
+      runSearch();
+    };
 
     tools.appendChild(search);
     tools.appendChild(results);
@@ -2074,15 +2150,26 @@ function initAcademy() {
     // section — has actually applied. Bootstrap's grid/spacing rules reflow the hub afterward,
     // so the first scroll lands at coordinates that are stale by the time layout settles and
     // the learner ends up back near the top instead of at the section they clicked. Re-run the
-    // same scroll+pulse once the window's `load` event says every stylesheet has resolved.
-    window.addEventListener('load', function () {
-      if (hub.hidden) return;
+    // same scroll once layout has actually settled. A `load` listener was the first attempt and
+    // is not enough: on fast/warm-cache loads `load` has already fired before jQuery's ready
+    // callback reaches this line (listener never runs), and even when it does fire, the async
+    // stylesheets' rel-swap can reflow AFTER `load`. So instead: poll the document height
+    // briefly and re-scroll (instantly — smooth would fight repeated corrections) after every
+    // change, stopping once it has held still for a few ticks or ~5s.
+    let settleLastH = 0, settleStable = 0, settleTicks = 0;
+    const settleTimer = setInterval(function () {
+      settleTicks++;
       const el = document.getElementById(initial);
-      if (!el) return;
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      el.classList.add('acad-hub-pulse');
-      setTimeout(function () { el.classList.remove('acad-hub-pulse'); }, 2200);
-    });
+      if (hub.hidden || !el || settleTicks > 25) { clearInterval(settleTimer); return; }
+      const h = document.documentElement.scrollHeight;
+      if (h !== settleLastH) {
+        settleLastH = h;
+        settleStable = 0;
+        el.scrollIntoView({ block: 'start' });
+      } else if (++settleStable >= 3) {
+        clearInterval(settleTimer);
+      }
+    }, 200);
   } else {
     showHub();
     // First-ever, fresh landing on the hub (no deep link, no saved position at all) — offer the
@@ -2129,6 +2216,10 @@ function initAcademy() {
   // applyServerProgress applies authoritatively, REPLACING the local state it was supposed to
   // claim. Boot is exactly as much a "first sync after signing in" as the transition is.
   const firstSync = function () {
+    // Identity is settled (ready() resolved, or there is no AcademyAuth to ask) — lift the boot
+    // gate first so the branch below, and claimAnonymousProgress's internal scheduleSync() calls,
+    // are allowed through. See acadFirstSyncSettled.
+    acadFirstSyncSettled = true;
     const auth = window.AcademyAuth;
     const session = auth && typeof auth.getSession === 'function' ? auth.getSession() : null;
     if (session && session.loggedIn && hasUnsyncedLocalProgress()) claimAnonymousProgress();

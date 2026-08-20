@@ -72,9 +72,13 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     // app's middleware would have covered only `/api/academy/*` and thrown away half the eligible
     // traffic — on a site whose entire difficulty with this job is having too little of it.
     //
-    // Not awaited, and the helper swallows its own rejections: housekeeping must never delay or fail
-    // the request it rode in on.
-    void maybeSweepExpiredExamIpHashes(env.DB, (p) => ctx.waitUntil(p));
+    // Not awaited — housekeeping must never delay or fail the request it rode in on — but the
+    // helper IS registered with `waitUntil`: its claim step is a D1 round trip, and on a route
+    // that does no other D1 work (`/auth/start` is the common case) a bare promise races the
+    // response and can be torn down with the execution context before the claim lands, silently
+    // skipping that hour's scrub. The helper swallows its own rejections; the `.catch` is a
+    // belt for anything thrown before its own try/catch arms.
+    ctx.waitUntil(maybeSweepExpiredExamIpHashes(env.DB, (p) => ctx.waitUntil(p)).catch(() => undefined));
 
     if (url.pathname.startsWith('/api/academy/')) {
       const response = await app.fetch(request, env, ctx);
