@@ -30,9 +30,9 @@ back** — see `HANDOFF-academy-sso.md` §1 for exactly why.
 | **Role** | OIDC Relying Party | OpenID Provider |
 | **Login UI / credentials** | None. No OTP form, no Turnstile widget here. | Owns email-OTP signup/login, passkeys, TOTP step-up |
 | **Session it mints** | `__Host-ia_web_session` → `website_sessions` table | `__Host-lab_session` → `sessions` table |
-| **Tables it OWNS** (read/write) | `profiles`, `academy_lesson_progress`, `academy_quiz_progress`, `academy_last_position`, `academy_exam_attempts`, `academy_certificates`, `academy_progress_epoch`, `website_sessions` | `users`, `sessions`, everything else in `lab-db` — including account lifecycle, erasure, OIDC client/grant/token tables |
+| **Tables it OWNS** (read/write) | `profiles`, `academy_lesson_progress`, `academy_quiz_progress`, `academy_last_position`, `academy_exam_attempts`, `academy_certificates`, `academy_progress_epoch`, `academy_sweep_claim`, `website_sessions` | `users`, `sessions`, everything else in `lab-db` — including account lifecycle, erasure, OIDC client/grant/token tables |
 | **Tables it may READ, never write** | `users` (for `status` + `email` only, inside `validateSession`) | — |
-| **Migrations** | Never writes one against `lab-db`. All schema owned by the Lab. | Owns every migration (`migrations/0045`–`0054` are the Academy-relevant ones) |
+| **Migrations** | Never writes one against `lab-db`. All schema owned by the Lab; the ones this Worker needs are enumerated under this table, one per row. | Owns every migration against `lab-db` |
 | **Account deletion** | No delete button. Links out to `lab.integrauth.com/account`. | `erasure.ts` — the ONE canonical RTBF path, cascades to every Academy table too |
 | **Certificate signing** | Owns it — `ACADEMY_PRIVATE_JWK`, `src/lib/server/certs.ts` | Not involved |
 | **Exam grading** | Owns it — server-authoritative, `src/lib/server/exam.ts` | Not involved |
@@ -40,6 +40,41 @@ back** — see `HANDOFF-academy-sso.md` §1 for exactly why.
 **Rule of thumb:** if the feature is "sign in", "who is this user", or "what has this learner
 done in the Academy", it's this repo. If it's "create/delete the account", "prove I own this
 email", "manage passkeys/TOTP", or "the shared `users`/`sessions` tables", it's the Lab.
+
+### The Lab migrations this Worker depends on
+
+Enumerated one per row, **never as a range**. `0045`–`0054` is what this file used to say, and the
+notation is the defect rather than a nitpick: a contiguous range reads as complete and cannot express
+a later addition, so it does not go stale visibly — it goes stale by being a shape that cannot grow.
+Migration `0061` landed past that upper bound and no reader could have noticed. The range was also
+wrong about its own INTERIOR — it claimed `0051`, which is the Lab's own
+`sessions.cookie_issued_at` and has nothing to do with this Worker. A range is a claim about
+every number between its ends, and nobody checked those either.
+
+| Lab migration | Table | What it is for here |
+|---|---|---|
+| `0045` | `profiles` | the learner's display name / preferences |
+| `0046` | `academy_lesson_progress` | read-lessons union |
+| `0047` | `academy_quiz_progress` | per-track quiz masks |
+| `0048` | `academy_last_position` | resume-where-you-left-off |
+| `0049` | `academy_exam_attempts` | exam sittings + the 3/24h limits |
+| `0050` | `academy_certificates` | issued credentials |
+| `0052` | `website_sessions` | **`__Host-ia_web_session`. Without it every sign-in 500s** |
+| `0053` | `academy_progress_epoch` | reset-epoch for progress merges |
+| `0054` | — (ALTER) | adds `academy_exam_attempts.ip_hash`, the per-network exam counter |
+| `0061` | `academy_sweep_claim` | the hourly `ip_hash` scrub's claim row — see below |
+
+**`0061` is the one the range lost, and its absence is silent.** This Worker has no `[triggers]`
+block (the Cloudflare account is at the free plan's five-cron limit), so the `ip_hash` erasure
+`privacy.html` promises learners runs from `maybeSweepExpiredExamIpHashes` instead, which claims the
+hour in `academy_sweep_claim` first. `claimSweepWindow` treats a throw as "not claimed" on purpose —
+housekeeping must never fail the request it rode in on — so a missing table produces **no error
+anywhere**: the sweep simply never runs and the erasure quietly stops happening. A deploy that looks
+finished and is inert is worse than a red one.
+
+The authoritative copy of this list is the ownership table in the Lab repo's `docs/WEBSITE-SSO.md`,
+which has a test on it (`tests/cross-repo-website-contract.spec.ts`). Nothing in THIS repo can check
+the list above, so when they disagree, that one wins.
 
 ---
 
