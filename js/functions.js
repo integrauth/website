@@ -778,6 +778,18 @@ function initAcademy() {
 
   let acadSyncTimer = null;
 
+  // Until the FIRST sync decision has been made against a server-confirmed identity (firstSync
+  // after AcademyAuth.ready(), or a confirmed academy-auth-changed event), scheduleSync must not
+  // fire at all. A deep-link boot calls showLesson() synchronously, whose saveRead() would
+  // otherwise queue an 800ms plain sync off the CACHED session — posting epoch 0 while ready()
+  // is still two round trips away. Any account that has ever been reset rejects epoch 0 as stale
+  // and answers with post-reset truth, which applyServerProgress applies authoritatively,
+  // destroying the anonymous progress claimAnonymousProgress() was about to carry over — a third
+  // entry point into the exact bug class the boot/listener claim paths were built to close.
+  // Nothing is lost by holding back: the snapshot reads localStorage at fire time, so the marks
+  // made before the gate lifts ride out with the first legitimate sync.
+  let acadFirstSyncSettled = false;
+
   /**
    * Monotonic generation counter for progress writes.
    *
@@ -804,6 +816,7 @@ function initAcademy() {
   // boot if a session is already cached. No-ops silently when logged out.
   function scheduleSync() {
     if (acadApplyingServerProgress) return;
+    if (!acadFirstSyncSettled) return; // see acadFirstSyncSettled above
     if (!window.AcademyAuth || !window.AcademyAuth.getSession().loggedIn) return;
     if (acadSyncTimer) clearTimeout(acadSyncTimer);
     acadSyncTimer = setTimeout(function () {
@@ -986,6 +999,9 @@ function initAcademy() {
     // fires on the unconfirmed boot event too, so it has to make the same distinction itself.
     const confirmed = !!(e.detail && e.detail.confirmed);
     updateProgress();
+    // A confirmed event — signed in OR out — settles the first-sync decision; lift the boot gate
+    // BEFORE branching so claimAnonymousProgress's own internal scheduleSync() calls pass it.
+    if (confirmed) acadFirstSyncSettled = true;
     if (confirmed && session && session.loggedIn) {
       if (hasUnsyncedLocalProgress()) claimAnonymousProgress();
       else scheduleSync();
@@ -1219,6 +1235,9 @@ function initAcademy() {
     if (dropPosition) dropSavedPosition();
     updateProgress();
     renderResumeBanner();
+    // Clear any leftover lesson-search state: navigating away from the hub with results showing
+    // used to strand the track grid and persona paths hidden behind a stale results pane.
+    if (resetHubSearch) resetHubSearch();
     const focusEl = focusId ? document.getElementById(focusId) : null;
     if (focusEl) {
       focusEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1551,8 +1570,13 @@ function initAcademy() {
   document.addEventListener('pointerdown', onLabTouch);
   document.addEventListener('keydown', onLabTouch);
 
+  // Wrapped, not bound directly: as a raw listener the click Event would land in
+  // showHub's focusId parameter and dropPosition would be undefined, so the top
+  // "All tracks" button would never write the acad_pos_at tombstone the bottom
+  // `__hub__` button writes — and the Resume banner (or a cross-device merge)
+  // would resurrect the lesson the learner explicitly backed out of.
   const backBtn = document.getElementById('acadBack');
-  if (backBtn) backBtn.addEventListener('click', showHub);
+  if (backBtn) backBtn.addEventListener('click', function () { showHub(null, true); });
 
   // Themed stand-in for window.confirm(), styled to match the Academy (acad-*
   // tokens, all 4 themes) instead of a native OS dialog. Returns a Promise<boolean>.
@@ -1750,6 +1774,10 @@ function initAcademy() {
         try { window.AcadLabs.remountAll(); } catch (e) {}
       }
       updateProgress();
+      // The already-rendered Resume banner still holds the pre-reset lesson; without this,
+      // a signed-out learner (whose reset never round-trips through applyServerProgress)
+      // keeps a live "Continue where you left off" pointing at progress they just erased.
+      renderResumeBanner();
     });
   }
 
@@ -1805,6 +1833,19 @@ function initAcademy() {
 
   // ----- Hub enhancements (injected so no-JS pages keep the static track grid) -----
   const grid = hub.querySelector('.acad-track-grid');
+
+  // Assigned inside the search block below; showHub() calls it (when set) so returning to the
+  // hub never shows a stale results pane over a hidden track grid.
+  let resetHubSearch = null;
+
+  // Minimal HTML escaper for the few places hub UI interpolates strings into innerHTML —
+  // most importantly the search box's own value, which is user-typed and must never be
+  // parsed as markup (self-XSS today, reflected XSS the day search ever gets URL wiring).
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
 
   // Persona learning paths — ordered cross-track playlists. Unknown ids are skipped.
   const PERSONA_PATHS = [
@@ -1904,8 +1945,8 @@ function initAcademy() {
         return hay.indexOf(q) !== -1;
       });
       grid.hidden = true; paths.hidden = true; results.hidden = false;
-      if (!hits.length) { results.innerHTML = '<p class="acad-search-none">No lessons match “' + q + '”.</p>'; return; }
-      results.innerHTML = '<p class="acad-search-count">' + hits.length + ' lesson' + (hits.length > 1 ? 's' : '') + ' match “' + q + '”</p>';
+      if (!hits.length) { results.innerHTML = '<p class="acad-search-none">No lessons match “' + escapeHtml(q) + '”.</p>'; return; }
+      results.innerHTML = '<p class="acad-search-count">' + hits.length + ' lesson' + (hits.length > 1 ? 's' : '') + ' match “' + escapeHtml(q) + '”</p>';
       const ul = document.createElement('div');
       ul.className = 'acad-search-list';
       hits.forEach(function (l) {
@@ -1913,13 +1954,21 @@ function initAcademy() {
         a.href = '#' + l.id;
         a.setAttribute('data-goto', l.id);
         a.className = 'acad-search-hit';
-        a.innerHTML = '<span class="acad-search-track">' + (TRACK_LABELS[trackOf(l)] || '').replace(/^Track \d+ · /, '') + '</span>' +
-          '<span class="acad-search-title">' + (l.getAttribute('data-title') || l.id) + '</span>';
+        a.innerHTML = '<span class="acad-search-track">' + escapeHtml((TRACK_LABELS[trackOf(l)] || '').replace(/^Track \d+ · /, '')) + '</span>' +
+          '<span class="acad-search-title">' + escapeHtml(l.getAttribute('data-title') || l.id) + '</span>';
         ul.appendChild(a);
       });
       results.appendChild(ul);
     }
     search.addEventListener('input', runSearch);
+
+    // Hook for showHub(): an empty query routed through runSearch() restores the
+    // grid/paths/results visibility trio to its resting state.
+    resetHubSearch = function () {
+      if (!search.value) return;
+      search.value = '';
+      runSearch();
+    };
 
     tools.appendChild(search);
     tools.appendChild(results);
@@ -2129,6 +2178,10 @@ function initAcademy() {
   // applyServerProgress applies authoritatively, REPLACING the local state it was supposed to
   // claim. Boot is exactly as much a "first sync after signing in" as the transition is.
   const firstSync = function () {
+    // Identity is settled (ready() resolved, or there is no AcademyAuth to ask) — lift the boot
+    // gate first so the branch below, and claimAnonymousProgress's internal scheduleSync() calls,
+    // are allowed through. See acadFirstSyncSettled.
+    acadFirstSyncSettled = true;
     const auth = window.AcademyAuth;
     const session = auth && typeof auth.getSession === 'function' ? auth.getSession() : null;
     if (session && session.loggedIn && hasUnsyncedLocalProgress()) claimAnonymousProgress();
