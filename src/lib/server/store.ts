@@ -203,12 +203,14 @@ const EPOCH_STILL_CURRENT = `(SELECT COALESCE((SELECT epoch FROM academy_progres
  * makes the bound hold no matter how many requests are in flight: D1 executes a batch's statements
  * in order, so each insert sees the rows its predecessors added.
  *
- * Kept equal to the route's MAX_STORED_* constants (api.ts) — they are the same limit expressed at
- * the two layers, and the route's version still earns its place by answering 409 for a bulk payload
- * instead of silently dropping rows.
+ * Exported so the route's MAX_STORED_* constants (api.ts) alias these rather than restating the
+ * numbers — they are the same limit expressed at the two layers, and the route's version still
+ * earns its place by answering 409 for a bulk payload instead of silently dropping rows. If the
+ * two ever diverged with the SQL side smaller, the route would 200 a payload whose tail rows were
+ * silently never written.
  */
-const MAX_LESSON_ROWS_SQL = 400;
-const MAX_TRACK_ROWS_SQL = 40;
+export const MAX_LESSON_ROWS_SQL = 400;
+export const MAX_TRACK_ROWS_SQL = 40;
 
 /**
  * Unions a set of locally-read lesson ids into the server's record. `INSERT OR

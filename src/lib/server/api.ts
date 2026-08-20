@@ -74,6 +74,8 @@ import {
   getCertificateBySerial,
   countLessonProgress,
   countQuizProgress,
+  MAX_LESSON_ROWS_SQL,
+  MAX_TRACK_ROWS_SQL,
 } from './store';
 import {
   signCertificateJwt,
@@ -106,10 +108,11 @@ const MAX_NAME_LEN = 80;
  * Ceilings on how many rows ONE learner may accumulate, as opposed to how many they may send per
  * request (MAX_LESSON_IDS / MAX_TRACK_IDS above). Both sit far above the real curriculum — 133
  * lessons, 12 tracks — so no learner can reach them, including one who re-reads everything. See
- * `countLessonProgress` in store.ts for why a total bound is the only one available.
+ * `countLessonProgress` in store.ts for why a total bound is the only one available. Aliases of
+ * store.ts's in-statement guards so the two layers cannot drift apart.
  */
-const MAX_STORED_LESSON_ROWS = 400;
-const MAX_STORED_TRACK_ROWS = 40;
+const MAX_STORED_LESSON_ROWS = MAX_LESSON_ROWS_SQL;
+const MAX_STORED_TRACK_ROWS = MAX_TRACK_ROWS_SQL;
 
 /**
  * How far ahead of our own clock a client-supplied `lastPosition.updatedAt` may be. A device's clock
@@ -935,10 +938,12 @@ export function createApp() {
     // Erase network identifiers that have aged out of the counting window (see the store helper).
     // Deliberately AFTER the insert and off the response path: this is housekeeping, and an attempt
     // the learner just sat and the server just graded must not fail because a cleanup UPDATE did.
-    // `waitUntil` keeps it out of their latency; the try/catch is for runtimes where it is absent
-    // (and the swallowed rejection is fine — the next submission retries the same scrub).
+    // `waitUntil` keeps it out of their latency; the try/catch is for runtimes where it is absent,
+    // and the `.catch` swallows an async D1 blip — the next submission retries the same scrub.
     try {
-      c.executionCtx.waitUntil(scrubExamAttemptIpHashesBefore(c.env.DB, windowStart));
+      c.executionCtx.waitUntil(
+        scrubExamAttemptIpHashesBefore(c.env.DB, windowStart).catch(() => undefined)
+      );
     } catch {
       /* no execution context (tests, some runtimes): skip the sweep, next attempt will do it */
     }
