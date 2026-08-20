@@ -632,8 +632,11 @@ function initAcademy() {
     try { localStorage.setItem(KEY_EPOCH, String(epoch)); } catch (e) {}
   }
 
-  // All of this browser's Academy progress in one place, so both call sites below (account
-  // switch, sign-out) wipe the same list instead of drifting out of sync with each other.
+  // All of this browser's Academy progress in one place. Its only caller today is
+  // resetAllProgress ("Reset all") — the account-switch/sign-out ownership wipe lives in
+  // academy-auth.js with its own key list, because it must run on every page, not just
+  // academy.html. The two lists deliberately differ: the ownership wipe excludes
+  // acad_drill_v1 (browser-local practice stats, not account progress).
   function clearLocalProgress() {
     try {
       localStorage.removeItem(KEY_READ);
@@ -646,6 +649,11 @@ function initAcademy() {
       // the safe direction: the server answers with canonical truth and the current epoch, and this
       // device adopts both instead of uploading progress under the wrong epoch.
       localStorage.removeItem(KEY_EPOCH);
+      // Daily-drill practice state (academy-labs.js's lab-drill). Local-only by design — it has
+      // no server table, so "Reset all" is the only reset that touches it. Deliberately NOT in
+      // academy-auth.js's ownership wipe: like acad_tour_seen it is this browser's practice
+      // stats, not account progress, and clearLocalProgress()'s only caller is resetAllProgress.
+      localStorage.removeItem('acad_drill_v1');
     } catch (e) {}
   }
 
@@ -1272,7 +1280,7 @@ function initAcademy() {
 
   // Guided tour: teaches newcomers how to get from lesson 1 to the certificate.
   const ACAD_TOUR = [
-    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 133 byte-sized lessons and hands-on labs — free, and no account needed to learn (only the final exam and certificate ask you to sign in). Here’s how to get from your first lesson to your certificate.' },
+    { title: 'Welcome to the IntegrAuth Academy', text: '12 tracks, 135 byte-sized lessons and hands-on labs — free, and no account needed to learn (only the final exam and certificate ask you to sign in). Here’s how to get from your first lesson to your certificate.' },
     { selector: '.acad-track-card', title: '1. Pick a track', text: 'Click any track card — or a lesson link inside it — to start reading. Each lesson is a 3–5 minute read.' },
     // No dedicated selector of its own on purpose: chips/pager only exist inside an open lesson,
     // not on the hub the tour plays out on, so this reused .acad-track-card's spotlight instead of
@@ -1280,12 +1288,13 @@ function initAcademy() {
     // step's own text is about navigating within a track, the same thing step 1 pointed at.
     { selector: '.acad-track-card', title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
     { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
-    { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in five real-world scenarios, then pick the fix.' },
+    { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in ten real-world scenarios, then pick the fix.' },
+    { selector: '#acadDrill', title: '5. Daily drill', text: 'Five quick questions a day from across every track — wrong answers come back sooner, and a streak keeps you honest. The gentlest way to make it stick.' },
     // Question count must match `N` in lab-exam's draw (js/academy-labs.js) — it was left saying 25
     // after the exam grew to 50, which is also what made a legacy saved pass unclaimable: its raw
     // correct-answer count had been scored against a different denominator.
-    { selector: '#acadExam', title: '5. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Sign in with a free account, score 80%+, and download a certificate anyone can verify.' },
-    { selector: '#acadAccount', title: '6. Your account', text: 'Signing in is the same free account as the IntegrAuth Lab — one sign-in, both apps. Here you can set the name that prints on your certificate, see which devices are signed in, and sign out of the Academy on one device or everywhere at once.' },
+    { selector: '#acadExam', title: '6. Final exam & certificate', text: 'Finish with a 50-question exam pulled from every track. Sign in with a free account, score 80%+, and download a certificate anyone can verify.' },
+    { selector: '#acadAccount', title: '7. Your account', text: 'Signing in is the same free account as the IntegrAuth Lab — one sign-in, both apps. Here you can set the name that prints on your certificate, see which devices are signed in, and sign out of the Academy on one device or everywhere at once.' },
     // Points at the progress bar at the TOP of the hub. There used to be a second, identical bar at
     // the very bottom that existed only to give this step something to spotlight; it has been
     // removed as a duplicate, so this step targets the real one.
@@ -1507,9 +1516,9 @@ function initAcademy() {
     if (gotoBtn) {
       e.preventDefault();
       const id = gotoBtn.getAttribute('data-goto');
-      const HUB_SECTIONS = { __flows__: 'acadFlows', __challenge__: 'acadChallenge', __exam__: 'acadExam' };
+      const HUB_SECTIONS = { __flows__: 'acadFlows', __challenge__: 'acadChallenge', __drill__: 'acadDrill', __exam__: 'acadExam' };
       // Only the explicit "back to all tracks" action retires the saved position — chaining into
-      // the hub widgets (__flows__/__challenge__/__exam__) is exploration, not "I am done reading".
+      // the hub widgets (__flows__/__challenge__/__drill__/__exam__) is exploration, not "I am done reading".
       if (id === '__hub__') showHub(null, true);
       else if (HUB_SECTIONS[id]) showHub(HUB_SECTIONS[id]);
       else showLesson(id);
@@ -1790,7 +1799,7 @@ function initAcademy() {
   // (e.g. the navbar's "Certificates"/"Profile" links point at /academy#acadExam /
   // #acadAccount). Route those through showHub's existing focusId scroll+pulse instead of
   // falling through to the plain "clear hash, go to hub top" branch below.
-  const HUB_ANCHORS = { acadFlows: 1, acadChallenge: 1, acadExam: 1, acadAccount: 1 };
+  const HUB_ANCHORS = { acadFlows: 1, acadChallenge: 1, acadDrill: 1, acadExam: 1, acadAccount: 1 };
 
   window.addEventListener('hashchange', function () {
     const id = location.hash.slice(1);
