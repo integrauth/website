@@ -6866,7 +6866,8 @@ body.theme-contrast .acad-drill-foot { border-top: 2px solid var(--acad-line); }
   .navbar, .acad-toolbar, #acadChips, .acad-pager, .acad-reader-foot,
   .acad-progress, .acad-hub-progress, footer, .acad-hubtools, .acad-lab-reset,
   .acad-reset-track, #acadFlows, #acadExam, #acadChallenge, #acadDrill, .acad-try,
-  .acad-tour-card, .acad-flowx-next {
+  .acad-tour-card, .acad-flowx-next, .acad-hero, .acad-login-nudge, .acad-update-toast,
+  .acad-resume-banner {
     display: none !important;
   }
   /* The theme selectors are repeated here deliberately: both this rule and the theme body

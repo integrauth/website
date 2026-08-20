@@ -416,6 +416,9 @@ $(function() {
     positionThemeMenu($toggle, $menu);
     $menu.addClass('show');
     $toggle.attr('aria-expanded', 'true');
+    // Arm the click handler's confirm-instead-of-close branch — this assignment is the whole
+    // mechanism; without it byHover never reads true and the first click closes the menu again.
+    themeOpenedByHover = true;
   }
   function themeHoverClose() {
     if (!themeHoverMediaOk()) return;
@@ -2147,15 +2150,26 @@ function initAcademy() {
     // section — has actually applied. Bootstrap's grid/spacing rules reflow the hub afterward,
     // so the first scroll lands at coordinates that are stale by the time layout settles and
     // the learner ends up back near the top instead of at the section they clicked. Re-run the
-    // same scroll+pulse once the window's `load` event says every stylesheet has resolved.
-    window.addEventListener('load', function () {
-      if (hub.hidden) return;
+    // same scroll once layout has actually settled. A `load` listener was the first attempt and
+    // is not enough: on fast/warm-cache loads `load` has already fired before jQuery's ready
+    // callback reaches this line (listener never runs), and even when it does fire, the async
+    // stylesheets' rel-swap can reflow AFTER `load`. So instead: poll the document height
+    // briefly and re-scroll (instantly — smooth would fight repeated corrections) after every
+    // change, stopping once it has held still for a few ticks or ~5s.
+    let settleLastH = 0, settleStable = 0, settleTicks = 0;
+    const settleTimer = setInterval(function () {
+      settleTicks++;
       const el = document.getElementById(initial);
-      if (!el) return;
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      el.classList.add('acad-hub-pulse');
-      setTimeout(function () { el.classList.remove('acad-hub-pulse'); }, 2200);
-    });
+      if (hub.hidden || !el || settleTicks > 25) { clearInterval(settleTimer); return; }
+      const h = document.documentElement.scrollHeight;
+      if (h !== settleLastH) {
+        settleLastH = h;
+        settleStable = 0;
+        el.scrollIntoView({ block: 'start' });
+      } else if (++settleStable >= 3) {
+        clearInterval(settleTimer);
+      }
+    }, 200);
   } else {
     showHub();
     // First-ever, fresh landing on the hub (no deep link, no saved position at all) — offer the
