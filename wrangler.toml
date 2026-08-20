@@ -82,7 +82,13 @@ html_handling = "auto-trailing-slash"
 #     own sessions only.
 #   - reads/writes its OWN tables: website_sessions, profiles, academy_lesson_progress,
 #     academy_quiz_progress, academy_last_position, academy_exam_attempts,
-#     academy_certificates, academy_progress_epoch.
+#     academy_certificates, academy_progress_epoch, academy_sweep_claim.
+#     `academy_sweep_claim` (lab migration 0061) was missing from this list until 2026-08-20 —
+#     it is the newest one, and this list had been written before it existed. It is the claim row
+#     for the cron-less hourly sweep described under `[triggers]` below; a reader taking this list
+#     as the Worker's full D1 surface would conclude the sweep touches nothing.
+#     Full enumeration with migration numbers: docs/ACCOUNTS-ARCHITECTURE.md, and the authoritative
+#     copy (the one with a test on it) is the lab repo's docs/WEBSITE-SSO.md.
 # Never run migrations from this repo against this database, and never alter any
 # Lab-owned table from here.
 [[d1_databases]]
