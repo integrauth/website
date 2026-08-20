@@ -6807,11 +6807,65 @@ body.theme-cyber .back-to-top {
 
 .acad-chal-learn { margin: 0; color: var(--acad-muted); }
 
+/* --- Academy Daily drill (hub widget #acadDrill, lab-drill in academy-labs.js) ---
+   Reuses .acad-chal-opts/.acad-chal-head/.acad-exam-q for the questions; only the
+   box-distribution rows, per-answer result area and the erase footer are new.
+   Everything is drawn from the --acad-* tokens, so all 4 themes come for free. */
+
+.acad-drill-dist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
+}
+
+.acad-drill-dist-row {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, auto) 1fr 2.5rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.acad-drill-dist-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--acad-muted);
+}
+
+.acad-drill-dist-count {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--acad-ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.acad-drill-result {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.acad-drill-foot {
+  margin-top: 0.9rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--acad-line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+body.theme-contrast .acad-drill-foot { border-top: 2px solid var(--acad-line); }
+
 /* --- Print: clean single-lesson output (great for cheat sheets) --- */
 @media print {
   .navbar, .acad-toolbar, #acadChips, .acad-pager, .acad-reader-foot,
   .acad-progress, .acad-hub-progress, footer, .acad-hubtools, .acad-lab-reset,
-  .acad-reset-track, #acadFlows, #acadExam, #acadChallenge, .acad-try,
+  .acad-reset-track, #acadFlows, #acadExam, #acadChallenge, #acadDrill, .acad-try,
   .acad-tour-card, .acad-flowx-next {
     display: none !important;
   }
