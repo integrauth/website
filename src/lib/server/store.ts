@@ -241,7 +241,7 @@ export async function unionLessonProgress(
  * How many read marks this learner already has stored.
  *
  * Exists purely so the sync route can refuse to grow this table without bound. The curriculum is
- * 133 lessons and the server deliberately holds no copy of it (see `deleteLessonProgress`), so ids
+ * 135 lessons and the server deliberately holds no copy of it (see `deleteLessonProgress`), so ids
  * arriving from a client cannot be validated against a canonical list — which means an
  * authenticated caller could otherwise loop `POST /progress/sync` with 500 junk ids a time and
  * write rows forever into a D1 instance this repo shares with, but does not own (wrangler.toml).
@@ -281,7 +281,7 @@ export async function listLessonProgress(db: D1Database, userId: string): Promis
  * `lessonIds` is supplied by the CLIENT for a track-scoped reset, and that is not laziness: the
  * curriculum (which lesson belongs to which track) lives entirely in academy.html's DOM and
  * functions.js, and the server has never had a copy of it. Deleting by an explicit, validated,
- * length-capped id list keeps the server from having to duplicate a 133-lesson mapping it would
+ * length-capped id list keeps the server from having to duplicate a 135-lesson mapping it would
  * then have to keep in sync with the front end forever. The blast radius is bounded by the fact
  * that every id is scoped to `user_id` — a caller can only ever delete their own rows.
  */

@@ -106,7 +106,7 @@ const MAX_NAME_LEN = 80;
 
 /**
  * Ceilings on how many rows ONE learner may accumulate, as opposed to how many they may send per
- * request (MAX_LESSON_IDS / MAX_TRACK_IDS above). Both sit far above the real curriculum — 133
+ * request (MAX_LESSON_IDS / MAX_TRACK_IDS above). Both sit far above the real curriculum — 135
  * lessons, 12 tracks — so no learner can reach them, including one who re-reads everything. See
  * `countLessonProgress` in store.ts for why a total bound is the only one available. Aliases of
  * store.ts's in-statement guards so the two layers cannot drift apart.
@@ -580,7 +580,7 @@ export function createApp() {
     }
     const { readLessons, quizMasks, lastPosition } = body as Record<string, unknown>;
 
-    // --- validate shapes + cap sizes (defense in depth: fixed 133-lesson/12-track
+    // --- validate shapes + cap sizes (defense in depth: fixed 135-lesson/12-track
     // curriculum, so anything bigger than these caps is malformed or abusive) ---
     if (readLessons !== undefined) {
       const ok =
@@ -684,7 +684,7 @@ export function createApp() {
     // the only bound available: the server holds no copy of the curriculum, so junk ids cannot be
     // rejected on content, and an authenticated caller could otherwise write 500 rows per request
     // into a database shared with the sister Lab app. The caps sit far above the real curriculum
-    // (133 lessons, 12 tracks), so no learner can reach them.
+    // (135 lessons, 12 tracks), so no learner can reach them.
     if (Array.isArray(readLessons) && readLessons.length > 0) {
       const existing = await countLessonProgress(c.env.DB, userId);
       if (existing + readLessons.length > MAX_STORED_LESSON_ROWS) {

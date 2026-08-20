@@ -6869,7 +6869,15 @@ body.theme-contrast .acad-drill-foot { border-top: 2px solid var(--acad-line); }
   .acad-tour-card, .acad-flowx-next {
     display: none !important;
   }
-  body { background: #fff !important; color: #000 !important; }
+  /* The theme selectors are repeated here deliberately: both this rule and the theme body
+     rules use !important, so SPECIFICITY is the tie-breaker — a bare `body` (0,0,0,1) loses
+     to `body.bg-dark.theme-cyber` (0,0,2,1) and printing from Midnight Cyber (the default
+     theme) kept the dark navy background. Matching the two-class selectors here ties the
+     specificity, and this block being later in the file wins the tie for every theme. */
+  body,
+  body.bg-dark,
+  body.bg-dark.theme-cyber,
+  body.bg-light.theme-contrast { background: #fff !important; color: #000 !important; }
   .acad-lesson { display: block !important; }
   .acad-lesson:not(.is-active) { display: none !important; }
   #acadReader[hidden] { display: none !important; }
