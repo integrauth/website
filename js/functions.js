@@ -330,6 +330,17 @@ $(function() {
     const $menu = $('.theme-menu').first();
     const wasOpen = $menu.hasClass('show');
 
+    // A mouse click on the toggle is always preceded by hovering it, and on desktop the hover
+    // handler below has already opened the menu by the time the click lands — so reading
+    // "already open" as "toggle it closed" made a plain click on the button a guaranteed
+    // no-op for anyone who clicks toggles rather than trusting hover. The first click after a
+    // hover-open therefore CONFIRMS the open menu (and eats the flag); a second click, an
+    // outside click, ESC, or picking a theme still closes it. Keyboard and touch never set
+    // the flag (themeHoverOpen gates on hover-capable media), so their click toggles as before.
+    const byHover = themeOpenedByHover;
+    themeOpenedByHover = false;
+    if (wasOpen && byHover) return;
+
     $('.theme-menu').removeClass('show');
     $('.theme-btn.dropdown-toggle').attr('aria-expanded', 'false');
 
@@ -388,6 +399,10 @@ $(function() {
   // cancelled by a mouseenter on EITHER the toggle or the (now body-level) menu — bridges that gap
   // without needing to compute the physical distance between them.
   let themeHoverCloseTimer = null;
+  // Set when the hover handler (not a click) is what opened the menu — the toggle's click
+  // handler reads-and-clears it; see the comment there. Declared with the hover machinery but
+  // hoisted usage is fine: the click handler only runs after this assignment has executed.
+  let themeOpenedByHover = false;
   function themeHoverMediaOk() {
     return window.matchMedia('(hover: hover) and (pointer: fine) and (min-width: 992px)').matches;
   }
