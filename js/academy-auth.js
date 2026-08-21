@@ -137,7 +137,7 @@
    * What that cost, concretely, on a shared machine: learner A studies and passes the exam; learner
    * B signs in from the home-page navbar; nothing is wiped and acad_owner still says A; B opens
    * /academy, where the cached and server identities now agree so no transition event fires either;
-   * the boot sync then uploads A's 133 read lessons into B's account, and the exam panel reads A's
+   * the boot sync then uploads every lesson A read into B's account, and the exam panel reads A's
    * surviving acad_exam and offers B "we found a passing score saved on this device" — one click
    * from a real, publicly verifiable certificate in B's name for an exam B never sat.
    *
