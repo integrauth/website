@@ -137,7 +137,7 @@
    * What that cost, concretely, on a shared machine: learner A studies and passes the exam; learner
    * B signs in from the home-page navbar; nothing is wiped and acad_owner still says A; B opens
    * /academy, where the cached and server identities now agree so no transition event fires either;
-   * the boot sync then uploads A's 133 read lessons into B's account, and the exam panel reads A's
+   * the boot sync then uploads every lesson A read into B's account, and the exam panel reads A's
    * surviving acad_exam and offers B "we found a passing score saved on this device" — one click
    * from a real, publicly verifiable certificate in B's name for an exam B never sat.
    *
@@ -1155,6 +1155,12 @@
 
     var session = getSession();
     if (!session.loggedIn) {
+      // Compact centered card (styled by .acad-signin-card in styles.css) instead of the
+      // full-width panel bar the signed-in state uses — the class also ships on the static
+      // markup so the pre-JS paint already has the right shape, and is removed below once a
+      // session renders the real panels.
+      host.classList.add('acad-signin-card');
+      host.appendChild(mk('div', { class: 'acad-signin-icon', 'aria-hidden': 'true' }, '🔐'));
       host.appendChild(mk('p', { class: 'acad-lab-note' }, 'Sign in to manage your profile, devices and data.'));
       host.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('button', {
@@ -1165,6 +1171,8 @@
       return;
     }
 
+    // The transient "Loading…" line keeps the compact card shape; the class comes off only when
+    // the real full-width panels render below.
     host.appendChild(mk('p', { class: 'acad-lab-note' }, 'Loading your account…'));
 
     Promise.all([
@@ -1180,6 +1188,7 @@
       var profile = results[0];
       var acct = results[1];
       host.innerHTML = '';
+      host.classList.remove('acad-signin-card');
 
       // --- profile ---
       var profileBox = mk('div', { class: 'acad-lab-panel' });
