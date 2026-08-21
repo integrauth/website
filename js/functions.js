@@ -1230,13 +1230,13 @@ function initAcademy() {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'acad-page-btn';
-      b.setAttribute('data-goto', '__flows__');
+      b.setAttribute('data-goto', '__drill__');
       const track = document.createElement('span');
       track.className = 'acad-page-track';
       track.textContent = 'All tracks complete 🎉';
       const title = document.createElement('span');
       title.className = 'acad-page-title';
-      title.textContent = 'Flow Explorer, Challenge mode & Final Exam →';
+      title.textContent = 'Daily drill, Flow Explorer & the Final Exam →';
       b.appendChild(track);
       b.appendChild(title);
       pager.appendChild(b);
@@ -1305,9 +1305,9 @@ function initAcademy() {
     // falling back to a page-top scroll — which read as a random, disconnected highlight since the
     // step's own text is about navigating within a track, the same thing step 1 pointed at.
     { selector: '.acad-track-card', title: '2. Move through lessons', text: 'Inside a lesson, use the chips up top or the ← / → buttons at the bottom to move between lessons — even across tracks. Your progress saves automatically as you go.' },
-    { selector: '#acadFlows', title: '3. Flow Explorer', text: 'Read every lesson and the → button carries you here: replay real auth flows step by step.' },
-    { selector: '#acadChallenge', title: '4. Challenge mode', text: 'Next: spot the security flaw in ten real-world scenarios, then pick the fix.' },
-    { selector: '#acadDrill', title: '5. Daily drill', text: 'Five quick questions a day from across every track — wrong answers come back sooner, and a streak keeps you honest. The gentlest way to make it stick.' },
+    { selector: '#acadDrill', title: '3. Daily drill', text: 'Read every lesson and the → button carries you here: five quick questions a day from across every track — wrong answers come back sooner, and a streak keeps you honest.' },
+    { selector: '#acadFlows', title: '4. Flow Explorer', text: 'Next: replay real auth flows step by step — sixteen of them, from the auth-code dance to MCP authorization.' },
+    { selector: '#acadChallenge', title: '5. Challenge mode', text: 'Then: spot the security flaw in ten real-world scenarios, then pick the fix.' },
     // Question count must match `N` in lab-exam's draw (js/academy-labs.js) — it was left saying 25
     // after the exam grew to 50, which is also what made a legacy saved pass unclaimable: its raw
     // correct-answer count had been scored against a different denominator.

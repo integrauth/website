@@ -8062,6 +8062,25 @@ body.theme-contrast .acad-auth-quick .acad-auth-account {
 .acad-account .acad-lab-panel { margin-bottom: 0.9rem; }
 .acad-account .acad-lab-panel:last-child { margin-bottom: 0; }
 
+/* Signed-out state: a compact centered card instead of a full-width bar. The class ships on the
+   static markup (pre-JS paint) and academy-auth.js removes it once the signed-in panels render,
+   so the wide layout stays exclusive to the real profile/devices/data boxes. */
+.acad-lab-panel.acad-signin-card {
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+  padding: 1.7rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 14px;
+}
+.acad-lab-panel.acad-signin-card .acad-lab-note { margin: 0; }
+.acad-lab-panel.acad-signin-card .acad-lab-row { justify-content: center; }
+.acad-signin-icon { font-size: 1.7rem; line-height: 1; }
+
 /* --- Device list rows (per-session "sign out this device") --- */
 .acad-auth-device-row {
   display: flex;

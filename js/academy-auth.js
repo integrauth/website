@@ -1155,6 +1155,12 @@
 
     var session = getSession();
     if (!session.loggedIn) {
+      // Compact centered card (styled by .acad-signin-card in styles.css) instead of the
+      // full-width panel bar the signed-in state uses — the class also ships on the static
+      // markup so the pre-JS paint already has the right shape, and is removed below once a
+      // session renders the real panels.
+      host.classList.add('acad-signin-card');
+      host.appendChild(mk('div', { class: 'acad-signin-icon', 'aria-hidden': 'true' }, '🔐'));
       host.appendChild(mk('p', { class: 'acad-lab-note' }, 'Sign in to manage your profile, devices and data.'));
       host.appendChild(mk('div', { class: 'acad-lab-row' }, [
         mk('button', {
@@ -1165,6 +1171,8 @@
       return;
     }
 
+    // The transient "Loading…" line keeps the compact card shape; the class comes off only when
+    // the real full-width panels render below.
     host.appendChild(mk('p', { class: 'acad-lab-note' }, 'Loading your account…'));
 
     Promise.all([
@@ -1180,6 +1188,7 @@
       var profile = results[0];
       var acct = results[1];
       host.innerHTML = '';
+      host.classList.remove('acad-signin-card');
 
       // --- profile ---
       var profileBox = mk('div', { class: 'acad-lab-panel' });
