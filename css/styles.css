@@ -8501,3 +8501,77 @@ body.theme-contrast .acad-track-card::after { display: none; }
 
 /* Tactile press on the clickable product cards, like .btn:active */
 .product-card:active { transform: scale(0.98); }
+
+/* ---- Round 4: hero constellation, tagline roll-call, card tilt, title draw ---- */
+
+/* Hero identity constellation — canvas injected by initHeroConstellation()
+   (functions.js). Sits behind the hero copy; the ::before grain paints under
+   it (pseudo-elements render before real children), the container rides above.
+   High Contrast hides it entirely — the IntersectionObserver in the JS reads
+   display:none as "not intersecting" and stops the rAF loop, so hiding it
+   here is also what parks the animation in that theme. */
+.hero-net {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.hero-section .container {
+  position: relative;
+  z-index: 1;
+}
+
+body.theme-contrast .hero-net { display: none; }
+
+/* Tagline roll-call: Humans → Machines → RPA bots → AI Agents each take a 2s
+   turn glowing, one full pass every 8s. Pure CSS (nth-of-type staggers one
+   shared keyframe), flattened by the global reduced-motion rule, disabled in
+   High Contrast. inline-block so the 2px rise can apply. */
+.hero-tagline strong {
+  display: inline-block;
+  animation: heroRole 8s ease-in-out infinite;
+}
+
+.hero-tagline strong:nth-of-type(2) { animation-delay: 2s; }
+.hero-tagline strong:nth-of-type(3) { animation-delay: 4s; }
+.hero-tagline strong:nth-of-type(4) { animation-delay: 6s; }
+
+@keyframes heroRole {
+  0%, 25%, 100% {
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    transform: none;
+  }
+  8%, 17% {
+    text-shadow: 0 0 18px rgba(255, 255, 255, 0.9), 0 2px 6px rgba(0, 0, 0, 0.35);
+    transform: translateY(-2px);
+  }
+}
+
+body.theme-contrast .hero-tagline strong { animation: none; }
+
+/* 3D tilt: the hovered card leans toward the cursor (vars set by
+   initCardSpotlight; unset vars fall back to 0deg so no-JS and reduced-motion
+   visitors keep the plain -4px lift). perspective() rides inside the transform
+   so no parent needs a perspective of its own. High Contrast pins its own
+   transforms below, and .tool-card's contrast hover already sets
+   transform:none. */
+@media (hover: hover) and (pointer: fine) {
+  .tool-card:hover,
+  .acad-track-card:hover {
+    transform: perspective(700px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-4px);
+  }
+}
+
+body.theme-contrast .acad-track-card:hover { transform: translateY(-4px); }
+
+/* Section-title underline draws itself once the title's scroll-reveal lands
+   (sr classes are only ever applied from JS, so no-JS titles keep the full
+   underline). The .3s delay lets the rise finish first — two beats, not one. */
+.section-title::after {
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+}
+
+.section-title.sr-item:not(.sr-in)::after {
+  width: 0;
+}

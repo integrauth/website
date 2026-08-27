@@ -217,16 +217,19 @@ function initServicesMarquee() {
     marquee.addEventListener('pointerup', endDrag);
     marquee.addEventListener('pointercancel', endDrag);
 
-    // Mouse wheel over the marquee drives it horizontally instead of scrolling
-    // the page (move off the marquee to scroll the page). Touch is unaffected —
-    // wheel events don't fire for touch, so mobile keeps native swipe.
+    // Wheel over the marquee: only HORIZONTAL intent (trackpad side-swipes)
+    // drives it — a vertical wheel scrolls the PAGE like anywhere else.
+    // Hijacking vertical wheel (the original behavior) turned every marquee
+    // into a cage: the reader couldn't scroll past the section without
+    // steering around it. Hover already pauses the auto-scroll, so nothing
+    // fights the reader while their cursor is over it, and mouse drag /
+    // native touch swipe remain the ways to browse it side to side.
     marquee.addEventListener('wheel', function (e) {
-      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      if (!delta) return;
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
       pause(); // hover already pauses; this also clears any pending resume
       const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? marquee.clientWidth : 1;
-      marquee.scrollLeft += delta * unit;
+      marquee.scrollLeft += e.deltaX * unit;
     }, { passive: false });
 
     // Card widths change at the mobile breakpoint
@@ -376,11 +379,13 @@ function initScrollReveal() {
   ].join(',');
 
   function start() {
+    const pending = new Set();
     const io = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (!entry.isIntersecting) return;
         const el = entry.target;
         io.unobserve(el);
+        pending.delete(el);
         el.classList.add('sr-in');
         setTimeout(function () {
           el.classList.remove('sr-item', 'sr-in');
@@ -394,13 +399,41 @@ function initScrollReveal() {
       // Never animate inside a scrolling marquee — its slides (and their
       // clones) move on their own and re-enter the viewport forever.
       if (el.closest('.services-track')) return;
+      // Only elements still fully BELOW the viewport get an entrance. Anything
+      // already on screen — or already scrolled PAST, as on a #hash deep link
+      // that lands mid-page — stays untouched: hiding content the reader has
+      // effectively seen would make scrolling back up play entrances backwards.
+      if (el.getBoundingClientRect().top < window.innerHeight) return;
       const parent = el.parentElement;
       const idx = counts.get(parent) || 0;
       counts.set(parent, idx + 1);
       el.classList.add('sr-item');
       if (idx) el.style.transitionDelay = (Math.min(idx, 6) * 70) + 'ms';
       io.observe(el);
+      pending.add(el);
     });
+
+    // The teleport case (same bug the Lab's reveal had): an INSTANT jump —
+    // End key, a same-page anchor — can move an element from below the
+    // viewport to above it without ever intersecting, and the observer fires
+    // no callback for a 0→0 intersection, leaving it invisible until the
+    // reader happens back past it. Sweep on scroll and finish such elements
+    // instantly, with no entrance (they were skipped, not scrolled to).
+    let sweepRaf = 0;
+    window.addEventListener('scroll', function () {
+      if (sweepRaf || !pending.size) return;
+      sweepRaf = requestAnimationFrame(function () {
+        sweepRaf = 0;
+        pending.forEach(function (el) {
+          if (el.getBoundingClientRect().bottom < 0) {
+            io.unobserve(el);
+            pending.delete(el);
+            el.classList.remove('sr-item', 'sr-in');
+            el.style.transitionDelay = '';
+          }
+        });
+      });
+    }, { passive: true });
   }
 
   // On pages with a boot loader, hold the reveal until the loader lifts —
@@ -458,15 +491,20 @@ function initStatCounters() {
   chips.forEach(function (el) { io.observe(el); });
 }
 
-// Cursor spotlight on tool/track cards: a faint radial highlight that follows
-// the mouse inside the hovered card (CSS ::after reads --spot-x/--spot-y; see
-// the micro-interactions block in styles.css). Mouse-only — touch and coarse
-// pointers never see it, and High Contrast disables the overlay in CSS.
+// Cursor spotlight + 3D tilt on tool/track cards: a faint radial highlight
+// follows the mouse inside the hovered card (CSS ::after reads
+// --spot-x/--spot-y) and the card leans gently toward the cursor
+// (--tilt-x/--tilt-y, consumed by the :hover transform in the
+// micro-interactions block). Mouse-only — touch and coarse pointers never see
+// either, and High Contrast disables the overlay and pins its own hover
+// transform in CSS, so stale vars can't tilt anything there.
 function initCardSpotlight() {
   if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   let raf = null;
   let ev = null;
+  let lastCard = null;
+  const MAX_TILT = 3; // deg — enough to read as depth, not enough to distort text
   document.addEventListener('pointermove', function (e) {
     if (e.pointerType && e.pointerType !== 'mouse') return;
     ev = e;
@@ -474,12 +512,263 @@ function initCardSpotlight() {
     raf = requestAnimationFrame(function () {
       raf = null;
       const card = ev.target && ev.target.closest ? ev.target.closest('.tool-card, .acad-track-card') : null;
+      if (lastCard && card !== lastCard) {
+        lastCard.style.removeProperty('--tilt-x');
+        lastCard.style.removeProperty('--tilt-y');
+      }
+      lastCard = card;
       if (!card) return;
       const r = card.getBoundingClientRect();
-      card.style.setProperty('--spot-x', (ev.clientX - r.left) + 'px');
-      card.style.setProperty('--spot-y', (ev.clientY - r.top) + 'px');
+      const x = ev.clientX - r.left;
+      const y = ev.clientY - r.top;
+      card.style.setProperty('--spot-x', x + 'px');
+      card.style.setProperty('--spot-y', y + 'px');
+      card.style.setProperty('--tilt-x', ((0.5 - y / r.height) * 2 * MAX_TILT).toFixed(2) + 'deg');
+      card.style.setProperty('--tilt-y', ((x / r.width - 0.5) * 2 * MAX_TILT).toFixed(2) + 'deg');
     });
   }, { passive: true });
+}
+
+// Hero identity constellation: a slowly drifting network of glowing nodes —
+// humans, machines and agents finding and trusting each other — drawn on a
+// canvas behind the hero copy, with occasional "handshake" pulses travelling
+// along a link and nodes leaning toward the visitor's cursor. The canvas is
+// injected from here so no-JS visitors simply keep the gradient hero.
+//
+// Budgets, because a pretty hero that janks is worse than no hero:
+// - node count scales with hero area, capped at 76; links are O(n²) but under
+//   3k pairs/frame at the cap
+// - devicePixelRatio capped at 2
+// - the rAF loop runs ONLY while the canvas is actually visible: an
+//   IntersectionObserver on the canvas stops it when the hero scrolls away
+//   AND when High Contrast hides it via display:none, and document hidden
+//   pauses it too
+// - reduced motion gets a single static constellation (still pretty, nothing
+//   moves) and no pointer tracking
+function initHeroConstellation() {
+  const hero = document.querySelector('.hero-section');
+  if (!hero || hero.querySelector('.hero-net')) return;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'hero-net';
+  canvas.setAttribute('aria-hidden', 'true');
+  hero.insertBefore(canvas, hero.firstChild);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const LINK = 140;     // px — nodes closer than this draw a line
+  const MOUSE = 190;    // px — nodes closer than this to the cursor lean in and link to it
+  let w = 0, h = 0;
+  let nodes = [];
+  let pulses = [];
+  let mouse = null;
+  let raf = null;
+  let lastT = null;
+  let lastPulse = 0;
+  let onScreen = true;
+  let hidden = document.hidden;
+
+  function seed() {
+    const count = Math.max(28, Math.min(76, Math.round((w * h) / 26000)));
+    nodes = [];
+    for (let i = 0; i < count; i++) {
+      nodes.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 16, // px per second — a drift, not a swarm
+        vy: (Math.random() - 0.5) * 16,
+        r: 1.2 + Math.random() * 1.7,
+        a: 0.35 + Math.random() * 0.35,
+        beacon: i % 7 === 0, // every 7th node pulses like an agent announcing itself
+        ph: Math.random() * Math.PI * 2,
+        dx: 0, dy: 0 // display offset (cursor magnetism), not part of the drift
+      });
+    }
+    pulses = [];
+  }
+
+  function resize() {
+    const rect = hero.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = rect.width;
+    h = rect.height;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    seed();
+    if (reduceMotion) draw(0, 0);
+  }
+
+  function draw(t, dt) {
+    ctx.clearRect(0, 0, w, h);
+
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      n.x += n.vx * dt;
+      n.y += n.vy * dt;
+      if (n.x < -12) n.x = w + 12; else if (n.x > w + 12) n.x = -12;
+      if (n.y < -12) n.y = h + 12; else if (n.y > h + 12) n.y = -12;
+      // Cursor magnetism is a DISPLAY offset that eases in and out — the
+      // underlying drift is untouched, so nodes spring back on their own and
+      // the simulation can never clump or run away.
+      let tx = 0, ty = 0;
+      if (mouse) {
+        const mdx = mouse.x - n.x;
+        const mdy = mouse.y - n.y;
+        const md = Math.sqrt(mdx * mdx + mdy * mdy);
+        if (md < MOUSE && md > 0.001) {
+          const f = 0.16 * (1 - md / MOUSE);
+          tx = mdx * f;
+          ty = mdy * f;
+        }
+      }
+      n.dx += (tx - n.dx) * Math.min(1, dt * 6);
+      n.dy += (ty - n.dy) * Math.min(1, dt * 6);
+    }
+
+    // Links between nearby nodes, faded by distance
+    ctx.lineWidth = 1;
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      const ax = a.x + a.dx, ay = a.y + a.dy;
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j];
+        const bx = b.x + b.dx, by = b.y + b.dy;
+        const ddx = ax - bx, ddy = ay - by;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 > LINK * LINK) continue;
+        const alpha = 0.26 * (1 - Math.sqrt(d2) / LINK);
+        ctx.strokeStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+      }
+    }
+
+    // Brighter threads from the cursor to whatever it is near — the visitor is
+    // one more identity in the graph
+    if (mouse) {
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        const nx = n.x + n.dx, ny = n.y + n.dy;
+        const ddx = nx - mouse.x, ddy = ny - mouse.y;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 > MOUSE * MOUSE) continue;
+        const alpha = 0.32 * (1 - Math.sqrt(d2) / MOUSE);
+        ctx.strokeStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.moveTo(mouse.x, mouse.y);
+        ctx.lineTo(nx, ny);
+        ctx.stroke();
+      }
+    }
+
+    // Handshake pulses: every so often a bright dot travels a live link —
+    // a token passing between two identities
+    if (t - lastPulse > 1200 && nodes.length > 1 && !reduceMotion) {
+      lastPulse = t;
+      const a = nodes[(Math.random() * nodes.length) | 0];
+      let best = null;
+      let bestD = LINK * LINK;
+      for (let i = 0; i < nodes.length; i++) {
+        const b = nodes[i];
+        if (b === a) continue;
+        const ddx = a.x - b.x, ddy = a.y - b.y;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 < bestD) { bestD = d2; best = b; }
+      }
+      if (best) pulses.push({ a: a, b: best, t0: t, dur: 850 });
+    }
+    for (let i = pulses.length - 1; i >= 0; i--) {
+      const p = pulses[i];
+      const k = (t - p.t0) / p.dur;
+      const ddx = p.a.x - p.b.x, ddy = p.a.y - p.b.y;
+      if (k >= 1 || ddx * ddx + ddy * ddy > LINK * LINK * 1.44) {
+        pulses.splice(i, 1);
+        continue;
+      }
+      const px = p.a.x + p.a.dx + (p.b.x + p.b.dx - p.a.x - p.a.dx) * k;
+      const py = p.a.y + p.a.dy + (p.b.y + p.b.dy - p.a.y - p.a.dy) * k;
+      const fade = k < 0.15 ? k / 0.15 : k > 0.85 ? (1 - k) / 0.15 : 1;
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.14 * fade).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, 6, 0, 6.2832);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.9 * fade).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, 6.2832);
+      ctx.fill();
+    }
+
+    // Nodes last, on top of their links
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      let r = n.r;
+      let alpha = n.a;
+      const nx = n.x + n.dx, ny = n.y + n.dy;
+      if (n.beacon) {
+        const p = 0.5 + 0.5 * Math.sin(t / 1000 * 1.4 + n.ph);
+        r += p * 1.5;
+        alpha = 0.4 + 0.4 * p;
+        ctx.fillStyle = 'rgba(255,255,255,' + (0.1 * p).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(nx, ny, r + 5, 0, 6.2832);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(nx, ny, r, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  function frame(t) {
+    raf = null;
+    if (lastT === null) lastT = t;
+    const dt = Math.min((t - lastT) / 1000, 0.05);
+    lastT = t;
+    draw(t, dt);
+    schedule();
+  }
+
+  function schedule() {
+    if (raf || reduceMotion || !onScreen || hidden) return;
+    raf = requestAnimationFrame(frame);
+  }
+
+  function pauseLoop() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    lastT = null; // don't integrate the time spent paused into one huge step
+  }
+
+  resize();
+  window.addEventListener('resize', resize);
+
+  if (reduceMotion) return; // static constellation already drawn; nothing else to wire
+
+  // Observing the CANVAS (not the hero) means display:none — High Contrast
+  // hides .hero-net — reads as "not intersecting" and stops the loop too.
+  if (typeof IntersectionObserver !== 'undefined') {
+    new IntersectionObserver(function (entries) {
+      onScreen = entries[entries.length - 1].isIntersecting;
+      if (onScreen) schedule(); else pauseLoop();
+    }).observe(canvas);
+  }
+  document.addEventListener('visibilitychange', function () {
+    hidden = document.hidden;
+    if (hidden) pauseLoop(); else schedule();
+  });
+
+  hero.addEventListener('pointermove', function (e) {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    const rect = hero.getBoundingClientRect();
+    mouse = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }, { passive: true });
+  hero.addEventListener('pointerleave', function () { mouse = null; });
+
+  schedule();
 }
 
 $(function() {
@@ -638,6 +927,7 @@ $(function() {
   initScrollReveal();
   initStatCounters();
   initCardSpotlight();
+  initHeroConstellation();
 
   // Homepage boot loader: bridge first paint to full init (theme applied, marquee
   // wired up) — mirrors Academy's boot loader.
