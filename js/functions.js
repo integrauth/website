@@ -297,6 +297,179 @@ function closeProductModal(event) {
 }
 
 // Initialize on DOM ready
+// Scroll progress bar: a thin gradient line along the viewport's top edge that
+// tracks how far down the page the reader is. Injected here so no page needs
+// markup changes; decorative only, hidden from assistive tech.
+function initScrollProgress() {
+  if (document.querySelector('.scroll-progress')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'scroll-progress';
+  wrap.setAttribute('aria-hidden', 'true');
+  const bar = document.createElement('div');
+  bar.className = 'scroll-progress-bar';
+  wrap.appendChild(bar);
+  document.body.appendChild(wrap);
+  let ticking = false;
+  function update() {
+    ticking = false;
+    const doc = document.documentElement;
+    let p;
+    // Inside an open Academy lesson the bar tracks progress through THAT
+    // lesson — its top passing the viewport top through its bottom entering
+    // the viewport bottom — so it reads as "how much of this lesson is left"
+    // instead of position within the page chrome. A lesson shorter than the
+    // viewport is fully readable at a glance, so the bar shows full.
+    const reader = document.getElementById('acadReader');
+    const lesson = reader && !reader.hidden ? reader.querySelector('.acad-lesson.is-active') : null;
+    if (lesson) {
+      const r = lesson.getBoundingClientRect();
+      const span = r.height - window.innerHeight;
+      p = span > 0 ? -r.top / span : 1;
+    } else {
+      const max = doc.scrollHeight - window.innerHeight;
+      p = max > 0 ? (window.scrollY || doc.scrollTop || 0) / max : 0;
+    }
+    bar.style.transform = 'scaleX(' + Math.min(1, Math.max(0, p)) + ')';
+  }
+  function queue() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(update);
+  }
+  window.addEventListener('scroll', queue, { passive: true });
+  window.addEventListener('resize', queue, { passive: true });
+  // Page height and the active lesson change without a scroll event (lesson
+  // navigation, collapse toggles, reveals settling) — remeasure after any
+  // click/keypress and once transitions finish. One rAF each, so it's cheap.
+  document.addEventListener('click', queue, true);
+  document.addEventListener('keydown', queue, true);
+  document.addEventListener('transitionend', queue, true);
+  update();
+}
+
+// Scroll-reveal: fade-and-rise section titles and cards into view the first
+// time they scroll in, with a small stagger between siblings. The .sr-item
+// class is only ever applied from here — never in markup — so no-JS visitors
+// and reduced-motion users always get fully rendered static content. Both
+// classes and the inline stagger delay are removed once the entrance has
+// played, restoring each element's own transition/hover behaviour.
+function initScrollReveal() {
+  if (!('IntersectionObserver' in window)) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const SELECTOR = [
+    '.section-title', '.section-subtitle', '.tool-card', '.tech-category',
+    '.process-step', '.faq-item', '.acad-banner', '.lab-showcase',
+    '.svc-list > li', '.acad-track-card',
+    '#acadDrill', '#acadFlows', '#acadChallenge', '#acadExam'
+  ].join(',');
+
+  function start() {
+    const io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        const el = entry.target;
+        io.unobserve(el);
+        el.classList.add('sr-in');
+        setTimeout(function () {
+          el.classList.remove('sr-item', 'sr-in');
+          el.style.transitionDelay = '';
+        }, 1100);
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 });
+
+    const counts = new Map();
+    document.querySelectorAll(SELECTOR).forEach(function (el) {
+      // Never animate inside a scrolling marquee — its slides (and their
+      // clones) move on their own and re-enter the viewport forever.
+      if (el.closest('.services-track')) return;
+      const parent = el.parentElement;
+      const idx = counts.get(parent) || 0;
+      counts.set(parent, idx + 1);
+      el.classList.add('sr-item');
+      if (idx) el.style.transitionDelay = (Math.min(idx, 6) * 70) + 'ms';
+      io.observe(el);
+    });
+  }
+
+  // On pages with a boot loader, hold the reveal until the loader lifts —
+  // otherwise above-the-fold entrances play out unseen behind it.
+  const htmlEl = document.documentElement;
+  if (htmlEl.classList.contains('site-boot')) {
+    const mo = new MutationObserver(function () {
+      if (!htmlEl.classList.contains('site-boot')) {
+        mo.disconnect();
+        start();
+      }
+    });
+    mo.observe(htmlEl, { attributes: true, attributeFilter: ['class'] });
+  } else {
+    start();
+  }
+}
+
+// Count-up for the Academy stat chips ("135 lessons", "120+ diagrams") the
+// first time they scroll into view. The chip's real text is parsed, animated,
+// and restored verbatim at the end, so markup stays the source of truth; a
+// temporary min-width pins the pill so the row doesn't wobble mid-count.
+function initStatCounters() {
+  if (!('IntersectionObserver' in window)) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const chips = document.querySelectorAll('.acad-stat');
+  if (!chips.length) return;
+  const io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      const el = entry.target;
+      io.unobserve(el);
+      const final = el.textContent;
+      const m = final.match(/^(\d+)([\s\S]*)$/);
+      if (!m) return;
+      const target = parseInt(m[1], 10);
+      const suffix = m[2];
+      el.style.minWidth = el.offsetWidth + 'px';
+      const t0 = performance.now();
+      const DUR = 900;
+      function tick(now) {
+        const t = Math.min(1, (now - t0) / DUR);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = Math.round(target * eased) + suffix;
+        if (t < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          el.textContent = final;
+          el.style.minWidth = '';
+        }
+      }
+      requestAnimationFrame(tick);
+    });
+  }, { threshold: 0.4 });
+  chips.forEach(function (el) { io.observe(el); });
+}
+
+// Cursor spotlight on tool/track cards: a faint radial highlight that follows
+// the mouse inside the hovered card (CSS ::after reads --spot-x/--spot-y; see
+// the micro-interactions block in styles.css). Mouse-only — touch and coarse
+// pointers never see it, and High Contrast disables the overlay in CSS.
+function initCardSpotlight() {
+  if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  let raf = null;
+  let ev = null;
+  document.addEventListener('pointermove', function (e) {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    ev = e;
+    if (raf) return;
+    raf = requestAnimationFrame(function () {
+      raf = null;
+      const card = ev.target && ev.target.closest ? ev.target.closest('.tool-card, .acad-track-card') : null;
+      if (!card) return;
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--spot-x', (ev.clientX - r.left) + 'px');
+      card.style.setProperty('--spot-y', (ev.clientY - r.top) + 'px');
+    });
+  }, { passive: true });
+}
+
 $(function() {
   // Apply saved theme; first-time visitors get Midnight Cyber by default
   const savedTheme = localStorage.getItem("theme");
@@ -449,6 +622,10 @@ $(function() {
   initServicesMarquee();
   initAcademy();
   initBackToTop();
+  initScrollProgress();
+  initScrollReveal();
+  initStatCounters();
+  initCardSpotlight();
 
   // Homepage boot loader: bridge first paint to full init (theme applied, marquee
   // wired up) — mirrors Academy's boot loader.
@@ -1522,11 +1699,44 @@ function initAcademy() {
     } catch (e) {}
     buildChips(track, id);
     buildPager(lesson);
+    ensureReadTime(lesson);
     updateProgress();
     if ('#' + id !== location.hash) history.replaceState(null, '', '#' + id);
     if (!skipScroll) window.scrollTo({ top: 0 });
     return true;
   }
+
+  // "~N min read" chip next to the lesson's track pill, computed once per
+  // lesson from its actual text (220 wpm) the first time it is opened.
+  function ensureReadTime(lesson) {
+    if (lesson.querySelector('.acad-readtime')) return;
+    const chnum = lesson.querySelector('.acad-chnum');
+    if (!chnum) return;
+    const words = (lesson.textContent.match(/\S+/g) || []).length;
+    const mins = Math.max(1, Math.round(words / 220));
+    const chip = document.createElement('span');
+    chip.className = 'acad-readtime';
+    chip.textContent = '~' + mins + ' min read';
+    chnum.insertAdjacentElement('afterend', chip);
+  }
+
+  // ← / → keys page between lessons while the reader is open. Typing fields
+  // and the labs keep their keys — labs are interactive sims, so arrows there
+  // must never yank the learner to another lesson.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (reader.hidden) return;
+    const t = e.target;
+    if (t && t.closest && t.closest('input, textarea, select, [contenteditable], .acad-lab')) return;
+    const active = lessons.filter(function (s) { return s.classList.contains('is-active'); })[0];
+    if (!active) return;
+    const dest = lessons[lessons.indexOf(active) + (e.key === 'ArrowRight' ? 1 : -1)];
+    if (dest) {
+      e.preventDefault();
+      showLesson(dest.id);
+    }
+  });
 
   // Delegated navigation: chips, pager, hub links, in-lesson cross-links
   document.addEventListener('click', function (e) {
