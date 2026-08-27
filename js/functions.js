@@ -291,9 +291,21 @@ function openProductModal(productId) {
 function closeProductModal(event) {
   const modal = document.getElementById('productModal');
   if (event.target === modal || event.target.classList.contains('product-modal-close')) {
-    modal.classList.remove('show');
-    document.body.style.overflow = '';
+    hideProductModal(modal);
   }
+}
+
+// Close with a short exit beat (.closing plays the reverse animation) instead
+// of vanishing on the spot; reduced-motion closes instantly.
+function hideProductModal(modal) {
+  if (!modal || !modal.classList.contains('show') || modal.classList.contains('closing')) return;
+  const done = function () {
+    modal.classList.remove('show', 'closing');
+    document.body.style.overflow = '';
+  };
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+  modal.classList.add('closing');
+  setTimeout(done, 230);
 }
 
 // Initialize on DOM ready
@@ -672,11 +684,7 @@ $(function() {
 // Close modal on ESC key
 document.addEventListener('keydown', function(event) {
   if (event.key === 'Escape') {
-    const modal = document.getElementById('productModal');
-    if (modal && modal.classList.contains('show')) {
-      modal.classList.remove('show');
-      document.body.style.overflow = '';
-    }
+    hideProductModal(document.getElementById('productModal'));
   }
 });
 
