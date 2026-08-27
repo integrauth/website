@@ -8501,3 +8501,358 @@ body.theme-contrast .acad-track-card::after { display: none; }
 
 /* Tactile press on the clickable product cards, like .btn:active */
 .product-card:active { transform: scale(0.98); }
+
+/* ---- Round 4: hero constellation, tagline roll-call, card tilt, title draw ---- */
+
+/* Hero identity constellation — canvas injected by initHeroConstellation()
+   (functions.js). Sits behind the hero copy; the ::before grain paints under
+   it (pseudo-elements render before real children), the container rides above.
+   High Contrast hides it entirely — the IntersectionObserver in the JS reads
+   display:none as "not intersecting" and stops the rAF loop, so hiding it
+   here is also what parks the animation in that theme. */
+.hero-net {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.hero-section .container {
+  position: relative;
+  z-index: 1;
+}
+
+body.theme-contrast .hero-net { display: none; }
+
+/* Tagline roll-call: Humans → Machines → RPA bots → AI Agents each take a 2s
+   turn glowing, one full pass every 8s. Pure CSS (nth-of-type staggers one
+   shared keyframe), flattened by the global reduced-motion rule, disabled in
+   High Contrast. inline-block so the 2px rise can apply. */
+.hero-tagline strong {
+  display: inline-block;
+  animation: heroRole 8s ease-in-out infinite;
+}
+
+.hero-tagline strong:nth-of-type(2) { animation-delay: 2s; }
+.hero-tagline strong:nth-of-type(3) { animation-delay: 4s; }
+.hero-tagline strong:nth-of-type(4) { animation-delay: 6s; }
+
+@keyframes heroRole {
+  0%, 25%, 100% {
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    transform: none;
+  }
+  8%, 17% {
+    text-shadow: 0 0 18px rgba(255, 255, 255, 0.9), 0 2px 6px rgba(0, 0, 0, 0.35);
+    transform: translateY(-2px);
+  }
+}
+
+body.theme-contrast .hero-tagline strong { animation: none; }
+
+/* 3D tilt: the hovered card leans toward the cursor (vars set by
+   initCardSpotlight; unset vars fall back to 0deg so no-JS and reduced-motion
+   visitors keep the plain -4px lift). perspective() rides inside the transform
+   so no parent needs a perspective of its own. High Contrast pins its own
+   transforms below, and .tool-card's contrast hover already sets
+   transform:none. */
+@media (hover: hover) and (pointer: fine) {
+  .tool-card:hover,
+  .acad-track-card:hover {
+    transform: perspective(700px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-4px);
+  }
+}
+
+body.theme-contrast .acad-track-card:hover { transform: translateY(-4px); }
+
+/* Section-title underline draws itself once the title's scroll-reveal lands
+   (sr classes are only ever applied from JS, so no-JS titles keep the full
+   underline). The .3s delay lets the rise finish first — two beats, not one. */
+.section-title::after {
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+}
+
+.section-title.sr-item:not(.sr-in)::after {
+  width: 0;
+}
+
+/* ---- Round 5: trust ticker, border beam, product demo loops, 404 constellation ---- */
+
+/* Constellation ink per host (an "R, G, B" triplet read by
+   initHeroConstellation; refreshed on theme change). The hero's vivid
+   gradient always takes white; the 404's .err-hero sits on the page
+   background, so it takes indigo on light and periwinkle on dark. */
+.hero-section { --net-ink: 255, 255, 255; }
+.err-hero { --net-ink: 99, 102, 241; }
+body.bg-dark .err-hero { --net-ink: 165, 180, 252; }
+
+.err-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.err-hero .container {
+  position: relative;
+  z-index: 1;
+}
+
+/* Trust ticker: the strip between Contact and the footer. Static (no JS /
+   reduced motion): a wrapped row of stat chips. With JS, .ticker-live turns
+   the row into a single rotating line (items stacked absolutely; .on rises
+   in, .was exits upward). Dark in every theme on purpose — it bridges the
+   bg-primary contact band and the always-dark footer. */
+.trust-ticker {
+  background: #0b1120;
+  color: #cbd5e1;
+  padding: 1.05rem 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.ticker-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem 1.4rem;
+  flex-wrap: wrap;
+  text-align: center;
+}
+
+.ticker-kicker {
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #818cf8;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ticker-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  justify-content: center;
+}
+
+.ticker-item {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.ticker-num {
+  color: #a5b4fc;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticker-live .ticker-items {
+  display: block;
+  position: relative;
+  height: 1.6em;
+  width: 100%;
+  max-width: 420px;
+}
+
+.ticker-live .ticker-item {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ticker-live .ticker-item.on {
+  opacity: 1;
+  transform: none;
+}
+
+.ticker-live .ticker-item.was {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+@media (max-width: 480px) {
+  .ticker-item { font-size: 0.85rem; }
+}
+
+body.theme-contrast .trust-ticker {
+  background: #000;
+  color: #fff;
+  border-top: 2px solid #fff;
+}
+
+body.theme-contrast .ticker-num,
+body.theme-contrast .ticker-kicker,
+body.theme-contrast .ticker-item { color: #fff; }
+
+/* Border beam on the Academy banner: a bright arc orbiting the card's edge.
+   The ::after paints a conic gradient across the whole card, then the
+   mask-composite trick (content-box XOR full box, with padding = ring width)
+   punches out the middle so only the 3px edge survives. @property makes the
+   angle interpolable; without it the ring is simply static. Reduced motion
+   flattens the spin (static arc), High Contrast removes it. */
+@property --beam {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.acad-banner { position: relative; }
+
+.acad-banner::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: calc(var(--radius-2xl) + 3px);
+  padding: 3px;
+  pointer-events: none;
+  background: conic-gradient(from var(--beam),
+    rgba(255, 255, 255, 0) 0deg 286deg,
+    rgba(165, 180, 252, 0.9) 320deg,
+    #ffffff 334deg,
+    rgba(165, 180, 252, 0.9) 348deg,
+    rgba(255, 255, 255, 0) 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  animation: beamSpin 4.5s linear infinite;
+}
+
+@keyframes beamSpin {
+  to { --beam: 360deg; }
+}
+
+body.theme-contrast .acad-banner::after { display: none; }
+
+/* Product demo loops: tiny auto-playing SVG scenes at the top of each product
+   modal, colored via the --pd-* palette below (themed per body class; SVG
+   elements use the pd-* utility classes). Transient elements (.pd-tr — sweep
+   beams, expiring holds, flying chips) are REMOVED under reduced motion and
+   everything else forced visible, so the scene reads as its finished state. */
+.demo-loop {
+  --pd-ink: #1e293b;
+  --pd-mut: #64748b;
+  --pd-acc: #6366f1;
+  --pd-ok: #10b981;
+  --pd-warn: #f59e0b;
+  --pd-bad: #ef4444;
+  --pd-card: #ffffff;
+  --pd-line: #cbd5e1;
+  background: rgba(99, 102, 241, 0.07);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: var(--radius-lg);
+  padding: 0.6rem 0.8rem 0.35rem;
+  margin: 0 0 1.1rem;
+}
+
+.demo-loop svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.demo-loop text { font-family: inherit; }
+
+body.bg-dark .demo-loop {
+  --pd-ink: #e2e8f0;
+  --pd-mut: #94a3b8;
+  --pd-card: #0f172a;
+  --pd-line: #334155;
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(129, 140, 248, 0.25);
+}
+
+body.theme-contrast .demo-loop {
+  --pd-ink: #000;
+  --pd-mut: #000;
+  --pd-acc: #000;
+  --pd-ok: #000;
+  --pd-warn: #000;
+  --pd-bad: #000;
+  --pd-card: #fff;
+  --pd-line: #000;
+  background: #fff;
+  border: 2px solid #000;
+}
+
+.pd-i { fill: var(--pd-ink); }
+.pd-m { fill: var(--pd-mut); }
+.pd-a { fill: var(--pd-acc); }
+.pd-o { fill: var(--pd-ok); }
+.pd-w { fill: var(--pd-warn); }
+.pd-b { fill: var(--pd-bad); }
+.pd-c { fill: var(--pd-card); stroke: var(--pd-line); }
+.pd-s { stroke: var(--pd-line); fill: none; }
+.pd-sa { stroke: var(--pd-acc); fill: none; }
+
+/* Appear, hold, clear — one shared 6s cycle; per-element stagger via inline
+   animation-delay (fill-mode both keeps pre-delay opacity at the 0% frame) */
+.pd-pop { opacity: 0; animation: pdPop 6s ease infinite both; }
+
+@keyframes pdPop {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  86% { opacity: 1; }
+  94%, 100% { opacity: 0; }
+}
+
+/* Appear briefly then leave mid-cycle (expiring holds, conflicts) */
+.pd-hold { opacity: 0; animation: pdHold 6s ease infinite both; }
+
+@keyframes pdHold {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  38% { opacity: 1; }
+  46%, 100% { opacity: 0; }
+}
+
+/* Scanner beam sweeping down the checked rows (6s so it stays in phase with
+   the pdPop status dots it "causes") */
+.pd-beam { animation: pdBeam 6s linear infinite both; }
+
+@keyframes pdBeam {
+  0% { transform: translateY(0); opacity: 0; }
+  6% { opacity: 1; }
+  46% { transform: translateY(84px); opacity: 1; }
+  56%, 100% { transform: translateY(84px); opacity: 0; }
+}
+
+/* Reminder chip gliding from "the evening before" toward the fast day */
+.pd-fly { opacity: 0; animation: pdFly 6s ease-in-out infinite both; }
+
+@keyframes pdFly {
+  0%, 18% { opacity: 0; transform: translateX(0); }
+  26% { opacity: 1; }
+  58% { opacity: 1; transform: translateX(56px); }
+  68%, 100% { opacity: 0; transform: translateX(56px); }
+}
+
+/* Delivery dot riding the route between stops */
+.pd-route { animation: pdRoute 6s linear infinite both; }
+
+@keyframes pdRoute {
+  0% { transform: translate(0, 0); opacity: 0; }
+  5% { opacity: 1; }
+  30% { transform: translate(128px, -26px); }
+  55% { transform: translate(262px, 10px); }
+  85% { transform: translate(392px, -18px); opacity: 1; }
+  95%, 100% { transform: translate(392px, -18px); opacity: 0; }
+}
+
+/* Gentle attention pulse (full moon, live badges) */
+.pd-pulse { animation: pdPulse 1.8s ease-in-out infinite; }
+
+@keyframes pdPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-loop .pd-pop,
+  .demo-loop .pd-hold,
+  .demo-loop .pd-fly,
+  .demo-loop .pd-pulse { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .demo-loop .pd-tr { display: none !important; }
+}
