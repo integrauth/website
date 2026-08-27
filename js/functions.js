@@ -313,9 +313,23 @@ function initScrollProgress() {
   function update() {
     ticking = false;
     const doc = document.documentElement;
-    const max = doc.scrollHeight - window.innerHeight;
-    const p = max > 0 ? Math.min(1, Math.max(0, (window.scrollY || doc.scrollTop || 0) / max)) : 0;
-    bar.style.transform = 'scaleX(' + p + ')';
+    let p;
+    // Inside an open Academy lesson the bar tracks progress through THAT
+    // lesson — its top passing the viewport top through its bottom entering
+    // the viewport bottom — so it reads as "how much of this lesson is left"
+    // instead of position within the page chrome. A lesson shorter than the
+    // viewport is fully readable at a glance, so the bar shows full.
+    const reader = document.getElementById('acadReader');
+    const lesson = reader && !reader.hidden ? reader.querySelector('.acad-lesson.is-active') : null;
+    if (lesson) {
+      const r = lesson.getBoundingClientRect();
+      const span = r.height - window.innerHeight;
+      p = span > 0 ? -r.top / span : 1;
+    } else {
+      const max = doc.scrollHeight - window.innerHeight;
+      p = max > 0 ? (window.scrollY || doc.scrollTop || 0) / max : 0;
+    }
+    bar.style.transform = 'scaleX(' + Math.min(1, Math.max(0, p)) + ')';
   }
   function queue() {
     if (ticking) return;
@@ -324,6 +338,12 @@ function initScrollProgress() {
   }
   window.addEventListener('scroll', queue, { passive: true });
   window.addEventListener('resize', queue, { passive: true });
+  // Page height and the active lesson change without a scroll event (lesson
+  // navigation, collapse toggles, reveals settling) — remeasure after any
+  // click/keypress and once transitions finish. One rAF each, so it's cheap.
+  document.addEventListener('click', queue, true);
+  document.addEventListener('keydown', queue, true);
+  document.addEventListener('transitionend', queue, true);
   update();
 }
 
@@ -424,6 +444,30 @@ function initStatCounters() {
     });
   }, { threshold: 0.4 });
   chips.forEach(function (el) { io.observe(el); });
+}
+
+// Cursor spotlight on tool/track cards: a faint radial highlight that follows
+// the mouse inside the hovered card (CSS ::after reads --spot-x/--spot-y; see
+// the micro-interactions block in styles.css). Mouse-only — touch and coarse
+// pointers never see it, and High Contrast disables the overlay in CSS.
+function initCardSpotlight() {
+  if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  let raf = null;
+  let ev = null;
+  document.addEventListener('pointermove', function (e) {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    ev = e;
+    if (raf) return;
+    raf = requestAnimationFrame(function () {
+      raf = null;
+      const card = ev.target && ev.target.closest ? ev.target.closest('.tool-card, .acad-track-card') : null;
+      if (!card) return;
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--spot-x', (ev.clientX - r.left) + 'px');
+      card.style.setProperty('--spot-y', (ev.clientY - r.top) + 'px');
+    });
+  }, { passive: true });
 }
 
 $(function() {
@@ -581,6 +625,7 @@ $(function() {
   initScrollProgress();
   initScrollReveal();
   initStatCounters();
+  initCardSpotlight();
 
   // Homepage boot loader: bridge first paint to full init (theme applied, marquee
   // wired up) — mirrors Academy's boot loader.
@@ -1654,11 +1699,44 @@ function initAcademy() {
     } catch (e) {}
     buildChips(track, id);
     buildPager(lesson);
+    ensureReadTime(lesson);
     updateProgress();
     if ('#' + id !== location.hash) history.replaceState(null, '', '#' + id);
     if (!skipScroll) window.scrollTo({ top: 0 });
     return true;
   }
+
+  // "~N min read" chip next to the lesson's track pill, computed once per
+  // lesson from its actual text (220 wpm) the first time it is opened.
+  function ensureReadTime(lesson) {
+    if (lesson.querySelector('.acad-readtime')) return;
+    const chnum = lesson.querySelector('.acad-chnum');
+    if (!chnum) return;
+    const words = (lesson.textContent.match(/\S+/g) || []).length;
+    const mins = Math.max(1, Math.round(words / 220));
+    const chip = document.createElement('span');
+    chip.className = 'acad-readtime';
+    chip.textContent = '~' + mins + ' min read';
+    chnum.insertAdjacentElement('afterend', chip);
+  }
+
+  // ← / → keys page between lessons while the reader is open. Typing fields
+  // and the labs keep their keys — labs are interactive sims, so arrows there
+  // must never yank the learner to another lesson.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (reader.hidden) return;
+    const t = e.target;
+    if (t && t.closest && t.closest('input, textarea, select, [contenteditable], .acad-lab')) return;
+    const active = lessons.filter(function (s) { return s.classList.contains('is-active'); })[0];
+    if (!active) return;
+    const dest = lessons[lessons.indexOf(active) + (e.key === 'ArrowRight' ? 1 : -1)];
+    if (dest) {
+      e.preventDefault();
+      showLesson(dest.id);
+    }
+  });
 
   // Delegated navigation: chips, pager, hub links, in-lesson cross-links
   document.addEventListener('click', function (e) {
