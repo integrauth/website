@@ -8298,3 +8298,117 @@ body.theme-contrast a.vfy-btn-ghost:hover { background: #000; color: #fff; borde
   word-break: break-all;
 }
 body.theme-contrast .vfy-result { border-radius: 6px; border-width: 2px; border-left-width: 6px; }
+
+/* =====================================================
+   Micro-interactions & scroll life
+   Scroll progress bar, scroll-reveal, hero scroll cue,
+   stat count-up support. All JS-injected classes — no-JS
+   visitors see fully rendered, static content, and the
+   global prefers-reduced-motion rule flattens the rest.
+   ===================================================== */
+
+/* Scroll progress bar — injected by initScrollProgress() on every page */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 2000; /* above .navbar (1030), below modals/boot loader */
+  pointer-events: none;
+}
+
+.scroll-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2, #6366f1);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+}
+
+body.theme-contrast .scroll-progress-bar { background: #000; }
+
+/* Scroll-reveal — .sr-item is applied by initScrollReveal() and removed again
+   after the entrance plays, so each element's own transition/hover styling is
+   fully restored once it has revealed. */
+.sr-item {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.55s ease, transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.sr-item.sr-in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sr-item { opacity: 1; transform: none; }
+}
+
+/* Hero scroll cue — gentle bobbing chevron anchoring to the Academy banner.
+   Specificity note: .hero-section .hero-scroll-cue outranks the global
+   theme anchor-color overrides (body.theme-contrast a etc.), same trap as
+   .svc-hero .btn-outline-light. */
+.hero-section .hero-scroll-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 1.4rem;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 1rem;
+  animation: heroCueBob 2.4s ease-in-out infinite;
+  transition: color 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+}
+
+.hero-section .hero-scroll-cue:hover,
+.hero-section .hero-scroll-cue:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.75);
+}
+
+@keyframes heroCueBob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(7px); }
+}
+
+body.theme-contrast .hero-section .hero-scroll-cue {
+  color: #000;
+  border: 2px solid #000;
+  background: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-section .hero-scroll-cue { animation: none; }
+}
+
+@media (max-height: 600px) {
+  .hero-section .hero-scroll-cue { display: none; }
+}
+
+/* Small hover life on cards that had static innards */
+.tool-card:hover .tool-link-icon { transform: translate(2px, -2px); }
+
+.acad-track-card .acad-track-num,
+.process-step .process-num {
+  transition: transform 0.25s ease;
+}
+
+.acad-track-card:hover .acad-track-num { transform: scale(1.08); }
+.process-step:hover .process-num { transform: scale(1.08); }
+
+/* Tactile button press */
+.btn:not(:disabled):active { transform: translateY(1px) scale(0.98); }
+
+/* Stat chips count up on scroll — tabular digits stop the pill wobbling */
+.acad-stat { font-variant-numeric: tabular-nums; }

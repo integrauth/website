@@ -297,6 +297,135 @@ function closeProductModal(event) {
 }
 
 // Initialize on DOM ready
+// Scroll progress bar: a thin gradient line along the viewport's top edge that
+// tracks how far down the page the reader is. Injected here so no page needs
+// markup changes; decorative only, hidden from assistive tech.
+function initScrollProgress() {
+  if (document.querySelector('.scroll-progress')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'scroll-progress';
+  wrap.setAttribute('aria-hidden', 'true');
+  const bar = document.createElement('div');
+  bar.className = 'scroll-progress-bar';
+  wrap.appendChild(bar);
+  document.body.appendChild(wrap);
+  let ticking = false;
+  function update() {
+    ticking = false;
+    const doc = document.documentElement;
+    const max = doc.scrollHeight - window.innerHeight;
+    const p = max > 0 ? Math.min(1, Math.max(0, (window.scrollY || doc.scrollTop || 0) / max)) : 0;
+    bar.style.transform = 'scaleX(' + p + ')';
+  }
+  function queue() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(update);
+  }
+  window.addEventListener('scroll', queue, { passive: true });
+  window.addEventListener('resize', queue, { passive: true });
+  update();
+}
+
+// Scroll-reveal: fade-and-rise section titles and cards into view the first
+// time they scroll in, with a small stagger between siblings. The .sr-item
+// class is only ever applied from here — never in markup — so no-JS visitors
+// and reduced-motion users always get fully rendered static content. Both
+// classes and the inline stagger delay are removed once the entrance has
+// played, restoring each element's own transition/hover behaviour.
+function initScrollReveal() {
+  if (!('IntersectionObserver' in window)) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const SELECTOR = [
+    '.section-title', '.section-subtitle', '.tool-card', '.tech-category',
+    '.process-step', '.faq-item', '.acad-banner', '.lab-showcase',
+    '.svc-list > li', '.acad-track-card',
+    '#acadDrill', '#acadFlows', '#acadChallenge', '#acadExam'
+  ].join(',');
+
+  function start() {
+    const io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        const el = entry.target;
+        io.unobserve(el);
+        el.classList.add('sr-in');
+        setTimeout(function () {
+          el.classList.remove('sr-item', 'sr-in');
+          el.style.transitionDelay = '';
+        }, 1100);
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 });
+
+    const counts = new Map();
+    document.querySelectorAll(SELECTOR).forEach(function (el) {
+      // Never animate inside a scrolling marquee — its slides (and their
+      // clones) move on their own and re-enter the viewport forever.
+      if (el.closest('.services-track')) return;
+      const parent = el.parentElement;
+      const idx = counts.get(parent) || 0;
+      counts.set(parent, idx + 1);
+      el.classList.add('sr-item');
+      if (idx) el.style.transitionDelay = (Math.min(idx, 6) * 70) + 'ms';
+      io.observe(el);
+    });
+  }
+
+  // On pages with a boot loader, hold the reveal until the loader lifts —
+  // otherwise above-the-fold entrances play out unseen behind it.
+  const htmlEl = document.documentElement;
+  if (htmlEl.classList.contains('site-boot')) {
+    const mo = new MutationObserver(function () {
+      if (!htmlEl.classList.contains('site-boot')) {
+        mo.disconnect();
+        start();
+      }
+    });
+    mo.observe(htmlEl, { attributes: true, attributeFilter: ['class'] });
+  } else {
+    start();
+  }
+}
+
+// Count-up for the Academy stat chips ("135 lessons", "120+ diagrams") the
+// first time they scroll into view. The chip's real text is parsed, animated,
+// and restored verbatim at the end, so markup stays the source of truth; a
+// temporary min-width pins the pill so the row doesn't wobble mid-count.
+function initStatCounters() {
+  if (!('IntersectionObserver' in window)) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const chips = document.querySelectorAll('.acad-stat');
+  if (!chips.length) return;
+  const io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      const el = entry.target;
+      io.unobserve(el);
+      const final = el.textContent;
+      const m = final.match(/^(\d+)([\s\S]*)$/);
+      if (!m) return;
+      const target = parseInt(m[1], 10);
+      const suffix = m[2];
+      el.style.minWidth = el.offsetWidth + 'px';
+      const t0 = performance.now();
+      const DUR = 900;
+      function tick(now) {
+        const t = Math.min(1, (now - t0) / DUR);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = Math.round(target * eased) + suffix;
+        if (t < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          el.textContent = final;
+          el.style.minWidth = '';
+        }
+      }
+      requestAnimationFrame(tick);
+    });
+  }, { threshold: 0.4 });
+  chips.forEach(function (el) { io.observe(el); });
+}
+
 $(function() {
   // Apply saved theme; first-time visitors get Midnight Cyber by default
   const savedTheme = localStorage.getItem("theme");
@@ -449,6 +578,9 @@ $(function() {
   initServicesMarquee();
   initAcademy();
   initBackToTop();
+  initScrollProgress();
+  initScrollReveal();
+  initStatCounters();
 
   // Homepage boot loader: bridge first paint to full init (theme applied, marquee
   // wired up) — mirrors Academy's boot loader.
