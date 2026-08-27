@@ -535,6 +535,13 @@ function initCardSpotlight() {
 // along a link and nodes leaning toward the visitor's cursor. The canvas is
 // injected from here so no-JS visitors simply keep the gradient hero.
 //
+// The 404 page (.err-hero) gets the BROKEN variant of the same field: a third
+// of the links render dashed, beacons flicker instead of breathing, and
+// handshake pulses drop mid-link — the graph where the page went missing.
+// Node/link color comes from the host's --net-ink custom property (an "R, G, B"
+// triplet themed in styles.css), cached and refreshed when the body's theme
+// class changes rather than read per frame.
+//
 // Budgets, because a pretty hero that janks is worse than no hero:
 // - node count scales with hero area, capped at 76; links are O(n²) but under
 //   3k pairs/frame at the cap
@@ -546,14 +553,28 @@ function initCardSpotlight() {
 // - reduced motion gets a single static constellation (still pretty, nothing
 //   moves) and no pointer tracking
 function initHeroConstellation() {
-  const hero = document.querySelector('.hero-section');
+  const hero = document.querySelector('.hero-section, .err-hero');
   if (!hero || hero.querySelector('.hero-net')) return;
+  const broken = hero.classList.contains('err-hero');
   const canvas = document.createElement('canvas');
   canvas.className = 'hero-net';
   canvas.setAttribute('aria-hidden', 'true');
   hero.insertBefore(canvas, hero.firstChild);
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
+
+  let ink = '255,255,255';
+  function refreshInk() {
+    const v = getComputedStyle(hero).getPropertyValue('--net-ink').trim();
+    if (/^\d+\s*,\s*\d+\s*,\s*\d+$/.test(v)) ink = v;
+  }
+  refreshInk();
+  if (typeof MutationObserver !== 'undefined') {
+    new MutationObserver(function () {
+      refreshInk();
+      if (reduceMotion) draw(0, 0); // keep the static frame on-theme too
+    }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  }
 
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const LINK = 140;     // px — nodes closer than this draw a line
@@ -626,7 +647,9 @@ function initHeroConstellation() {
       n.dy += (ty - n.dy) * Math.min(1, dt * 6);
     }
 
-    // Links between nearby nodes, faded by distance
+    // Links between nearby nodes, faded by distance. In broken mode every
+    // third pair (deterministic, so links don't restyle frame to frame) is
+    // dashed and dimmer — a connection that isn't quite holding.
     ctx.lineWidth = 1;
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
@@ -637,12 +660,18 @@ function initHeroConstellation() {
         const ddx = ax - bx, ddy = ay - by;
         const d2 = ddx * ddx + ddy * ddy;
         if (d2 > LINK * LINK) continue;
-        const alpha = 0.26 * (1 - Math.sqrt(d2) / LINK);
-        ctx.strokeStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+        let alpha = 0.26 * (1 - Math.sqrt(d2) / LINK);
+        const snapped = broken && (i * 31 + j) % 3 === 0;
+        if (snapped) {
+          alpha *= 0.7;
+          ctx.setLineDash([4, 6]);
+        }
+        ctx.strokeStyle = 'rgba(' + ink + ',' + alpha.toFixed(3) + ')';
         ctx.beginPath();
         ctx.moveTo(ax, ay);
         ctx.lineTo(bx, by);
         ctx.stroke();
+        if (snapped) ctx.setLineDash([]);
       }
     }
 
@@ -656,7 +685,7 @@ function initHeroConstellation() {
         const d2 = ddx * ddx + ddy * ddy;
         if (d2 > MOUSE * MOUSE) continue;
         const alpha = 0.32 * (1 - Math.sqrt(d2) / MOUSE);
-        ctx.strokeStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+        ctx.strokeStyle = 'rgba(' + ink + ',' + alpha.toFixed(3) + ')';
         ctx.beginPath();
         ctx.moveTo(mouse.x, mouse.y);
         ctx.lineTo(nx, ny);
@@ -680,22 +709,25 @@ function initHeroConstellation() {
       }
       if (best) pulses.push({ a: a, b: best, t0: t, dur: 850 });
     }
+    // In broken mode a handshake never completes: the pulse fades out just
+    // past the middle of the link — the dropped request the 404 is about.
+    const pulseEnd = broken ? 0.6 : 1;
     for (let i = pulses.length - 1; i >= 0; i--) {
       const p = pulses[i];
       const k = (t - p.t0) / p.dur;
       const ddx = p.a.x - p.b.x, ddy = p.a.y - p.b.y;
-      if (k >= 1 || ddx * ddx + ddy * ddy > LINK * LINK * 1.44) {
+      if (k >= pulseEnd || ddx * ddx + ddy * ddy > LINK * LINK * 1.44) {
         pulses.splice(i, 1);
         continue;
       }
       const px = p.a.x + p.a.dx + (p.b.x + p.b.dx - p.a.x - p.a.dx) * k;
       const py = p.a.y + p.a.dy + (p.b.y + p.b.dy - p.a.y - p.a.dy) * k;
-      const fade = k < 0.15 ? k / 0.15 : k > 0.85 ? (1 - k) / 0.15 : 1;
-      ctx.fillStyle = 'rgba(255,255,255,' + (0.14 * fade).toFixed(3) + ')';
+      const fade = k < 0.15 ? k / 0.15 : k > pulseEnd - 0.15 ? (pulseEnd - k) / 0.15 : 1;
+      ctx.fillStyle = 'rgba(' + ink + ',' + (0.14 * fade).toFixed(3) + ')';
       ctx.beginPath();
       ctx.arc(px, py, 6, 0, 6.2832);
       ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,' + (0.9 * fade).toFixed(3) + ')';
+      ctx.fillStyle = 'rgba(' + ink + ',' + (0.9 * fade).toFixed(3) + ')';
       ctx.beginPath();
       ctx.arc(px, py, 2, 0, 6.2832);
       ctx.fill();
@@ -708,15 +740,19 @@ function initHeroConstellation() {
       let alpha = n.a;
       const nx = n.x + n.dx, ny = n.y + n.dy;
       if (n.beacon) {
-        const p = 0.5 + 0.5 * Math.sin(t / 1000 * 1.4 + n.ph);
+        // Breathing pulse normally; a twitchy flicker in broken mode (two
+        // incommensurate sines beat irregularly — a status light misbehaving)
+        const p = broken
+          ? Math.abs(Math.sin(t / 1000 * 5.3 + n.ph) * Math.sin(t / 1000 * 3.1 + n.ph))
+          : 0.5 + 0.5 * Math.sin(t / 1000 * 1.4 + n.ph);
         r += p * 1.5;
         alpha = 0.4 + 0.4 * p;
-        ctx.fillStyle = 'rgba(255,255,255,' + (0.1 * p).toFixed(3) + ')';
+        ctx.fillStyle = 'rgba(' + ink + ',' + (0.1 * p).toFixed(3) + ')';
         ctx.beginPath();
         ctx.arc(nx, ny, r + 5, 0, 6.2832);
         ctx.fill();
       }
-      ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+      ctx.fillStyle = 'rgba(' + ink + ',' + alpha.toFixed(3) + ')';
       ctx.beginPath();
       ctx.arc(nx, ny, r, 0, 6.2832);
       ctx.fill();
@@ -769,6 +805,71 @@ function initHeroConstellation() {
   hero.addEventListener('pointerleave', function () { mouse = null; });
 
   schedule();
+}
+
+// Trust ticker (the strip between Contact and the footer on index.html):
+// without JS — or with reduced motion — the markup is a static wrapped row of
+// stat chips and stays that way. With JS it becomes a rotating one-liner: one
+// stat at a time slides up into view and its number counts up from zero each
+// time it appears. Rotation only runs while the strip is on screen, and
+// pauses while hovered so it can actually be read.
+function initTrustTicker() {
+  const ticker = document.querySelector('.trust-ticker');
+  if (!ticker) return;
+  const items = Array.prototype.slice.call(ticker.querySelectorAll('.ticker-item'));
+  if (items.length < 2) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  ticker.classList.add('ticker-live');
+
+  function countUp(el) {
+    const target = parseInt(el.getAttribute('data-count'), 10);
+    if (!target) return;
+    const t0 = performance.now();
+    const dur = 700;
+    function step(t) {
+      const k = Math.min(1, (t - t0) / dur);
+      const eased = 1 - Math.pow(1 - k, 3);
+      el.textContent = Math.round(target * eased);
+      if (k < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  let idx = 0;
+  function show(i) {
+    items.forEach(function (el, k) {
+      el.classList.toggle('on', k === i);
+      el.classList.toggle('was', k === idx && i !== idx);
+    });
+    idx = i;
+    const num = items[i].querySelector('.ticker-num');
+    if (num) countUp(num);
+  }
+  show(0);
+
+  let timer = null;
+  let visible = false;
+  let hovered = false;
+  function arm() {
+    if (timer || !visible || hovered) return;
+    timer = setInterval(function () { show((idx + 1) % items.length); }, 3600);
+  }
+  function disarm() {
+    clearInterval(timer);
+    timer = null;
+  }
+  if (typeof IntersectionObserver !== 'undefined') {
+    new IntersectionObserver(function (entries) {
+      visible = entries[entries.length - 1].isIntersecting;
+      if (visible) arm(); else disarm();
+    }).observe(ticker);
+  } else {
+    visible = true;
+    arm();
+  }
+  ticker.addEventListener('mouseenter', function () { hovered = true; disarm(); });
+  ticker.addEventListener('mouseleave', function () { hovered = false; arm(); });
 }
 
 $(function() {
@@ -928,6 +1029,7 @@ $(function() {
   initStatCounters();
   initCardSpotlight();
   initHeroConstellation();
+  initTrustTicker();
 
   // Homepage boot loader: bridge first paint to full init (theme applied, marquee
   // wired up) — mirrors Academy's boot loader.
