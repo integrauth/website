@@ -8576,6 +8576,14 @@ body.theme-contrast .acad-track-card:hover { transform: translateY(-4px); }
   width: 0;
 }
 
+/* Fast-scroll reveal: when the reader is scanning (see the FAST sweep in
+   initScrollReveal), pending items get this alongside .sr-in — a quick fade
+   in place of the full staggered entrance. */
+.sr-item.sr-fast {
+  transition-duration: 0.22s !important;
+  transition-delay: 0ms !important;
+}
+
 /* ---- Round 5: trust ticker, border beam, product demo loops, 404 constellation ---- */
 
 /* Constellation ink per host (an "R, G, B" triplet read by
@@ -8585,6 +8593,22 @@ body.theme-contrast .acad-track-card:hover { transform: translateY(-4px); }
 .hero-section { --net-ink: 255, 255, 255; }
 .err-hero { --net-ink: 99, 102, 241; }
 body.bg-dark .err-hero { --net-ink: 165, 180, 252; }
+
+/* Academy and service-page heroes carry the constellation too (round 7).
+   Both are vivid gradient bands with white copy in every theme, so they take
+   the hero's white ink; High Contrast hides .hero-net globally already. */
+.acad-hero,
+.svc-hero {
+  --net-ink: 255, 255, 255;
+  position: relative;
+  overflow: hidden;
+}
+
+.acad-hero > .container,
+.svc-hero > .container {
+  position: relative;
+  z-index: 1;
+}
 
 .err-hero {
   position: relative;
