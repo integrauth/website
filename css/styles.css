@@ -8856,3 +8856,395 @@ body.theme-contrast .demo-loop {
   .demo-loop .pd-pulse { animation: none !important; opacity: 1 !important; transform: none !important; }
   .demo-loop .pd-tr { display: none !important; }
 }
+
+/* ---- Round 6: whoami egg, scan teaser, ambient auras, print one-pager ---- */
+
+/* The whoami console (initEasterEgg): a terminal card, deliberately dark in
+   every theme — it's a terminal. */
+.egg-card {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 3000;
+  width: min(420px, calc(100vw - 2.5rem));
+  background: #0b1120;
+  color: #e2e8f0;
+  border: 1px solid rgba(129, 140, 248, 0.5);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  animation: eggPop 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes eggPop {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+.egg-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.75rem;
+  background: rgba(129, 140, 248, 0.12);
+  border-bottom: 1px solid rgba(129, 140, 248, 0.25);
+}
+
+.egg-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.4);
+}
+
+.egg-dot:first-child { background: #f87171; }
+.egg-dot:nth-child(2) { background: #fbbf24; }
+.egg-dot:nth-child(3) { background: #34d399; }
+
+.egg-title {
+  margin-left: 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  flex: 1;
+}
+
+.egg-close {
+  background: none;
+  border: 0;
+  color: #94a3b8;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+
+.egg-close:hover { color: #fff; }
+
+.egg-body {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+}
+
+.egg-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 1rem 0.95rem;
+}
+
+.egg-links a {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  color: #a5b4fc;
+  text-decoration: none;
+}
+
+.egg-links a:hover { color: #fff; text-decoration: underline; }
+
+body.theme-contrast .egg-card {
+  background: #000;
+  color: #fff;
+  border: 2px solid #fff;
+}
+
+body.theme-contrast .egg-links a { color: #fff; text-decoration: underline; }
+
+/* oidcscan teaser inside #tools: a plain GET form — oidcscan's home route
+   reads ?issuer= on load and pre-fills its scanner, so this works without a
+   line of JS on our side. */
+.scan-teaser {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem 1.5rem;
+  max-width: 860px;
+  margin: 0 auto var(--space-xl);
+  padding: 1rem 1.4rem;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(238, 242, 255, 0.95));
+  border: 2px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+}
+
+.scan-teaser-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 240px;
+}
+
+.scan-teaser-title {
+  font-weight: 800;
+  color: var(--dark-color);
+}
+
+.scan-teaser-title i { color: var(--primary-color); margin-right: 0.4rem; }
+
+.scan-teaser-sub {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.scan-teaser-row {
+  display: flex;
+  flex: 1;
+  gap: 0.5rem;
+  min-width: min(320px, 100%);
+}
+
+.scan-teaser-input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: #0f172a;
+}
+
+.scan-teaser-input:focus {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+}
+
+.scan-teaser-btn { white-space: nowrap; }
+
+body.bg-dark .scan-teaser {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+  border-color: rgba(129, 140, 248, 0.4);
+}
+
+body.bg-dark .scan-teaser-title { color: #e2e8f0; }
+body.bg-dark .scan-teaser-sub { color: #94a3b8; }
+
+body.bg-dark .scan-teaser-input {
+  background: #0f172a;
+  border-color: rgba(129, 140, 248, 0.4);
+  color: #e2e8f0;
+}
+
+body.theme-contrast .scan-teaser {
+  background: #fff;
+  border: 2px solid #000;
+}
+
+body.theme-contrast .scan-teaser-title,
+body.theme-contrast .scan-teaser-sub { color: #000; }
+
+body.theme-contrast .scan-teaser-input {
+  background: #fff;
+  border: 2px solid #000;
+  color: #000;
+}
+
+/* Ambient auras (initSectionAuras): drifting glow fields behind Tools and
+   Products. isolation:isolate makes z-index:-1 paint above the section's own
+   background but under all its content. */
+.tools-section,
+.products-section { isolation: isolate; }
+
+.aura {
+  position: absolute;
+  z-index: -1;
+  width: 46rem;
+  height: 46rem;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.2), rgba(99, 102, 241, 0) 70%);
+}
+
+.aura-1 {
+  top: -14rem;
+  left: -10rem;
+  animation: auraDrift1 26s ease-in-out infinite alternate;
+}
+
+.aura-2 {
+  bottom: -16rem;
+  right: -12rem;
+  background: radial-gradient(circle, rgba(236, 72, 153, 0.14), rgba(236, 72, 153, 0) 70%);
+  animation: auraDrift2 32s ease-in-out infinite alternate;
+}
+
+@keyframes auraDrift1 {
+  to { transform: translate(9rem, 6rem) scale(1.15); }
+}
+
+@keyframes auraDrift2 {
+  to { transform: translate(-8rem, -5rem) scale(1.1); }
+}
+
+body.bg-dark .aura { background: radial-gradient(circle, rgba(129, 140, 248, 0.16), rgba(129, 140, 248, 0) 70%); }
+body.bg-dark .aura-2 { background: radial-gradient(circle, rgba(217, 70, 239, 0.12), rgba(217, 70, 239, 0) 70%); }
+body.theme-contrast .aura { display: none; }
+
+/* Print one-pager: Ctrl+P on the homepage yields a clean services sheet —
+   hero identity, all 16 service cards as a wrapped grid (marquee clones
+   hidden), How We Engage, and the contact email. Everything else is screen
+   furniture. Scoped to classes/ids that exist on index.html, so the Academy
+   lesson print block below is unaffected. */
+@media print {
+  /* Specificity note (same trap as the Academy print block): every theme
+     paints with two-class body rules like `body.bg-dark.theme-cyber`, both
+     sides !important, so a bare selector here silently loses. Backgrounds
+     and text colors are therefore pinned via section IDs (#home, #solutions,
+     #process, #contact — IDs outrank any class chain) and the body via
+     `body[class][class]`, which ties the two-class theme rules and wins by
+     being later in the file. */
+  body,
+  body[class][class] {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Elements still awaiting their scroll-reveal entrance (below the fold at
+     print time) must not print invisible */
+  .sr-item {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .hero-net,
+  .hero-scroll-cue,
+  .scroll-progress,
+  .back-to-top,
+  #academy-promo,
+  .lab-showcase-wrap,
+  #tools,
+  #products,
+  #technologies,
+  #clients,
+  #faq,
+  .trust-ticker,
+  .site-footer,
+  .product-modal,
+  .egg-card,
+  .aura { display: none !important; }
+
+  #home,
+  body[class][class] #home {
+    min-height: auto !important;
+    padding: 0.5rem 0 !important;
+    background: #fff !important;
+    animation: none !important;
+  }
+
+  #home::before { display: none !important; }
+
+  #home .hero-title,
+  #home .hero-tagline,
+  #home .hero-tagline strong,
+  #home .hero-subtitle,
+  #home .hero-subtitle strong,
+  body[class][class] #home .hero-title {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+    text-shadow: none !important;
+    animation: none !important;
+    background: none !important;
+    filter: none !important;
+  }
+
+  #home .hero-logo {
+    height: 64px !important;
+    margin-bottom: 0.5rem !important;
+    filter: none !important;
+  }
+
+  #solutions,
+  #process,
+  body[class][class] #solutions,
+  body[class][class] #process {
+    background: #fff !important;
+    animation: none !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    padding: 0.5rem 0 !important;
+  }
+
+  #solutions .section-title,
+  #solutions .section-subtitle,
+  #process .section-title,
+  #process .section-subtitle {
+    color: #000 !important;
+    text-shadow: none !important;
+  }
+
+  /* Marquee becomes a wrapped grid; the seamless-loop clones would print
+     every card twice, so they're dropped. */
+  #solutions .services-marquee {
+    overflow: visible !important;
+    padding: 0 !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+  }
+
+  #solutions .services-track {
+    width: auto !important;
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+  }
+
+  #solutions .services-track > [aria-hidden="true"] { display: none !important; }
+
+  #solutions .service-slide {
+    flex: 0 0 32% !important;
+    width: 32% !important;
+    margin-right: 0 !important;
+    break-inside: avoid;
+  }
+
+  #solutions .solution-card,
+  #process .process-step,
+  #process .process-step-wide {
+    box-shadow: none !important;
+    border: 1px solid #999 !important;
+    background: #fff !important;
+    break-inside: avoid;
+  }
+
+  #solutions .solution-card,
+  #solutions .solution-card *,
+  #process .process-step *,
+  #process .process-step-wide *,
+  #process .tools-cta,
+  #process .tools-cta a {
+    color: #000 !important;
+    text-shadow: none !important;
+    background: none !important;
+    -webkit-text-fill-color: initial !important;
+  }
+
+  #contact,
+  body[class][class] #contact {
+    background: #fff !important;
+    color: #000 !important;
+    padding: 0.5rem 0 !important;
+  }
+
+  #contact::before { display: none !important; }
+
+  #contact .section-title,
+  #contact .section-subtitle,
+  #contact .contact-info,
+  #contact h5,
+  #contact a,
+  body[class][class] #contact .section-title,
+  body[class][class] #contact a {
+    color: #000 !important;
+    text-shadow: none !important;
+  }
+
+  #contact .social-links,
+  #contact .closing-hero-content-wrapper { display: none !important; }
+}
