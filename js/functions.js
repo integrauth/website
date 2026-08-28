@@ -602,7 +602,8 @@ function initHeroConstellation() {
         a: 0.35 + Math.random() * 0.35,
         beacon: i % 7 === 0, // every 7th node pulses like an agent announcing itself
         ph: Math.random() * Math.PI * 2,
-        dx: 0, dy: 0 // display offset (cursor magnetism), not part of the drift
+        dx: 0, dy: 0, // display offset (cursor magnetism), not part of the drift
+        py: 0 // scroll-dissolve pull (display only, downward)
       });
     }
     pulses = [];
@@ -622,6 +623,15 @@ function initHeroConstellation() {
 
   function draw(t, dt) {
     ctx.clearRect(0, 0, w, h);
+
+    // Scroll dissolve: as the reader scrolls off the hero the whole graph
+    // fades out and each node is pulled downward by its own amount — the
+    // constellation hands the eye to the next section instead of just being
+    // cropped. Skipped on the 404, whose hero is the whole page.
+    const gone = broken ? 0 : Math.min(1, Math.max(0, window.scrollY / (h * 0.85 || 1)));
+    if (gone >= 1) return;
+    ctx.globalAlpha = 1 - gone;
+    const pull = gone * gone * 110;
 
     for (let i = 0; i < nodes.length; i++) {
       const n = nodes[i];
@@ -645,6 +655,7 @@ function initHeroConstellation() {
       }
       n.dx += (tx - n.dx) * Math.min(1, dt * 6);
       n.dy += (ty - n.dy) * Math.min(1, dt * 6);
+      n.py = pull * (0.35 + 0.75 * n.ph / 6.2832);
     }
 
     // Links between nearby nodes, faded by distance. In broken mode every
@@ -653,10 +664,10 @@ function initHeroConstellation() {
     ctx.lineWidth = 1;
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
-      const ax = a.x + a.dx, ay = a.y + a.dy;
+      const ax = a.x + a.dx, ay = a.y + a.dy + a.py;
       for (let j = i + 1; j < nodes.length; j++) {
         const b = nodes[j];
-        const bx = b.x + b.dx, by = b.y + b.dy;
+        const bx = b.x + b.dx, by = b.y + b.dy + b.py;
         const ddx = ax - bx, ddy = ay - by;
         const d2 = ddx * ddx + ddy * ddy;
         if (d2 > LINK * LINK) continue;
@@ -680,7 +691,7 @@ function initHeroConstellation() {
     if (mouse) {
       for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i];
-        const nx = n.x + n.dx, ny = n.y + n.dy;
+        const nx = n.x + n.dx, ny = n.y + n.dy + n.py;
         const ddx = nx - mouse.x, ddy = ny - mouse.y;
         const d2 = ddx * ddx + ddy * ddy;
         if (d2 > MOUSE * MOUSE) continue;
@@ -715,13 +726,15 @@ function initHeroConstellation() {
     for (let i = pulses.length - 1; i >= 0; i--) {
       const p = pulses[i];
       const k = (t - p.t0) / p.dur;
+      if (k < 0) continue; // scheduled ahead (easter-egg burst volley)
       const ddx = p.a.x - p.b.x, ddy = p.a.y - p.b.y;
       if (k >= pulseEnd || ddx * ddx + ddy * ddy > LINK * LINK * 1.44) {
         pulses.splice(i, 1);
         continue;
       }
+      const ay = p.a.y + p.a.dy + p.a.py;
       const px = p.a.x + p.a.dx + (p.b.x + p.b.dx - p.a.x - p.a.dx) * k;
-      const py = p.a.y + p.a.dy + (p.b.y + p.b.dy - p.a.y - p.a.dy) * k;
+      const py = ay + (p.b.y + p.b.dy + p.b.py - ay) * k;
       const fade = k < 0.15 ? k / 0.15 : k > pulseEnd - 0.15 ? (pulseEnd - k) / 0.15 : 1;
       ctx.fillStyle = 'rgba(' + ink + ',' + (0.14 * fade).toFixed(3) + ')';
       ctx.beginPath();
@@ -738,7 +751,7 @@ function initHeroConstellation() {
       const n = nodes[i];
       let r = n.r;
       let alpha = n.a;
-      const nx = n.x + n.dx, ny = n.y + n.dy;
+      const nx = n.x + n.dx, ny = n.y + n.dy + n.py;
       if (n.beacon) {
         // Breathing pulse normally; a twitchy flicker in broken mode (two
         // incommensurate sines beat irregularly — a status light misbehaving)
@@ -804,7 +817,108 @@ function initHeroConstellation() {
   }, { passive: true });
   hero.addEventListener('pointerleave', function () { mouse = null; });
 
+  // The whoami easter egg asks the graph to celebrate: a staggered volley of
+  // handshake pulses across the network (each pulse's t0 sits in the future;
+  // the draw loop skips a pulse until its time comes).
+  window.__heroNetBurst = function () {
+    if (nodes.length < 2) return;
+    const now = performance.now();
+    for (let k = 0; k < 12; k++) {
+      const a = nodes[(Math.random() * nodes.length) | 0];
+      let best = null;
+      let bestD = LINK * LINK * 1.4;
+      for (let i = 0; i < nodes.length; i++) {
+        const b = nodes[i];
+        if (b === a) continue;
+        const ddx = a.x - b.x, ddy = a.y - b.y;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 < bestD) { bestD = d2; best = b; }
+      }
+      if (best) pulses.push({ a: a, b: best, t0: now + k * 120, dur: 850 });
+    }
+  };
+
   schedule();
+}
+
+// The `whoami` easter egg: type it anywhere outside a form field and a small
+// terminal card introduces the visitor as one more identity in the graph,
+// pointing at the Academy's attacks track and the Lab. Security people notice
+// things — this is for them. ESC or the ✕ closes it; the hero constellation
+// fires a pulse volley when it opens (if one is on the page).
+function initEasterEgg() {
+  const WORD = 'whoami';
+  let buf = '';
+  let card = null;
+
+  function close() {
+    if (!card) return;
+    card.remove();
+    card = null;
+    document.removeEventListener('keydown', onEsc, true);
+  }
+
+  function onEsc(e) {
+    if (e.key === 'Escape') close();
+  }
+
+  function open() {
+    if (card) return;
+    card = document.createElement('div');
+    card.className = 'egg-card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-label', 'whoami console');
+    card.innerHTML =
+      '<div class="egg-head"><span class="egg-dot"></span><span class="egg-dot"></span><span class="egg-dot"></span>' +
+      '<span class="egg-title">integrauth — console</span>' +
+      '<button type="button" class="egg-close" aria-label="Close">&times;</button></div>' +
+      '<pre class="egg-body">$ whoami\n' +
+      'sub    an unauthenticated human (probably)\n' +
+      'iss    curiosity\n' +
+      'aud    integrauth.com\n' +
+      'scope  openid curiosity offline_access\n' +
+      'amr    ["keyboard"]\n\n' +
+      'You noticed. That’s the whole skill. 🎉</pre>' +
+      '<div class="egg-links">' +
+      '<a href="/academy#atk0-start">Learn how attackers think →</a>' +
+      '<a href="https://lab.integrauth.com" target="_blank" rel="noopener noreferrer">Break things safely in the Lab ↗</a>' +
+      '</div>';
+    card.querySelector('.egg-close').addEventListener('click', close);
+    document.body.appendChild(card);
+    document.addEventListener('keydown', onEsc, true);
+    if (typeof window.__heroNetBurst === 'function') window.__heroNetBurst();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    const t = e.target;
+    if (t && t.closest && t.closest('input, textarea, select, [contenteditable]')) {
+      buf = '';
+      return;
+    }
+    if (!e.key || e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+    buf = (buf + e.key.toLowerCase()).slice(-WORD.length);
+    if (buf === WORD) {
+      buf = '';
+      open();
+    }
+  });
+}
+
+// Ambient auras: two softly drifting glow fields behind the Tools and
+// Products sections, so the middle of the page has the same depth as the
+// hero. Injected from here (the sections' own ::before/::after are taken),
+// painted under the content via z-index -1 + isolation:isolate on the
+// section. High Contrast hides them; reduced motion leaves them static.
+function initSectionAuras() {
+  document.querySelectorAll('.tools-section, .products-section').forEach(function (sec) {
+    if (sec.querySelector('.aura')) return;
+    for (let i = 1; i <= 2; i++) {
+      const blob = document.createElement('div');
+      blob.className = 'aura aura-' + i;
+      blob.setAttribute('aria-hidden', 'true');
+      sec.insertBefore(blob, sec.firstChild);
+    }
+  });
 }
 
 // Trust ticker (the strip between Contact and the footer on index.html):
@@ -1030,6 +1144,8 @@ $(function() {
   initCardSpotlight();
   initHeroConstellation();
   initTrustTicker();
+  initEasterEgg();
+  initSectionAuras();
 
   // Homepage boot loader: bridge first paint to full init (theme applied, marquee
   // wired up) — mirrors Academy's boot loader.
