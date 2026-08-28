@@ -413,23 +413,52 @@ function initScrollReveal() {
       pending.add(el);
     });
 
-    // The teleport case (same bug the Lab's reveal had): an INSTANT jump —
-    // End key, a same-page anchor — can move an element from below the
-    // viewport to above it without ever intersecting, and the observer fires
-    // no callback for a 0→0 intersection, leaving it invisible until the
-    // reader happens back past it. Sweep on scroll and finish such elements
-    // instantly, with no entrance (they were skipped, not scrolled to).
+    // One rAF-throttled scroll sweep, doing two jobs the observer can't:
+    //
+    // 1. The teleport case (same bug the Lab's reveal had): an INSTANT jump —
+    //    End key, a same-page anchor — can move an element from below the
+    //    viewport to above it without ever intersecting, and the observer
+    //    fires no callback for a 0→0 intersection, leaving it invisible until
+    //    the reader happens back past it. Such elements are finished
+    //    instantly, with no entrance (they were skipped, not scrolled to).
+    //
+    // 2. The fast-scroll case: someone scanning at speed outruns the
+    //    staggered entrances and sees blank page where content should be.
+    //    Above FAST px/s, anything pending that is already inside (or about
+    //    to enter) the viewport is revealed NOW with a quick fade (.sr-fast
+    //    zeroes the stagger and shortens the transition) — entrances are for
+    //    reading pace, not for scanning pace.
+    const FAST = 1600; // px per second of scroll ≈ "scanning, not reading"
     let sweepRaf = 0;
+    let lastY = window.scrollY;
+    let lastTs = 0;
     window.addEventListener('scroll', function () {
       if (sweepRaf || !pending.size) return;
-      sweepRaf = requestAnimationFrame(function () {
+      sweepRaf = requestAnimationFrame(function (ts) {
         sweepRaf = 0;
+        const y = window.scrollY;
+        const dt = ts - lastTs;
+        // Stale timestamps (first scroll after a pause) read as slow, which
+        // errs toward keeping the normal entrance.
+        const speed = lastTs && dt > 0 && dt < 400 ? Math.abs(y - lastY) / dt * 1000 : 0;
+        lastY = y;
+        lastTs = ts;
         pending.forEach(function (el) {
-          if (el.getBoundingClientRect().bottom < 0) {
+          const r = el.getBoundingClientRect();
+          if (r.bottom < 0) {
             io.unobserve(el);
             pending.delete(el);
             el.classList.remove('sr-item', 'sr-in');
             el.style.transitionDelay = '';
+          } else if (speed > FAST && r.top < window.innerHeight + 80) {
+            io.unobserve(el);
+            pending.delete(el);
+            el.classList.add('sr-fast', 'sr-in');
+            el.style.transitionDelay = '0ms';
+            setTimeout(function () {
+              el.classList.remove('sr-item', 'sr-in', 'sr-fast');
+              el.style.transitionDelay = '';
+            }, 350);
           }
         });
       });
@@ -553,8 +582,19 @@ function initCardSpotlight() {
 // - reduced motion gets a single static constellation (still pretty, nothing
 //   moves) and no pointer tracking
 function initHeroConstellation() {
-  const hero = document.querySelector('.hero-section, .err-hero');
-  if (!hero || hero.querySelector('.hero-net')) return;
+  const bursts = [];
+  document.querySelectorAll('.hero-section, .err-hero, .acad-hero, .svc-hero').forEach(function (hero) {
+    setupConstellation(hero, bursts);
+  });
+  if (bursts.length) {
+    window.__heroNetBurst = function () {
+      bursts.forEach(function (fn) { fn(); });
+    };
+  }
+}
+
+function setupConstellation(hero, bursts) {
+  if (hero.querySelector('.hero-net')) return;
   const broken = hero.classList.contains('err-hero');
   const canvas = document.createElement('canvas');
   canvas.className = 'hero-net';
@@ -580,6 +620,7 @@ function initHeroConstellation() {
   const LINK = 140;     // px — nodes closer than this draw a line
   const MOUSE = 190;    // px — nodes closer than this to the cursor lean in and link to it
   let w = 0, h = 0;
+  let heroTop = 0; // page-offset of the hero, for the scroll dissolve
   let nodes = [];
   let pulses = [];
   let mouse = null;
@@ -614,6 +655,7 @@ function initHeroConstellation() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     w = rect.width;
     h = rect.height;
+    heroTop = rect.top + window.scrollY;
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -628,7 +670,7 @@ function initHeroConstellation() {
     // fades out and each node is pulled downward by its own amount — the
     // constellation hands the eye to the next section instead of just being
     // cropped. Skipped on the 404, whose hero is the whole page.
-    const gone = broken ? 0 : Math.min(1, Math.max(0, window.scrollY / (h * 0.85 || 1)));
+    const gone = broken ? 0 : Math.min(1, Math.max(0, (window.scrollY - heroTop) / (h * 0.85 || 1)));
     if (gone >= 1) return;
     ctx.globalAlpha = 1 - gone;
     const pull = gone * gone * 110;
@@ -820,7 +862,7 @@ function initHeroConstellation() {
   // The whoami easter egg asks the graph to celebrate: a staggered volley of
   // handshake pulses across the network (each pulse's t0 sits in the future;
   // the draw loop skips a pulse until its time comes).
-  window.__heroNetBurst = function () {
+  bursts.push(function () {
     if (nodes.length < 2) return;
     const now = performance.now();
     for (let k = 0; k < 12; k++) {
@@ -836,7 +878,7 @@ function initHeroConstellation() {
       }
       if (best) pulses.push({ a: a, b: best, t0: now + k * 120, dur: 850 });
     }
-  };
+  });
 
   schedule();
 }
