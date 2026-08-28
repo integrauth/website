@@ -8849,8 +8849,8 @@ body.theme-contrast .demo-loop {
 @keyframes pdFly {
   0%, 18% { opacity: 0; transform: translateX(0); }
   26% { opacity: 1; }
-  58% { opacity: 1; transform: translateX(56px); }
-  68%, 100% { opacity: 0; transform: translateX(56px); }
+  58% { opacity: 1; transform: translateX(38px); }
+  68%, 100% { opacity: 0; transform: translateX(38px); }
 }
 
 /* Delivery dot riding the route between stops */
