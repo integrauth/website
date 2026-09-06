@@ -9272,3 +9272,221 @@ body.theme-contrast .aura { display: none; }
   #contact .social-links,
   #contact .closing-hero-content-wrapper { display: none !important; }
 }
+
+/* ============================================================
+   Homepage revamp (2026-09): hero CTAs + logo strip, Who We Work With,
+   contact form. Product/website blocks moved to /products.
+   ============================================================ */
+.hero-subtitle { max-width: 720px; }
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-2xl);
+}
+
+.hero-section .hero-cta,
+.hero-section .hero-cta-alt {
+  border-radius: 999px;
+  padding: 0.8rem 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.hero-section .hero-cta {
+  background: #fff;
+  border-color: #fff;
+  color: #4338ca;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.hero-section .hero-cta:hover,
+.hero-section .hero-cta:focus-visible {
+  background: #eef2ff;
+  border-color: #eef2ff;
+  color: #312e81;
+  transform: translateY(-2px);
+}
+
+/* Same cascade trap as .svc-hero .btn-outline-light: pin white explicitly. */
+.hero-section .hero-actions .hero-cta-alt {
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.08);
+  overflow: visible;
+}
+
+.hero-section .hero-actions .hero-cta-alt::before { display: none; }
+
+.hero-section .hero-actions .hero-cta-alt:hover,
+.hero-section .hero-actions .hero-cta-alt:focus-visible {
+  color: #4338ca;
+  background: #fff;
+  border-color: #fff;
+}
+
+.hero-logos {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.6rem 1.6rem;
+  margin: 0 auto;
+  max-width: 860px;
+}
+
+.hero-logos-label {
+  width: 100%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0.2rem;
+}
+
+.hero-section .hero-logos a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: rgba(255, 255, 255, 0.92);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: var(--transition);
+}
+
+.hero-section .hero-logos a:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+
+.hero-logos img {
+  height: 26px;
+  width: auto;
+  max-width: 96px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.hero-logos img.hero-logo-mtn { background: #0f172a; }
+
+body.theme-contrast .hero-section .hero-cta,
+body.theme-contrast .hero-section .hero-cta-alt {
+  background: #fff !important;
+  color: #000 !important;
+  border: 2px solid #fff !important;
+  box-shadow: none !important;
+}
+
+body.theme-contrast .hero-section .hero-logos a {
+  background: #fff !important;
+  color: #000 !important;
+  border-color: #fff !important;
+}
+
+body.theme-contrast .hero-logos-label { color: #fff; }
+
+/* --- Who we work with (reuses .process-step theming) --- */
+.who-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+.who-card { display: flex; flex-direction: column; }
+
+.who-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: var(--radius-md, 12px);
+  background: var(--primary-gradient);
+  color: #fff;
+  font-size: 1.2rem;
+  margin-bottom: var(--space-md);
+  box-shadow: var(--shadow-md);
+}
+
+.who-problem {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--dark-color);
+  line-height: 1.55;
+  margin-bottom: var(--space-sm);
+}
+
+.who-proof {
+  margin: auto 0 0;
+  padding-top: var(--space-md);
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--primary-color);
+}
+
+body.bg-dark .who-problem { color: #e2e8f0; }
+body.bg-dark .who-proof { color: #a5b4fc; }
+body.theme-cyber .who-icon { background: linear-gradient(135deg, #22d3ee, #6366f1); }
+body.theme-cyber .who-proof { color: #67e8f9; }
+
+body.theme-contrast .who-icon { background: #000 !important; color: #fff !important; box-shadow: none !important; }
+body.theme-contrast .who-problem,
+body.theme-contrast .who-proof { color: #000 !important; }
+
+/* --- Contact form (sits on the bg-primary band, so fields are frosted) --- */
+.contact-form {
+  text-align: left;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  backdrop-filter: blur(8px);
+}
+
+.contact-form .form-label { color: #fff; font-weight: 600; font-size: 0.9rem; }
+.contact-form .cf-opt { font-weight: 400; opacity: 0.75; }
+
+.contact-form .form-control {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #0f172a;
+}
+
+.contact-form .form-control:focus {
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 0 0 0.25rem rgba(255, 255, 255, 0.35);
+}
+
+.contact-form .form-control.is-invalid { border-color: #fecaca; box-shadow: 0 0 0 0.2rem rgba(254, 202, 202, 0.5); }
+
+.contact-form .cf-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+.contact-form .cf-submit { border-radius: 999px; font-weight: 700; color: #4338ca; }
+.contact-form .cf-submit:disabled { opacity: 0.7; }
+
+.cf-status { font-size: 0.92rem; color: #fff; }
+.cf-status.ok { font-weight: 600; }
+.cf-status.err { color: #fecaca; font-weight: 600; }
+
+.cf-turnstile:empty { display: none; }
+
+body.theme-contrast .contact-form {
+  background: #fff !important;
+  border: 2px solid #fff !important;
+  backdrop-filter: none !important;
+}
+
+body.theme-contrast .contact-form .form-label,
+body.theme-contrast .contact-form .cf-opt { color: #000 !important; }
+body.theme-contrast .contact-form .form-control { background: #fff !important; border: 2px solid #000 !important; color: #000 !important; }
+body.theme-contrast .contact-form .cf-submit { background: #000 !important; color: #fff !important; border-color: #000 !important; }
+body.theme-contrast .cf-status,
+body.theme-contrast .cf-status.err { color: #fff !important; }
+
+@media print {
+  .contact-form, .hero-actions, .hero-logos, #who { display: none !important; }
+}

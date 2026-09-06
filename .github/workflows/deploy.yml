@@ -205,6 +205,10 @@ jobs:
           # Optional. Unlike the OIDC secret this one is nobody else's business — no other system
           # needs to know it — so it is generated below when absent rather than warned about.
           EXAM_IP_HASH_PEPPER: ${{ secrets.EXAM_IP_HASH_PEPPER }}
+          # Contact form (POST /api/contact). Both optional: unset ⇒ the route answers 503 and the
+          # page falls back to the mailto link. Mirrored on every deploy so rotation is one edit.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
         run: |
           set -euo pipefail
           if ! SECRETS_JSON=$(npx wrangler secret list --format json); then
@@ -326,6 +330,19 @@ jobs:
             printf '%s' "$PEPPER" | npx wrangler secret put EXAM_IP_HASH_PEPPER
             echo "  generated EXAM_IP_HASH_PEPPER"
           fi
+
+          for NAME in RESEND_API_KEY TURNSTILE_SECRET_KEY; do
+            VALUE="${!NAME:-}"
+            if [ -n "$VALUE" ]; then
+              printf '%s' "$VALUE" | npx wrangler secret put "$NAME"
+              echo "  synced $NAME from the GitHub Secret"
+            elif printf '%s\n' "$EXISTING" | grep -qxF "$NAME"; then
+              echo "$NAME already set — leaving it (no GitHub Secret to sync from)."
+            else
+              echo "::warning::$NAME is not set, so the contact form answers 503 contact_unavailable"\
+                   "and the page falls back to the mailto link. Add it as a GitHub Secret and re-run."
+            fi
+          done
 
       # This Worker's callback is now fixed (production, custom domain) rather than a per-deploy
       # *.workers.dev value, so this step is a pure sanity check now — the printed URL should always
