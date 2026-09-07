@@ -1213,6 +1213,16 @@ a.text-decoration-none:hover .client-card {
   flex-wrap: wrap;
 }
 
+/* The contact-section column is .text-center on mobile but .text-lg-start at >=992px
+   (added 2026-09-06 with the contact form) — the icon row's own justify-content didn't
+   follow that switch, so "Connect With Us" went left while its icons stayed centered
+   underneath it. */
+@media (min-width: 992px) {
+  #contact .social-icons-grid {
+    justify-content: flex-start;
+  }
+}
+
 .social-link {
   display: inline-flex;
   align-items: center;
@@ -8377,7 +8387,10 @@ body.theme-contrast .scroll-progress-bar { background: #000; }
   position: absolute;
   left: 50%;
   bottom: 1.4rem;
-  z-index: 2;
+  /* Above .acad-banner-wrap's z-index:5 (added 2026-09-07) — the promo card is pulled up
+     over the hero with a negative margin, and at z-index:2 the card painted over the
+     bottom ~60% of this circle, leaving only a bobbing top sliver visible at the seam. */
+  z-index: 6;
   width: 44px;
   height: 44px;
   display: flex;

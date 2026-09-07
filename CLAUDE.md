@@ -155,6 +155,10 @@ The 3 CDN stylesheets (Google Fonts, Bootstrap, Font Awesome) load **async** on 
 
 **Key Animations**: `gradientShift` (15s), `float` (20s), `textGlow` (3s)
 
+**Hero scroll-cue z-index** (fixed 2026-09-07): `.hero-scroll-cue` sat at `z-index:2`, below `.acad-banner-wrap`'s `z-index:5` — since the promo card is pulled up over the hero with a negative margin, the card painted over most of the circle, leaving only a bobbing sliver visible at the seam (looked like a stray floating semicircle, not the scroll button it is). Raised to `z-index:6` so the full circle renders on top of the card edge.
+
+**`.social-icons-grid` alignment** (fixed 2026-09-07): the contact-section info column is `.text-center` on mobile / `.text-lg-start` at >=992px (added with the contact form, 2026-09-06), but the icon row's `justify-content:center` never followed that switch — "Connect With Us" went left while its three icons stayed centered under it. `@media (min-width:992px) { #contact .social-icons-grid { justify-content:flex-start } }` matches it to the heading; mobile keeps the original centered default.
+
 **Button shine** (`btnShine`, `.btn::before`): every `.btn` gets an infinite 3s shine sweep by default. As of 2026-09-07 the theme picker (`.theme-btn`, itself a `.btn`) opts OUT (`.theme-btn.theme-btn::before { content: none; }` — the doubled class beats `.btn::before`'s equal specificity on source order, since `.btn::before` comes later in the file) because a permanent shimmer on a navbar button that just sits there read as distracting rather than as an affordance. `.hero-cta` ("Talk to us") opts out of the ambient loop too and gets a one-shot hover/focus sweep instead (`.hero-cta::before { animation: none; }` + `:hover::before`/`:focus-visible::before { animation: btnShine 0.9s ease-out 1; }`), reusing the same pseudo-element and keyframe. Every other `.btn` (including `.hero-cta-alt`, which explicitly disables the pseudo via `::before { display: none; }`) is unaffected.
 
 ### JavaScript (js/functions.js)
