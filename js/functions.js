@@ -172,6 +172,17 @@ function initServicesMarquee() {
     let lastX = 0;
     let dragStartX = 0;
     let dragMoved = false;
+
+    // Client slides wrap a real <a> around an <img> — both are natively
+    // draggable, so a mouse drag that starts on one kicks off the browser's
+    // own HTML5 drag-and-drop instead of a plain pointermove sequence. That
+    // native drag fires `pointercancel` partway through, which our own
+    // pointercancel handler reads as "drag interrupted" and ends it early —
+    // the marquee moves a little then just stops following the cursor.
+    // Suppressing dragstart here (delegated, so it covers every slide type)
+    // keeps the anchor's click still working when the pointer never moved.
+    marquee.addEventListener('dragstart', function (e) { e.preventDefault(); });
+
     marquee.addEventListener('pointerdown', function (e) {
       pause();
       if (e.pointerType !== 'mouse') return;
