@@ -172,6 +172,17 @@ function initServicesMarquee() {
     let lastX = 0;
     let dragStartX = 0;
     let dragMoved = false;
+
+    // Client slides wrap a real <a> around an <img> — both are natively
+    // draggable, so a mouse drag that starts on one kicks off the browser's
+    // own HTML5 drag-and-drop instead of a plain pointermove sequence. That
+    // native drag fires `pointercancel` partway through, which our own
+    // pointercancel handler reads as "drag interrupted" and ends it early —
+    // the marquee moves a little then just stops following the cursor.
+    // Suppressing dragstart here (delegated, so it covers every slide type)
+    // keeps the anchor's click still working when the pointer never moved.
+    marquee.addEventListener('dragstart', function (e) { e.preventDefault(); });
+
     marquee.addEventListener('pointerdown', function (e) {
       pause();
       if (e.pointerType !== 'mouse') return;
@@ -951,6 +962,112 @@ function initEasterEgg() {
 // hero. Injected from here (the sections' own ::before/::after are taken),
 // painted under the content via z-index -1 + isolation:isolate on the
 // section. High Contrast hides them; reduced motion leaves them static.
+// Contact form (index #contact): Turnstile is loaded only when the form scrolls
+// into view; a missing/503 backend falls back to a prefilled mailto.
+function initContactForm() {
+  const form = document.getElementById('contactForm');
+  if (!form) return;
+  const status = document.getElementById('cfStatus');
+  const submit = form.querySelector('.cf-submit');
+  const tsHost = document.getElementById('cfTurnstile');
+  const siteKey = form.getAttribute('data-sitekey');
+  let widgetId = null;
+  let tsLoading = false;
+
+  function say(msg, cls) {
+    if (!status) return;
+    status.textContent = msg;
+    status.className = 'cf-status' + (cls ? ' ' + cls : '');
+  }
+
+  function loadTurnstile() {
+    if (tsLoading || !siteKey || !tsHost) return;
+    tsLoading = true;
+    window.__cfTurnstileReady = function () {
+      try {
+        widgetId = turnstile.render(tsHost, { sitekey: siteKey, theme: 'auto', appearance: 'interaction-only' });
+      } catch (e) { widgetId = null; }
+    };
+    const sc = document.createElement('script');
+    sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=__cfTurnstileReady&render=explicit';
+    sc.async = true;
+    sc.defer = true;
+    document.head.appendChild(sc);
+  }
+
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(function (entries) {
+      if (entries.some(function (e) { return e.isIntersecting; })) { loadTurnstile(); io.disconnect(); }
+    }, { rootMargin: '300px' });
+    io.observe(form);
+  } else {
+    loadTurnstile();
+  }
+
+  function fields() {
+    return {
+      name: form.name.value.trim(),
+      email: form.email.value.trim(),
+      company: form.company.value.trim(),
+      message: form.message.value.trim(),
+      website: form.website.value
+    };
+  }
+
+  function mailtoFallback(f) {
+    const body = 'Name: ' + f.name + '\nCompany: ' + f.company + '\n\n' + f.message;
+    return 'mailto:akhil@integrauth.com?subject=' + encodeURIComponent('Contact from ' + f.name) + '&body=' + encodeURIComponent(body);
+  }
+
+  const ERRORS = {
+    invalid_name: 'Please enter your name.',
+    invalid_email: 'Please enter a valid email address.',
+    invalid_company: 'Company name is too long.',
+    invalid_message: 'Tell us a little more (at least 10 characters).',
+    captcha_required: 'Please complete the verification below.',
+    captcha_failed: 'Verification failed — please try again.',
+    send_failed: 'Could not send right now.'
+  };
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const f = fields();
+    form.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); });
+    if (!f.name) { form.name.classList.add('is-invalid'); return say(ERRORS.invalid_name, 'err'); }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) { form.email.classList.add('is-invalid'); return say(ERRORS.invalid_email, 'err'); }
+    if (f.message.length < 10) { form.message.classList.add('is-invalid'); return say(ERRORS.invalid_message, 'err'); }
+
+    let token = '';
+    try { token = (window.turnstile && widgetId !== null) ? (turnstile.getResponse(widgetId) || '') : ''; } catch (err) { token = ''; }
+
+    submit.disabled = true;
+    say('Sending…');
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: f.name, email: f.email, company: f.company, message: f.message, website: f.website, turnstileToken: token })
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (res.ok && data.ok) {
+        form.reset();
+        if (window.turnstile && widgetId !== null) { try { turnstile.reset(widgetId); } catch (err) {} }
+        return say('Thanks — your message is on its way. We reply within one business day.', 'ok');
+      }
+      if (res.status === 503 || res.status === 404) {
+        window.location.href = mailtoFallback(f);
+        return say('The form is unavailable right now — we opened your email client instead.', 'err');
+      }
+      if (data.error === 'captcha_failed' && window.turnstile && widgetId !== null) { try { turnstile.reset(widgetId); } catch (err) {} }
+      say((ERRORS[data.error] || ERRORS.send_failed) + (data.error === 'send_failed' || data.error === 'internal_error' ? ' Email us at akhil@integrauth.com.' : ''), 'err');
+    } catch (err) {
+      say('Network error — email us at akhil@integrauth.com.', 'err');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
 function initSectionAuras() {
   document.querySelectorAll('.tools-section, .products-section').forEach(function (sec) {
     if (sec.querySelector('.aura')) return;
@@ -1188,6 +1305,7 @@ $(function() {
   initTrustTicker();
   initEasterEgg();
   initSectionAuras();
+  initContactForm();
 
   // Homepage boot loader: bridge first paint to full init (theme applied, marquee
   // wired up) — mirrors Academy's boot loader.

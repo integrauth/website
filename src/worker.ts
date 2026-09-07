@@ -2,6 +2,7 @@
 //
 // Routing, in order:
 //   /api/academy/*  → the Academy JSON API (api.ts)
+//   /api/contact    → the contact form relay (contact.ts)
 //   /auth/*         → this site's OIDC Relying Party + session lifecycle (auth.ts)
 //   everything else → the static site via the ASSETS binding (the repo root, served as static assets)
 //
@@ -12,11 +13,13 @@
 
 import { createApp, maybeSweepExpiredExamIpHashes } from './lib/server/api';
 import { createAuthApp } from './lib/server/auth';
+import { createContactApp } from './lib/server/contact';
 import { withSecurityHeaders } from './lib/server/security';
 import type { Env } from './lib/server/env';
 
 const app = createApp();
 const authApp = createAuthApp();
+const contactApp = createContactApp();
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -97,6 +100,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
         secured.headers.set('Cache-Control', routeCacheControl);
       }
       return secured;
+    }
+
+    if (url.pathname === '/api/contact' || url.pathname.startsWith('/api/contact/')) {
+      return withSecurityHeaders(await contactApp.fetch(request, env, ctx), true);
     }
 
     // No bare-`/auth` clause: `run_worker_first = ["/auth/*"]` does not match the bare path, so the

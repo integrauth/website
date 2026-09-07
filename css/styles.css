@@ -252,6 +252,16 @@ body.bg-dark .theme-btn:hover {
   box-shadow: var(--shadow-lg);
 }
 
+/* Kill the generic .btn::before shine sweep (see "Modern Buttons" below) on
+   the theme picker specifically — a permanent, infinitely-looping shimmer on
+   a button that's just sitting in the navbar read as needy/distracting rather
+   than as an affordance. Other .btn elements keep it; see .hero-cta below for
+   where a version of it moved instead (hover-triggered, not ambient).
+   Doubled-up class selector (not just .theme-btn::before) because .btn::before
+   later in the file has equal specificity and would otherwise win on source
+   order alone. */
+.theme-btn.theme-btn::before { content: none; }
+
 /* Fix theme button alignment on mobile */
 @media (max-width: 991.98px) {
   .nav-item.ms-2 {
@@ -1201,6 +1211,16 @@ a.text-decoration-none:hover .client-card {
   justify-content: center;
   gap: 1.5rem;
   flex-wrap: wrap;
+}
+
+/* The contact-section column is .text-center on mobile but .text-lg-start at >=992px
+   (added 2026-09-06 with the contact form) — the icon row's own justify-content didn't
+   follow that switch, so "Connect With Us" went left while its icons stayed centered
+   underneath it. */
+@media (min-width: 992px) {
+  #contact .social-icons-grid {
+    justify-content: flex-start;
+  }
 }
 
 .social-link {
@@ -7644,6 +7664,15 @@ body.theme-contrast .site-footer-social a {
   cursor: pointer;
 }
 
+/* Real <a href> in the navbar, so it inherits the global a:hover underline
+   (see "Ensure sufficient contrast for links" above) — every other nav-dd
+   link relies on that rule, but this one already gets its own hover treatment
+   (background/color swap per theme, see .acad-auth-quick rules below), so the
+   underline just adds visual noise on top of it. Scoped to this element only. */
+#acadAuthSignIn:hover {
+  text-decoration: none;
+}
+
 .acad-auth-account {
   display: flex;
   align-items: center;
@@ -8358,7 +8387,10 @@ body.theme-contrast .scroll-progress-bar { background: #000; }
   position: absolute;
   left: 50%;
   bottom: 1.4rem;
-  z-index: 2;
+  /* Above .acad-banner-wrap's z-index:5 (added 2026-09-07) — the promo card is pulled up
+     over the hero with a negative margin, and at z-index:2 the card painted over the
+     bottom ~60% of this circle, leaving only a bobbing top sliver visible at the seam. */
+  z-index: 6;
   width: 44px;
   height: 44px;
   display: flex;
@@ -9272,3 +9304,322 @@ body.theme-contrast .aura { display: none; }
   #contact .social-links,
   #contact .closing-hero-content-wrapper { display: none !important; }
 }
+
+/* ============================================================
+   Homepage revamp (2026-09): hero CTAs + logo strip, Who We Work With,
+   contact form. Product/website blocks moved to /products.
+   ============================================================ */
+.hero-subtitle { max-width: 720px; }
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-2xl);
+}
+
+.hero-section .hero-cta,
+.hero-section .hero-cta-alt {
+  border-radius: 999px;
+  padding: 0.8rem 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.hero-section .hero-cta {
+  background: #fff;
+  border-color: #fff;
+  color: #4338ca;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.hero-section .hero-cta:hover,
+.hero-section .hero-cta:focus-visible {
+  background: #eef2ff;
+  border-color: #eef2ff;
+  color: #312e81;
+  transform: translateY(-2px);
+}
+
+/* The theme picker's ambient shine (removed above) suited "Talk to us" better
+   as a one-shot sweep on hover/focus rather than an infinite idle loop —
+   noticeable the moment someone reaches for the primary CTA, not distracting
+   the rest of the time. Reuses the same .btn::before element/keyframe. */
+.hero-section .hero-cta::before { animation: none; }
+
+.hero-section .hero-cta:hover::before,
+.hero-section .hero-cta:focus-visible::before {
+  animation: btnShine 0.9s ease-out 1;
+}
+
+/* Same cascade trap as .svc-hero .btn-outline-light: pin white explicitly. */
+.hero-section .hero-actions .hero-cta-alt {
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.08);
+  overflow: visible;
+}
+
+.hero-section .hero-actions .hero-cta-alt::before { display: none; }
+
+.hero-section .hero-actions .hero-cta-alt:hover,
+.hero-section .hero-actions .hero-cta-alt:focus-visible {
+  color: #4338ca;
+  background: #fff;
+  border-color: #fff;
+}
+
+.hero-logos {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.55rem 1.1rem;
+  margin: 0 auto;
+  max-width: 1180px;
+}
+
+.hero-logos-label {
+  width: 100%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0.2rem;
+}
+
+.hero-section .hero-logos a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: rgba(255, 255, 255, 0.92);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.hero-section .hero-logos a:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+
+.hero-logos img {
+  height: 22px;
+  width: auto;
+  max-width: 84px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 5px;
+  padding: 2px 4px;
+}
+
+.hero-logos img.hero-logo-mtn { background: #0f172a; }
+
+/* Below the width the 5 chips fit on one line, a tighter row-gap than
+   column-gap read as an accident rather than a deliberate 2-row layout. */
+@media (max-width: 900px) {
+  .hero-logos { gap: 1rem 1.1rem; }
+}
+
+body.theme-contrast .hero-section .hero-cta,
+body.theme-contrast .hero-section .hero-cta-alt {
+  background: #fff !important;
+  color: #000 !important;
+  border: 2px solid #fff !important;
+  box-shadow: none !important;
+}
+
+body.theme-contrast .hero-section .hero-logos a {
+  background: #fff !important;
+  color: #000 !important;
+  border-color: #fff !important;
+}
+
+body.theme-contrast .hero-logos-label { color: #fff; }
+
+/* --- Who we work with (reuses .process-step theming) --- */
+.who-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+.who-card { display: flex; flex-direction: column; }
+
+.who-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: var(--radius-md, 12px);
+  background: var(--primary-gradient);
+  color: #fff;
+  font-size: 1.2rem;
+  margin-bottom: var(--space-md);
+  box-shadow: var(--shadow-md);
+}
+
+.who-problem {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--dark-color);
+  line-height: 1.55;
+  margin-bottom: var(--space-sm);
+}
+
+.who-proof {
+  margin: auto 0 0;
+  padding-top: var(--space-md);
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--primary-color);
+}
+
+body.bg-dark .who-problem { color: #e2e8f0; }
+body.bg-dark .who-proof { color: #a5b4fc; }
+body.theme-cyber .who-icon { background: linear-gradient(135deg, #22d3ee, #6366f1); }
+body.theme-cyber .who-proof { color: #67e8f9; }
+
+body.theme-contrast .who-icon { background: #000 !important; color: #fff !important; box-shadow: none !important; }
+body.theme-contrast .who-problem,
+body.theme-contrast .who-proof { color: #000 !important; }
+
+/* --- Contact form (sits on the bg-primary band, so fields are frosted) --- */
+.contact-form {
+  text-align: left;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  backdrop-filter: blur(8px);
+}
+
+.contact-form .form-label { color: #fff; font-weight: 600; font-size: 0.9rem; }
+.contact-form .cf-opt { font-weight: 400; opacity: 0.75; }
+
+.contact-form .form-control {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #0f172a;
+}
+
+.contact-form .form-control:focus {
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 0 0 0.25rem rgba(255, 255, 255, 0.35);
+}
+
+.contact-form .form-control.is-invalid { border-color: #fecaca; box-shadow: 0 0 0 0.2rem rgba(254, 202, 202, 0.5); }
+
+.contact-form .cf-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+.contact-form .cf-submit { border-radius: 999px; font-weight: 700; color: #4338ca; }
+.contact-form .cf-submit:disabled { opacity: 0.7; }
+
+/* Bootstrap's .btn-light:hover (same specificity as .cf-submit's own color rule
+   above, so it otherwise wins on tiebreak) swaps in its own hover palette —
+   grey background, black text — which read as the button desaturating instead
+   of responding to a hover. Branded hover goes the other way: deeper into the
+   gradient, not out of it. */
+.contact-form .cf-submit:hover:not(:disabled) {
+  background: var(--primary-gradient);
+  color: #fff;
+  box-shadow: var(--shadow-xl);
+}
+
+.cf-status { font-size: 0.92rem; color: #fff; }
+.cf-status.ok { font-weight: 600; }
+.cf-status.err { color: #fecaca; font-weight: 600; }
+
+.cf-turnstile:empty { display: none; }
+
+body.theme-contrast .contact-form {
+  background: #fff !important;
+  border: 2px solid #fff !important;
+  backdrop-filter: none !important;
+}
+
+body.theme-contrast .contact-form .form-label,
+body.theme-contrast .contact-form .cf-opt { color: #000 !important; }
+body.theme-contrast .contact-form .form-control { background: #fff !important; border: 2px solid #000 !important; color: #000 !important; }
+body.theme-contrast .contact-form .cf-submit { background: #000 !important; color: #fff !important; border-color: #000 !important; }
+body.theme-contrast .cf-status,
+body.theme-contrast .cf-status.err { color: #fff !important; }
+
+@media print {
+  .contact-form, .hero-actions, .hero-logos, #who { display: none !important; }
+}
+
+/* --- Testimonials (#testimonials; shipped `hidden` until real quotes land) --- */
+.testi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-lg);
+}
+
+.testi-card {
+  position: relative;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
+  border: 2px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl) var(--space-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.testi-card::before {
+  content: '\201C';
+  position: absolute;
+  top: 0.2rem;
+  left: 1rem;
+  font-size: 4.5rem;
+  line-height: 1;
+  font-weight: 800;
+  color: rgba(99, 102, 241, 0.18);
+  pointer-events: none;
+}
+
+.testi-quote {
+  margin: 0.8rem 0 0;
+  font-size: 1.02rem;
+  line-height: 1.65;
+  color: var(--dark-color);
+}
+
+.testi-who {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+.testi-who span { display: flex; flex-direction: column; line-height: 1.3; }
+.testi-who strong { color: var(--dark-color); }
+
+.testi-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #fff;
+  padding: 4px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+body.bg-dark .testi-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.7)); border-color: rgba(255, 255, 255, 0.2); }
+body.bg-dark .testi-quote, body.bg-dark .testi-who strong { color: var(--light-color); }
+body.bg-dark .testi-who { color: #adb5bd; }
+body.theme-cyber .testi-card { border-color: rgba(34, 211, 238, 0.3); }
+body.theme-cyber .testi-card::before { color: rgba(34, 211, 238, 0.25); }
+body.theme-contrast .testi-card { background: #fff !important; border: 2px solid #000 !important; box-shadow: none !important; }
+body.theme-contrast .testi-card::before { color: #000 !important; opacity: 0.25; }
+body.theme-contrast .testi-quote, body.theme-contrast .testi-who, body.theme-contrast .testi-who strong { color: #000 !important; }
+
+@media print { #testimonials { display: none !important; } }

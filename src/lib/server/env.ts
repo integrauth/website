@@ -62,4 +62,11 @@ export interface Env {
    * Rotating it resets everyone's in-flight 24-hour count exactly once, which is harmless.
    */
   EXAM_IP_HASH_PEPPER?: string;
+  /** Resend API key for the contact form (POST /api/contact). Unset ⇒ 503 contact_unavailable. */
+  RESEND_API_KEY?: string;
+  /** Turnstile secret for the same widget PUBLIC_TURNSTILE_SITE_KEY names. Unset ⇒ 503. */
+  TURNSTILE_SECRET_KEY?: string;
+  /** Optional [vars] overrides for the contact relay's sender/recipient. */
+  CONTACT_FROM?: string;
+  CONTACT_TO?: string;
 }

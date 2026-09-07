@@ -138,6 +138,7 @@ test('every HTML page loads the minified auth bundle at one agreed version', () 
     'index.html',
     'mcp-security.html',
     'privacy.html',
+    'products.html',
     'support.html',
     'terms.html',
     'verify.html',
