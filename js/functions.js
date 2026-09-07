@@ -1052,7 +1052,7 @@ function initContactForm() {
       if (res.ok && data.ok) {
         form.reset();
         if (window.turnstile && widgetId !== null) { try { turnstile.reset(widgetId); } catch (err) {} }
-        return say('Thanks — your message is on its way. We reply within one business day.', 'ok');
+        return say('Thanks — your message is on its way. We usually reply within one business day.', 'ok');
       }
       if (res.status === 503 || res.status === 404) {
         window.location.href = mailtoFallback(f);
