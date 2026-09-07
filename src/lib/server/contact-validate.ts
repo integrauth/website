@@ -6,7 +6,7 @@ const MAX_COMPANY = 160;
 const MAX_EMAIL = 254;
 const MAX_MESSAGE = 4000;
 export const DEFAULT_TO = 'akhil@integrauth.com';
-export const DEFAULT_FROM = 'IntegrAuth Website <no-reply@integrauth.com>';
+export const DEFAULT_FROM = 'IntegrAuth Website <no-reply@mail.integrauth.com>';
 
 export interface ContactMessage {
   name: string;

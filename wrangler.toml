@@ -202,7 +202,7 @@ database_id = "9318da4d-88cc-4e0d-9b3d-7c46eff548e8"
 PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAD3VSnt3hqHZSCXw"
 
 # Contact form relay (src/lib/server/contact.ts). The sender domain must be verified in Resend.
-CONTACT_FROM = "IntegrAuth Website <no-reply@integrauth.com>"
+CONTACT_FROM = "IntegrAuth Website <no-reply@mail.integrauth.com>"
 CONTACT_TO = "akhil@integrauth.com"
 
 # --- OIDC Relying Party (see src/lib/server/oidc-rp.ts) ---
