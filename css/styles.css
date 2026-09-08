@@ -9622,4 +9622,18 @@ body.theme-contrast .testi-card { background: #fff !important; border: 2px solid
 body.theme-contrast .testi-card::before { color: #000 !important; opacity: 0.25; }
 body.theme-contrast .testi-quote, body.theme-contrast .testi-who, body.theme-contrast .testi-who strong { color: #000 !important; }
 
+.testi-upwork-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: transform 0.2s ease;
+}
+.testi-upwork-badge:hover, .testi-upwork-badge:focus-visible { transform: translateY(-2px); color: #fff; }
+body.theme-contrast .testi-upwork-badge { background: #000 !important; color: #fff !important; }
+
 @media print { #testimonials { display: none !important; } }
