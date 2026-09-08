@@ -9613,20 +9613,6 @@ body.theme-contrast .cf-status.err { color: #fff !important; }
   border: 1px solid rgba(99, 102, 241, 0.25);
 }
 
-.testi-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: #fff;
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-
 body.bg-dark .testi-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.7)); border-color: rgba(255, 255, 255, 0.2); }
 body.bg-dark .testi-quote, body.bg-dark .testi-who strong { color: var(--light-color); }
 body.bg-dark .testi-who { color: #adb5bd; }
