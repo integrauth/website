@@ -9600,6 +9600,9 @@ body.theme-contrast .cf-status.err { color: #fff !important; }
   color: var(--dark-color);
 }
 
+.testi-quote p { margin: 0 0 0.9rem; }
+.testi-quote p:last-child { margin-bottom: 0; }
+
 .testi-who {
   margin-top: auto;
   display: flex;
