@@ -9552,11 +9552,17 @@ body.theme-contrast .cf-status.err { color: #fff !important; }
   .contact-form, .hero-actions, .hero-logos, #who { display: none !important; }
 }
 
-/* --- Testimonials (#testimonials; shipped `hidden` until real quotes land) --- */
-.testi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--space-lg);
+/* --- Testimonials (#testimonials; auto-scrolling marquee, reuses .services-marquee framework) --- */
+.testi-slide {
+  flex-basis: 420px;
+  width: 420px;
+}
+
+@media (max-width: 575.98px) {
+  .testi-slide {
+    flex-basis: 300px;
+    width: 300px;
+  }
 }
 
 .testi-card {
@@ -9565,6 +9571,9 @@ body.theme-contrast .cf-status.err { color: #fff !important; }
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+  width: 100%;
+  max-height: 360px;
+  overflow-y: auto;
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
   border: 2px solid rgba(99, 102, 241, 0.25);
   border-radius: var(--radius-xl);
@@ -9590,6 +9599,9 @@ body.theme-contrast .cf-status.err { color: #fff !important; }
   line-height: 1.65;
   color: var(--dark-color);
 }
+
+.testi-quote p { margin: 0 0 0.9rem; }
+.testi-quote p:last-child { margin-bottom: 0; }
 
 .testi-who {
   margin-top: auto;
@@ -9621,5 +9633,19 @@ body.theme-cyber .testi-card::before { color: rgba(34, 211, 238, 0.25); }
 body.theme-contrast .testi-card { background: #fff !important; border: 2px solid #000 !important; box-shadow: none !important; }
 body.theme-contrast .testi-card::before { color: #000 !important; opacity: 0.25; }
 body.theme-contrast .testi-quote, body.theme-contrast .testi-who, body.theme-contrast .testi-who strong { color: #000 !important; }
+
+.testi-upwork-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: transform 0.2s ease;
+}
+.testi-upwork-badge:hover, .testi-upwork-badge:focus-visible { transform: translateY(-2px); color: #fff; }
+body.theme-contrast .testi-upwork-badge { background: #000 !important; color: #fff !important; }
 
 @media print { #testimonials { display: none !important; } }
