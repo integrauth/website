@@ -9,8 +9,10 @@ Official public-facing website for IntegrAuth - Enterprise-grade Identity and Ac
 ## About
 
 IntegrAuth provides:
+- AI & agent security (agent identity, MCP security, FGA/ReBAC)
 - Enterprise-grade Identity and Access Management
 - API Security solutions
+- IntegrAuth Academy — free identity & AI-security lessons at `/academy`
 - Cloud integration (AWS, Azure, GCP)
 - Enterprise SSO (SAML, OAuth, OpenID Connect)
 
@@ -69,8 +71,8 @@ IntegrAuth provides:
 
 ```
 website/
-├── index.html, academy.html, privacy.html, terms.html, support.html,
-│   cancellation.html, verify.html, 404.html
+├── index.html, academy.html, products.html, privacy.html, terms.html,
+│   support.html, cancellation.html, verify.html, 404.html
 ├── mcp-security.html, ai-agent-security.html, api-security.html   # service landing pages
 ├── css/styles.css                  # main stylesheet
 ├── js/functions.js                 # site-wide JS
@@ -100,7 +102,7 @@ See `CLAUDE.md` for current file sizes and the full architecture — they drift 
 ## Features
 
 - ✅ Responsive design (mobile-first)
-- ✅ Dark/Light theme toggle with localStorage persistence
+- ✅ Four themes (Light / Dark / High Contrast / Midnight Cyber) with localStorage persistence
 - ✅ Smooth scrolling navigation
 - ✅ Animated gradient backgrounds
 - ✅ Glassmorphism effects
