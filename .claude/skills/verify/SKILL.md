@@ -39,20 +39,33 @@ Checks that matter for this site:
    every `.tech-grid` (count `.tech-grid.show`); new categories need the same
    `tech-category-header` + `collapse` markup to participate.
 5. **Viewports** — 1440 (hero cards 3-across), 900 (2-across), 390 (mobile).
-6. **Services marquee** — the single `.services-marquee` row (10 cards, each with a
+6. **Services marquee** — the single `.services-marquee` row (16 cards, each with a
    `.service-tag` pill) must auto-scroll (~30px/s: sample `scrollLeft` 1.5s apart),
    stop dead on hover, track mouse drag 1:1, wrap seamlessly (set
    `scrollLeft = setWidth + N` while hovered → normalizes to ~N), and stand still
    under `reducedMotion: 'reduce'`.
 
+## Sandbox: CDNs are blocked
+
+In the remote sandbox the proxy refuses code.jquery.com / cdn.jsdelivr.net / cdnjs (fonts.googleapis
+works). Pages then load with no jQuery, no Bootstrap and no Font Awesome and every screenshot lies.
+Fix: `npm i bootstrap@5.3.3 jquery@3.7.1 @fortawesome/fontawesome-free@6.4.0` in the scratchpad and
+`context.route()` those CDN URLs to the local files (fulfill webfont requests from
+`fontawesome-free/webfonts/`, answer everything else on those hosts with a 204). Static pages that
+serve no Worker also 404 `/auth/session` — expected, not a bug.
+
 ## Gotchas
 
-- `index.html` is minified single-line HTML; closing `</p>` tags are omitted on purpose.
+- `index.html` and `academy.html` are minified single-line HTML (academy is ~1MB); edit them with
+  a script that asserts each `old` string occurs exactly once, never by hand.
+- Below-the-fold content is hidden by `initScrollReveal()` until scrolled into view, so a fullPage
+  screenshot taken straight after load shows blank sections — scroll through the page first.
 - Dark/black SVG logos (e.g. `mcp.svg`) need a light chip on dark themes — see
   `.tech-logo[alt="MCP"]` rules in styles.css.
 - After editing `css/styles.css` run `npm run build:css` and bump `?v=X.X` on
-  `styles.min.css`/`functions.min.js` refs in ALL five HTML files (index, privacy,
-  terms, support, cancellation) — the site serves only the `.min` assets.
+  `styles.min.css`/`functions.min.js` refs in ALL 12 HTML files (`grep -l 'styles.min.css?v=' *.html`),
+  plus `<meta name="acad-build">` in academy.html and `academy-version.txt` — the site serves only
+  the `.min` assets.
 - Card color variants rely on column position (`.row > :nth-child(...)`) because each
   card is the sole child of its Bootstrap column; theme overrides use `:nth-child(n)`
   with `!important`, so keep base variants scoped to `body.bg-light`.
