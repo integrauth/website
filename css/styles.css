@@ -3152,6 +3152,10 @@ body.theme-contrast .btn-outline-light {
   border: 2px solid currentColor !important;
 }
 
+body.theme-contrast .btn::before {
+  display: none !important;
+}
+
 body.theme-contrast .closing-hero-title,
 body.theme-contrast .closing-hero-subtitle {
   background: none !important;
