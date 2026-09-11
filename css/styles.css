@@ -9649,3 +9649,801 @@ body.theme-contrast .testi-quote, body.theme-contrast .testi-who, body.theme-con
 body.theme-contrast .testi-upwork-badge { background: #000 !important; color: #fff !important; }
 
 @media print { #testimonials { display: none !important; } }
+
+/* =====================================================================
+   Academy page revamp (2026-09-11)
+   Visual-only pass over academy.html: hero, hub, track cards, practice
+   widgets, reader chrome. Later in the file than the original .acad-*
+   rules on purpose — same specificity, source order wins. Themed for
+   light / dark / contrast / cyber; every animation stops under
+   prefers-reduced-motion. Scoped to academy-only selectors: .acad-stat
+   and .acad-box are shared with index.html, so hero/hub rules are
+   prefixed with .acad-hero / #acadHub.
+   ===================================================================== */
+
+/* --- Per-track accent (--tk) --- */
+.acad-track-card { --tk: var(--primary-color); }
+.acad-track-card[data-track="basics"]      { --tk: #10b981; }
+.acad-track-card[data-track="foundations"] { --tk: #6366f1; }
+.acad-track-card[data-track="authn"]       { --tk: #8b5cf6; }
+.acad-track-card[data-track="tokens"]      { --tk: #f59e0b; }
+.acad-track-card[data-track="authz"]       { --tk: #f43f5e; }
+.acad-track-card[data-track="proto"]       { --tk: #0ea5e9; }
+.acad-track-card[data-track="ai"]          { --tk: #d946ef; }
+.acad-track-card[data-track="ops"]         { --tk: #14b8a6; }
+.acad-track-card[data-track="atk"]         { --tk: #ef4444; }
+.acad-track-card[data-track="ciam"]        { --tk: #f97316; }
+.acad-track-card[data-track="cloud"]       { --tk: #06b6d4; }
+.acad-track-card[data-track="arch"]        { --tk: #3b82f6; }
+body.bg-dark .acad-track-card[data-track="foundations"] { --tk: #818cf8; }
+body.bg-dark .acad-track-card[data-track="authn"]       { --tk: #a78bfa; }
+body.bg-dark .acad-track-card[data-track="arch"]        { --tk: #60a5fa; }
+body.theme-contrast .acad-track-card { --tk: #000; }
+
+/* --- Hero --- */
+.acad-hero {
+  padding: 8.5rem 0 0;
+  text-align: center;
+}
+
+.acad-hero-orbs { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.acad-hero-orbs span {
+  position: absolute;
+  width: 34vw;
+  height: 34vw;
+  min-width: 260px;
+  min-height: 260px;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  animation: acadOrb 22s ease-in-out infinite alternate;
+}
+.acad-hero-orbs span:nth-child(1) { left: -8%; top: -30%; background: #22d3ee; }
+.acad-hero-orbs span:nth-child(2) { right: -10%; top: -10%; background: #a78bfa; animation-delay: -7s; animation-duration: 26s; }
+.acad-hero-orbs span:nth-child(3) { left: 35%; bottom: -55%; background: #f472b6; opacity: 0.35; animation-delay: -14s; animation-duration: 30s; }
+@keyframes acadOrb {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(6vw, 4vh, 0) scale(1.18); }
+}
+
+.acad-hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 0.35rem 0.95rem;
+  margin-bottom: 1.1rem;
+  backdrop-filter: blur(6px);
+}
+.acad-hero-eyebrow i { color: #fde68a; }
+
+.acad-hero h1 {
+  font-size: clamp(2.7rem, 6.5vw, 4.6rem);
+  line-height: 1.05;
+  margin-bottom: 0.9rem;
+}
+
+.acad-hero-word {
+  display: inline-block;
+  background: linear-gradient(100deg, #fff 0%, #c7d2fe 30%, #fff 50%, #a5f3fc 70%, #fff 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: acadShimmer 6s linear infinite;
+}
+@keyframes acadShimmer { to { background-position: -220% 0; } }
+
+.acad-hero .acad-hero-tagline {
+  font-size: clamp(1.05rem, 2vw, 1.28rem);
+  max-width: 44rem;
+  margin: 0 auto 1.6rem;
+  line-height: 1.6;
+}
+
+.acad-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 1.6rem;
+}
+
+.acad-hero .acad-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.8rem 1.7rem;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 1rem;
+  text-decoration: none;
+  color: var(--primary-color);
+  background: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s, background-color 0.25s, color 0.25s;
+}
+.acad-hero .acad-hero-cta i { transition: transform 0.25s; }
+.acad-hero .acad-hero-cta:hover,
+.acad-hero .acad-hero-cta:focus-visible {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.32);
+  color: var(--primary-color);
+}
+.acad-hero .acad-hero-cta:hover i { transform: translateX(4px); }
+.acad-hero .acad-hero-cta-alt {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow: none;
+  backdrop-filter: blur(6px);
+}
+.acad-hero .acad-hero-cta-alt:hover,
+.acad-hero .acad-hero-cta-alt:focus-visible {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: #fff;
+  color: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+}
+.acad-hero .acad-hero-cta-alt:hover i { transform: none; }
+
+.acad-hero .acad-stat {
+  backdrop-filter: blur(6px);
+  transition: background-color 0.2s, transform 0.2s;
+}
+.acad-hero .acad-stat:hover { background: rgba(255, 255, 255, 0.24); transform: translateY(-2px); }
+
+.acad-hero-ticker {
+  position: relative;
+  margin-top: 2.6rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.acad-hero-ticker-track {
+  display: flex;
+  width: max-content;
+  gap: 0;
+  animation: acadTicker 46s linear infinite;
+}
+.acad-hero-ticker-track span {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.4rem;
+  padding-right: 1.4rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.82);
+  white-space: nowrap;
+}
+.acad-hero-ticker-track span::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+}
+@keyframes acadTicker { to { transform: translateX(-50%); } }
+
+body.theme-contrast .acad-hero-orbs { display: none; }
+body.theme-contrast .acad-hero-eyebrow,
+body.theme-contrast .acad-hero .acad-stat { background: #000; border-color: #fff; color: #fff; backdrop-filter: none; }
+body.theme-contrast .acad-hero-eyebrow i { color: #ffd60a; }
+body.theme-contrast .acad-hero-word { background: none; color: #ffd60a; -webkit-text-fill-color: #ffd60a; animation: none; }
+body.theme-contrast .acad-hero .acad-hero-cta { background: #fff; color: #000; border-color: #fff; box-shadow: none; }
+body.theme-contrast .acad-hero .acad-hero-cta-alt { background: #000; color: #fff; border-color: #fff; backdrop-filter: none; }
+body.theme-contrast .acad-hero-ticker { background: #000; border-top-color: #fff; -webkit-mask-image: none; mask-image: none; }
+body.theme-contrast .acad-hero-ticker-track span { color: #fff; }
+
+/* --- Hub shell + aurora --- */
+.acad-shell { position: relative; }
+.acad-shell > .container { position: relative; z-index: 1; }
+.acad-aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.acad-aurora span {
+  position: absolute;
+  width: 44vw;
+  height: 44vw;
+  min-width: 320px;
+  min-height: 320px;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.22;
+  animation: acadAurora 34s ease-in-out infinite alternate;
+}
+.acad-aurora span:nth-child(1) { left: -14%; top: 4%; background: var(--primary-color); }
+.acad-aurora span:nth-child(2) { right: -16%; top: 28%; background: #a78bfa; animation-delay: -12s; animation-duration: 40s; }
+.acad-aurora span:nth-child(3) { left: 28%; bottom: 6%; background: #22d3ee; opacity: 0.14; animation-delay: -22s; animation-duration: 46s; }
+@keyframes acadAurora {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(8vw, 10vh, 0) scale(1.15); }
+}
+body.bg-dark .acad-aurora span { opacity: 0.16; }
+body.bg-dark .acad-aurora span:nth-child(3) { opacity: 0.1; }
+body.theme-contrast .acad-aurora { display: none; }
+
+/* --- Hub top: progress dock + why-sign-in --- */
+#acadHub .acad-hub-top {
+  display: flex;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  flex-wrap: wrap;
+  max-width: 880px;
+  margin: 0 auto 2.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px);
+}
+#acadHub .acad-hub-progress { flex: 1 1 320px; max-width: none; margin: 0; }
+#acadHub .acad-hub-top .acad-info-wrap { margin: 0; flex: 0 0 auto; }
+#acadHub .acad-progress-text { align-items: center; font-size: 0.82rem; color: var(--acad-ink); }
+#acadHub .acad-progress-text button { font-weight: 700; text-decoration: none; opacity: 0.8; }
+#acadHub .acad-progress-text button:hover { opacity: 1; color: var(--primary-color); }
+#acadHub .acad-progress-bar { height: 8px; position: relative; }
+#acadHub .acad-progress-fill { position: relative; overflow: hidden; }
+#acadHub .acad-progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-100%);
+  animation: acadBarShine 3.2s ease-in-out infinite;
+}
+@keyframes acadBarShine { 45%, 100% { transform: translateX(100%); } }
+body.theme-contrast #acadHub .acad-hub-top { border: 2px solid #000; box-shadow: none; backdrop-filter: none; }
+body.theme-contrast #acadHub .acad-progress-fill::after { display: none; }
+
+/* --- Hub heading + cast --- */
+.acad-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--primary-color);
+  background: var(--acad-block);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  margin-bottom: 0.9rem;
+}
+#acadTracks { scroll-margin-top: 90px; }
+
+.acad-cast {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.1rem;
+}
+.acad-cast-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--acad-muted);
+  margin-right: 0.25rem;
+}
+.acad-cast-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.8rem 0.3rem 0.4rem;
+  border-radius: 999px;
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  color: var(--acad-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.1;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s;
+}
+.acad-cast-chip em {
+  font-style: normal;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  background: var(--acad-block);
+  font-size: 0.95rem;
+}
+.acad-cast-chip small { font-weight: 500; color: var(--acad-muted); font-size: 0.72rem; }
+.acad-cast-chip:hover { transform: translateY(-3px) rotate(-1.5deg); border-color: var(--primary-color); }
+body.theme-contrast .acad-cast-chip { border: 2px solid #000; }
+
+/* --- Hub tools: search + persona paths --- */
+.acad-hubtools { max-width: 980px; }
+.acad-hub-search {
+  border-radius: 999px;
+  padding: 0.95rem 1.25rem 0.95rem 3rem;
+  font-size: 1.02rem;
+  box-shadow: var(--shadow-md);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 1.1rem center;
+  transition: box-shadow 0.25s, border-color 0.25s, transform 0.25s;
+}
+.acad-hub-search:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 22%, transparent), var(--shadow-lg);
+  transform: translateY(-1px);
+}
+.acad-hub-search::placeholder { color: var(--acad-muted); }
+body.theme-contrast .acad-hub-search { border: 2px solid #000; box-shadow: none; }
+body.theme-contrast .acad-hub-search:focus { outline: 3px solid #000; outline-offset: 2px; box-shadow: none; }
+
+.acad-paths { margin-top: 2rem; }
+.acad-paths-head {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.acad-path-card {
+  position: relative;
+  border-radius: var(--radius-xl);
+  padding: 1.15rem 1.15rem 1.05rem;
+  gap: 0.35rem;
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s, box-shadow 0.3s;
+}
+.acad-path-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary-color), var(--acad-em));
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.acad-path-card > i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 12px;
+  background: var(--acad-block);
+  color: var(--primary-color);
+  font-size: 1.05rem;
+  margin-bottom: 0.25rem;
+}
+.acad-path-card:hover,
+.acad-path-card.is-open { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+.acad-path-card:hover::before,
+.acad-path-card.is-open::before { opacity: 1; }
+.acad-path-count { color: var(--primary-color); }
+.acad-path-view { border-radius: var(--radius-xl); }
+body.theme-contrast .acad-path-card { border: 2px solid #000; box-shadow: none; }
+body.theme-contrast .acad-path-card::before { background: #000; }
+body.theme-contrast .acad-path-card > i { background: #000; color: #fff; }
+
+/* --- Track cards --- */
+.acad-track-grid {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.4rem;
+}
+
+.acad-track-card {
+  position: relative;
+  border-radius: 1.25rem;
+  padding: 1.5rem 1.5rem 1.35rem;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s, border-color 0.25s;
+}
+.acad-track-card::before {
+  content: '';
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  top: 0;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, var(--tk), color-mix(in srgb, var(--tk) 20%, transparent));
+  opacity: 0.85;
+  transition: left 0.35s, right 0.35s;
+}
+.acad-track-card:hover {
+  transform: translateY(-6px);
+  border-color: color-mix(in srgb, var(--tk) 55%, var(--acad-panel-border));
+  box-shadow: 0 22px 44px -18px color-mix(in srgb, var(--tk) 45%, rgba(15, 23, 42, 0.3)), var(--shadow-lg);
+}
+.acad-track-card:hover::before { left: 0.6rem; right: 0.6rem; }
+
+.acad-track-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.acad-track-card .acad-track-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.1rem;
+  height: 3.1rem;
+  border-radius: 1rem;
+  font-size: 1.35rem;
+  color: var(--tk);
+  background: color-mix(in srgb, var(--tk) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tk) 28%, transparent);
+  margin: 0;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.acad-track-card:hover .acad-track-icon { transform: rotate(-6deg) scale(1.08); }
+.acad-track-card .acad-track-num {
+  margin: 0.2rem 0 0;
+  color: var(--tk);
+  border-color: color-mix(in srgb, var(--tk) 35%, transparent);
+  background: color-mix(in srgb, var(--tk) 9%, transparent);
+}
+.acad-track-card h3 { font-size: 1.18rem; line-height: 1.3; }
+.acad-track-card .acad-track-blurb { flex-grow: 1; line-height: 1.6; margin-bottom: 0.9rem; }
+.acad-track-card .acad-track-meta {
+  color: var(--tk);
+  margin-bottom: 0.4rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.acad-track-card.is-complete .acad-track-meta::after { content: '✓ complete'; color: var(--acad-em); }
+
+.acad-track-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--acad-block);
+  overflow: hidden;
+}
+.acad-track-bar span {
+  display: block;
+  height: 100%;
+  width: calc(var(--track-pct, 0) * 1%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--tk), color-mix(in srgb, var(--tk) 60%, #fff));
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.acad-track-actions { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.55rem; }
+.acad-track-card .acad-track-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.62rem 1rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-decoration: none;
+  color: #fff;
+  background: var(--tk);
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--tk) 70%, transparent);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s, filter 0.2s;
+}
+.acad-track-card .acad-track-start i { font-size: 0.8em; transition: transform 0.25s; }
+.acad-track-card .acad-track-start:hover,
+.acad-track-card .acad-track-start:focus-visible {
+  color: #fff;
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+  box-shadow: 0 14px 26px -10px color-mix(in srgb, var(--tk) 80%, transparent);
+}
+.acad-track-card .acad-track-start:hover i { transform: translateX(4px); }
+.acad-track-card[data-track="tokens"] .acad-track-start,
+.acad-track-card[data-track="ciam"] .acad-track-start { color: #1c1917; }
+.acad-track-card[data-track="tokens"] .acad-track-start:hover,
+.acad-track-card[data-track="ciam"] .acad-track-start:hover { color: #1c1917; }
+
+.acad-track-more summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--acad-muted);
+  transition: background-color 0.2s, color 0.2s;
+}
+.acad-track-more summary::-webkit-details-marker { display: none; }
+.acad-track-more summary:hover { background: var(--acad-block); color: var(--tk); }
+.acad-track-more summary i { transition: transform 0.3s; font-size: 0.75rem; }
+.acad-track-more[open] summary i { transform: rotate(180deg); }
+.acad-track-more .acad-track-toc { margin: 0.45rem 0 0; padding-top: 0.45rem; border-top: 1px dashed var(--acad-panel-border); animation: acadFadeIn 0.3s ease; }
+.acad-track-card .acad-track-toc .acad-toc-num { color: var(--tk); }
+.acad-track-card .acad-track-toc a { padding: 0.32rem 0.5rem; transition: background-color 0.15s, color 0.15s, transform 0.15s; }
+.acad-track-card .acad-track-toc a:hover { color: var(--tk); transform: translateX(3px); }
+
+body.theme-contrast .acad-track-card { border: 2px solid #000; box-shadow: none !important; }
+body.theme-contrast .acad-track-card::before { background: #000; }
+body.theme-contrast .acad-track-card .acad-track-icon { background: #000; color: #fff; border-color: #000; }
+body.theme-contrast .acad-track-card .acad-track-num { background: #fff; color: #000; border-color: #000; }
+body.theme-contrast .acad-track-card .acad-track-start { background: #000; color: #fff; box-shadow: none; }
+body.theme-contrast .acad-track-bar span { background: #000; }
+body.theme-contrast .acad-track-card[data-track="tokens"] .acad-track-start,
+body.theme-contrast .acad-track-card[data-track="ciam"] .acad-track-start { color: #fff; }
+
+/* --- "Practice for real" banner (moved below the track grid) --- */
+#acadHub .acad-box.acad-lab-cta {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: 'art tag btn' 'art text btn';
+  align-items: center;
+  column-gap: 1.35rem;
+  row-gap: 0.2rem;
+  max-width: 1000px;
+  margin: 2.75rem auto 0;
+  padding: 1.35rem 1.6rem;
+  border-left-width: 1px;
+  border: 1px solid var(--acad-panel-border);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--primary-color) 12%, var(--acad-panel)), color-mix(in srgb, #a78bfa 10%, var(--acad-panel)));
+  border-radius: 1.25rem;
+  box-shadow: var(--shadow-lg);
+}
+#acadHub .acad-lab-cta .acad-tag { grid-area: tag; flex-basis: auto; margin: 0; }
+#acadHub .acad-lab-cta p { grid-area: text; flex: none; margin: 0; }
+#acadHub .acad-lab-cta .acad-lab-cta-btn { grid-area: btn; }
+.acad-lab-cta-art {
+  grid-area: art;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 1.2rem;
+  background: var(--primary-gradient);
+  color: #fff;
+  font-size: 1.55rem;
+  box-shadow: var(--shadow-md);
+  animation: acadFloat 5s ease-in-out infinite;
+}
+@keyframes acadFloat { 50% { transform: translateY(-6px) rotate(-4deg); } }
+body.theme-contrast #acadHub .acad-box.acad-lab-cta { background: #fff; border: 2px solid #000; box-shadow: none; }
+body.theme-contrast .acad-lab-cta-art { background: #000; box-shadow: none; }
+
+/* --- Practice path nav --- */
+.acad-path-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 2.5rem auto 0;
+}
+.acad-path-nav-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--acad-muted);
+  margin-right: 0.35rem;
+}
+.acad-path-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.95rem 0.4rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--acad-panel-border);
+  background: var(--acad-panel);
+  color: var(--acad-ink);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s, color 0.2s;
+}
+.acad-path-nav a b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: var(--primary-gradient);
+  color: #fff;
+  font-size: 0.75rem;
+}
+.acad-path-nav a:hover { transform: translateY(-2px); border-color: var(--primary-color); color: var(--primary-color); }
+body.theme-contrast .acad-path-nav a { border: 2px solid #000; color: #000; }
+body.theme-contrast .acad-path-nav a b { background: #000; }
+
+/* --- Practice widgets --- */
+#acadHub .acad-flowx {
+  position: relative;
+  padding: 2.25rem 1.5rem 2rem;
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow-md);
+}
+#acadHub .acad-flowx::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(60% 45% at 50% 0%, color-mix(in srgb, var(--primary-color) 14%, transparent), transparent 70%);
+}
+#acadHub .acad-flowx > * { position: relative; }
+#acadHub .acad-flowx .section-title { font-size: clamp(1.6rem, 3vw, 2.25rem); }
+#acadHub .acad-flowx .section-subtitle { font-size: 1.02rem; }
+#acadHub .acad-flowx .acad-lab { margin: 1.5rem 0 0; }
+.acad-widget-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--primary-color);
+  background: var(--acad-block);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  margin-bottom: 0.9rem;
+}
+#acadHub .acad-flowx-next-btn {
+  border-radius: 999px;
+  padding: 0.7rem 1.4rem;
+  background: var(--primary-gradient);
+  color: #fff;
+  border: 0;
+  box-shadow: var(--shadow-md);
+}
+#acadHub .acad-flowx-next-btn:hover { color: #fff; box-shadow: var(--shadow-lg); }
+body.theme-contrast #acadHub .acad-flowx { border: 2px solid #000; box-shadow: none; }
+body.theme-contrast #acadHub .acad-flowx::before { display: none; }
+body.theme-contrast .acad-widget-eyebrow { background: #000; color: #fff; border-color: #000; }
+body.theme-contrast #acadHub .acad-flowx-next-btn { background: #000; color: #fff; box-shadow: none; }
+
+/* --- Reader chrome --- */
+.acad-toolbar {
+  padding: 0.7rem 0.9rem;
+  background: var(--acad-panel);
+  border: 1px solid var(--acad-panel-border);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(14px);
+  margin-bottom: 1.25rem;
+}
+@media (min-width: 768px) {
+  .acad-toolbar { position: sticky; top: 72px; z-index: 20; }
+}
+.acad-toolbar .acad-track-label { font-weight: 800; }
+.acad-back { display: inline-flex; align-items: center; gap: 0.25rem; }
+.acad-back:hover { transform: translateX(-2px); }
+
+.acad-chips { gap: 0.5rem; }
+.acad-chip {
+  padding: 0.28rem 0.85rem 0.28rem 0.3rem;
+  transition: transform 0.2s, border-color 0.2s, color 0.2s, background-color 0.2s;
+}
+.acad-chip .acad-chip-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 50%;
+  background: var(--acad-block);
+  color: var(--primary-color);
+  opacity: 1;
+  font-size: 0.68rem;
+}
+.acad-chip.active .acad-chip-num { background: rgba(255, 255, 255, 0.22); color: #fff; }
+.acad-chip:hover { transform: translateY(-2px); }
+@media (max-width: 767.98px) {
+  .acad-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0.25rem 0.25rem 0.6rem;
+    margin: 0 -0.25rem 1.25rem;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, #000 92%, transparent);
+  }
+  .acad-chips::-webkit-scrollbar { display: none; }
+  .acad-chip { flex: 0 0 auto; scroll-snap-align: start; white-space: nowrap; }
+}
+body.theme-contrast .acad-toolbar { border: 2px solid #000; box-shadow: none; backdrop-filter: none; }
+body.theme-contrast .acad-chip .acad-chip-num { background: #000; color: #fff; }
+
+.acad-lesson h2 { font-size: clamp(1.8rem, 3.6vw, 2.5rem); line-height: 1.15; }
+
+.acad-pager { margin-top: 2.5rem; }
+.acad-page-btn {
+  flex: 1 1 0;
+  border-radius: 1rem;
+  padding: 0.9rem 1.15rem;
+  box-shadow: var(--shadow);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s, color 0.2s, box-shadow 0.3s;
+}
+.acad-page-btn:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+.acad-reader-foot .acad-back { padding: 0.5rem 1.2rem; }
+body.theme-contrast .acad-page-btn { border: 2px solid #000; box-shadow: none; }
+
+/* --- Motion + small screens --- */
+@media (prefers-reduced-motion: reduce) {
+  .acad-hero-orbs span, .acad-aurora span, .acad-hero-word, .acad-hero-ticker-track,
+  #acadHub .acad-progress-fill::after, .acad-lab-cta-art, .acad-track-more .acad-track-toc { animation: none; }
+  .acad-hero .acad-hero-cta, .acad-track-card, .acad-track-card .acad-track-icon, .acad-cast-chip,
+  .acad-path-card, .acad-path-nav a, .acad-page-btn, .acad-chip, .acad-back { transition: none; }
+  .acad-track-card:hover, .acad-track-card:hover .acad-track-icon, .acad-cast-chip:hover { transform: none; }
+}
+
+@media (max-width: 767.98px) {
+  .acad-hero { padding-top: 7rem; }
+  .acad-hero h1 { font-size: clamp(2.3rem, 11vw, 3rem); }
+  .acad-hero .acad-hero-cta { padding: 0.7rem 1.3rem; font-size: 0.95rem; }
+  .acad-hero .acad-stat { font-size: 0.72rem; padding: 0.3rem 0.7rem; }
+  .acad-hero-ticker { margin-top: 2rem; }
+  #acadHub .acad-hub-top { padding: 0.9rem 1rem; }
+  #acadHub .acad-hub-top .acad-info-wrap { flex-basis: 100%; justify-content: flex-start; }
+  #acadHub .acad-box.acad-lab-cta {
+    grid-template-columns: auto 1fr;
+    grid-template-areas: 'art tag' 'text text' 'btn btn';
+    padding: 1.2rem 1.2rem 1.3rem;
+  }
+  #acadHub .acad-lab-cta .acad-lab-cta-btn { justify-content: center; }
+  .acad-lab-cta-art { width: 3rem; height: 3rem; font-size: 1.2rem; border-radius: 0.9rem; }
+  #acadHub .acad-flowx { padding: 1.75rem 1rem 1.5rem; border-radius: 1.1rem; }
+  .acad-track-grid { gap: 1rem; }
+}
+
+/* Reader open: the hero collapses to a slim brand band, so every lesson turn
+   (showLesson scrolls to top) lands on the toolbar, not a full-height hero. */
+main:has(#acadReader:not([hidden])) .acad-hero { padding: 5.6rem 0 1.4rem; }
+main:has(#acadReader:not([hidden])) .acad-hero h1 { font-size: clamp(1.4rem, 3vw, 1.9rem); margin: 0; }
+main:has(#acadReader:not([hidden])) .acad-hero .acad-hero-eyebrow,
+main:has(#acadReader:not([hidden])) .acad-hero .acad-hero-tagline,
+main:has(#acadReader:not([hidden])) .acad-hero .acad-hero-actions,
+main:has(#acadReader:not([hidden])) .acad-hero .acad-stats,
+main:has(#acadReader:not([hidden])) .acad-hero .acad-hero-ticker,
+main:has(#acadReader:not([hidden])) .acad-hero .acad-hero-orbs { display: none; }
+
+.acad-pager, .acad-reader-foot { max-width: 860px; margin-left: auto; margin-right: auto; }
+
+@media (max-width: 767.98px) {
+  .acad-path-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+  .acad-path-card { padding: 0.9rem 0.85rem; }
+  .acad-path-card > i { width: 2rem; height: 2rem; font-size: 0.9rem; }
+  .acad-path-name { font-size: 0.95rem; }
+  .acad-path-blurb { font-size: 0.78rem; }
+  .acad-hero-eyebrow { font-size: 0.66rem; letter-spacing: 0.08em; }
+}
+@media (max-width: 575.98px) {
+  #acadHub .acad-progress-text, .acad-toolbar .acad-progress-text { flex-wrap: wrap; }
+  #acadHub .acad-progress-text > span:first-child { flex-basis: 100%; }
+  .acad-pager { flex-direction: column; }
+  .acad-page-btn { max-width: none; }
+}

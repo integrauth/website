@@ -2010,6 +2010,8 @@ function initAcademy() {
       const done = items.filter(function (s) { return read.has(s.id); }).length;
       const meta = card.querySelector('.acad-track-done');
       if (meta) meta.textContent = done ? done + '/' + items.length + ' read' : items.length + ' lessons';
+      card.style.setProperty('--track-pct', items.length ? Math.round((done / items.length) * 100) : 0);
+      card.classList.toggle('is-complete', items.length > 0 && done === items.length);
     });
   }
 
