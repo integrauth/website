@@ -903,6 +903,29 @@ body.bg-dark .tech-logo[alt="MCP Gateways"] {
   background: rgba(255, 255, 255, 0.92);
 }
 
+/* Near-black / dark-navy logos: same chip treatment, plus the contrast theme's
+   black hover fill, which swallows them on an otherwise white card */
+.tech-logo[alt="Vercel"],
+.tech-logo[alt="Vercel AI SDK"],
+.tech-logo[alt="Helm"],
+.tech-logo[alt="Dependabot"] {
+  border-radius: 8px;
+  padding: 6px;
+}
+
+body.bg-dark .tech-logo[alt="Vercel"],
+body.bg-dark .tech-logo[alt="Vercel AI SDK"],
+body.bg-dark .tech-logo[alt="Helm"],
+body.bg-dark .tech-logo[alt="Dependabot"],
+body.theme-contrast .tech-item:hover .tech-logo[alt="Vercel"],
+body.theme-contrast .tech-item:hover .tech-logo[alt="Vercel AI SDK"],
+body.theme-contrast .tech-item:hover .tech-logo[alt="Helm"],
+body.theme-contrast .tech-item:hover .tech-logo[alt="Dependabot"],
+body.theme-contrast .tech-item:hover .tech-logo[alt="MCP"],
+body.theme-contrast .tech-item:hover .tech-logo[alt="MCP Gateways"] {
+  background: rgba(255, 255, 255, 0.92);
+}
+
 /* Client Cards */
 .client-card {
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.9));
