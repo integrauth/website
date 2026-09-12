@@ -908,7 +908,8 @@ body.bg-dark .tech-logo[alt="MCP Gateways"] {
 .tech-logo[alt="Vercel"],
 .tech-logo[alt="Vercel AI SDK"],
 .tech-logo[alt="Helm"],
-.tech-logo[alt="Dependabot"] {
+.tech-logo[alt="Dependabot"],
+.tech-logo[alt="GitHub Actions"] {
   border-radius: 8px;
   padding: 6px;
 }
@@ -917,10 +918,12 @@ body.bg-dark .tech-logo[alt="Vercel"],
 body.bg-dark .tech-logo[alt="Vercel AI SDK"],
 body.bg-dark .tech-logo[alt="Helm"],
 body.bg-dark .tech-logo[alt="Dependabot"],
+body.bg-dark .tech-logo[alt="GitHub Actions"],
 body.theme-contrast .tech-item:hover .tech-logo[alt="Vercel"],
 body.theme-contrast .tech-item:hover .tech-logo[alt="Vercel AI SDK"],
 body.theme-contrast .tech-item:hover .tech-logo[alt="Helm"],
 body.theme-contrast .tech-item:hover .tech-logo[alt="Dependabot"],
+body.theme-contrast .tech-item:hover .tech-logo[alt="GitHub Actions"],
 body.theme-contrast .tech-item:hover .tech-logo[alt="MCP"],
 body.theme-contrast .tech-item:hover .tech-logo[alt="MCP Gateways"] {
   background: rgba(255, 255, 255, 0.92);
