@@ -6854,7 +6854,7 @@ body.theme-contrast .faq-a a {
   margin-bottom: 1rem;
 }
 
-.svc-crumb a {
+.svc-crumb a, .svc-hero .lead a {
   color: #fff;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -9071,7 +9071,9 @@ body.theme-contrast .hero-section .hero-logos a {
 body.theme-contrast .hero-logos-label { color: #fff; }
 
 /* --- Who we work with (reuses .process-step theming) --- */
-.who-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.who-grid { grid-template-columns: 1fr; }
+@media (min-width: 768px) { .who-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1200px) { .who-grid { grid-template-columns: repeat(4, 1fr); } }
 
 .who-card { display: flex; flex-direction: column; }
 
@@ -10203,6 +10205,7 @@ body.theme-contrast .prod-eyebrow::before { background: #000; }
 body.theme-contrast .prod-logo { border: 2px solid #000; box-shadow: none; }
 body.theme-contrast .prod-nav a, body.theme-contrast .svc-crumb a { background: #000; border: 2px solid #fff; color: #fff !important; }
 body.theme-contrast .svc-crumb a { border: 0; text-decoration: underline; }
+body.theme-contrast .svc-hero .lead a { color: #fff !important; text-decoration: underline; }
 
 @media (prefers-reduced-motion: reduce) {
   .prod-card, .prod-card::before, .prod-nav a { transition: none; }
