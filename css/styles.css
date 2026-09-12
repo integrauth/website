@@ -9221,6 +9221,16 @@ body.theme-contrast .cf-status.err { color: #fff !important; }
   pointer-events: none;
 }
 
+.testi-stars {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.15rem;
+  margin-bottom: calc(-1 * var(--space-md));
+  font-size: 0.85rem;
+  line-height: 1;
+  color: #f59e0b;
+}
+
 .testi-quote {
   margin: 0.8rem 0 0;
   font-size: 1.02rem;
@@ -9260,7 +9270,7 @@ body.theme-cyber .testi-card { border-color: rgba(34, 211, 238, 0.3); }
 body.theme-cyber .testi-card::before { color: rgba(34, 211, 238, 0.25); }
 body.theme-contrast .testi-card { background: #fff !important; border: 2px solid #000 !important; box-shadow: none !important; }
 body.theme-contrast .testi-card::before { color: #000 !important; opacity: 0.25; }
-body.theme-contrast .testi-quote, body.theme-contrast .testi-who, body.theme-contrast .testi-who strong { color: #000 !important; }
+body.theme-contrast .testi-quote, body.theme-contrast .testi-who, body.theme-contrast .testi-who strong, body.theme-contrast .testi-stars { color: #000 !important; }
 
 .testi-badges {
   display: flex;
