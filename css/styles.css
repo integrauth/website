@@ -5113,6 +5113,7 @@ body.theme-contrast .acad-fig {
   position: relative;
   z-index: 5;
 }
+.testi-section + .acad-banner-wrap { margin-top: 0; }
 
 .acad-banner {
   display: flex;
