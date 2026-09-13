@@ -159,6 +159,7 @@ Micro-interactions (2026-08-27/28): `initScrollProgress()` (lesson-scoped in the
 ## Development
 
 - CSS: custom properties, BEM-like names; one stylesheet. JS: ES6+, jQuery for DOM. HTML: semantic, Bootstrap 5.
+- Code comments: concise, one line max, only where the why isn't obvious — never restate what the code does. Prefer self-explanatory code (clear names, small focused functions) instead. Split a long function into smaller reusable ones; extract genuinely-reused logic into a shared module rather than duplicating it.
 - No raw control bytes in source (CI fails on them; they make files invisible to grep) — use `\x`/`\u` escapes.
 - Verification: `.claude/skills/verify/SKILL.md` — serve locally + Playwright across 4 themes × 3 viewports, check FA glyphs and no 404s. Both min pages hide below-the-fold content until scrolled (scroll-reveal), and the sandbox blocks the CDNs (the skill explains the local-fallback route).
 
