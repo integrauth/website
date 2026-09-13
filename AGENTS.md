@@ -1,4 +1,4 @@
-# CLAUDE.md - IntegrAuth Website
+# AGENTS.md - IntegrAuth Website
 
 > **Last Updated**: 2026-09-11
 > **Project**: IntegrAuth Official Website — github.com/integrauth/website — akhil@integrauth.com
