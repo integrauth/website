@@ -66,6 +66,12 @@ on:
   pull_request:
   push:
     branches: [main]
+    # Docs-only changes (AGENTS.md/CLAUDE.md, docs/) cannot change the deployed Worker or its
+    # static assets — both are already excluded from the bundle via .assetsignore — so they must
+    # not spend a deploy. Everything else does. Mirrors integrauth/lab's deploy.yml.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   # Lets another workflow (security-txt-renew.yml) ask for a redeploy after it commits a change with
   # the GITHUB_TOKEN — whose own push deliberately does NOT trigger `push:` runs (GitHub's
   # recursive-workflow guard), so without this the renewed asset would never reach the Worker until
