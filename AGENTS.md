@@ -1,5 +1,29 @@
 # AGENTS.md - IntegrAuth Website
 
+## Working across model tiers
+
+If your tooling can route different models or delegate to subagents, split work by capability
+instead of running everything on one model — an orchestrator on the strongest available model
+delegating execution to a cheaper model routinely lands within a few points of running the whole
+task on the top-tier model alone, at well under half the cost:
+
+- **Orchestrator tier** (your strongest available model): plans, breaks work into subtasks,
+  delegates, makes architectural/design calls, does creative work (UI/visual design, diagrams,
+  copy), and makes the final call on whether delegated work is actually done. Writes no
+  implementation code itself — it's the most expensive tier per token, so spend it on judgment,
+  not execution.
+- **Implementation tier** (a strong general-purpose model): writes and edits code, executes the
+  plan, debugs, and reviews its own work against the plan before handing back to the orchestrator.
+- **Scouting tier** (a fast, cheap model): codebase search, gathering context, running tests and
+  parsing output, mechanical fixes, doc/artifact updates — well-specified, high-volume work that
+  doesn't need deep judgment.
+
+Optional, not a requirement: if your tool runs one model per session, apply the same judgment
+inside that single context (spend depth where it matters, keep repetitive steps terse) rather than
+setting up subagents you don't have.
+
+---
+
 > **Last Updated**: 2026-09-11
 > **Project**: IntegrAuth Official Website — github.com/integrauth/website — akhil@integrauth.com
 > Keep this file lean: record decisions and gotchas that would otherwise be re-learned the hard way, not change history. `docs/` holds the long-form records.
